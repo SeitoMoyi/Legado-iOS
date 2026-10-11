@@ -89,14 +89,24 @@ public class BookStore: ObservableObject {
 
         var didChange = false
         for s in defaultSources {
-            if let idx = sources.firstIndex(where: { $0.bookSourceName == s.bookSourceName }) {
-                if sources[idx].bookSourceUrl != s.bookSourceUrl {
-                    var updated = s
-                    updated.loginHeader = sources[idx].loginHeader
-                    updated.loginInfo = sources[idx].loginInfo
-                    sources[idx] = updated
-                    didChange = true
+            // Match existing source by URL, name, or ESJ alias
+            if let idx = sources.firstIndex(where: {
+                $0.bookSourceUrl == s.bookSourceUrl ||
+                $0.bookSourceName == s.bookSourceName ||
+                (s.bookSourceName == "ESJ" && ($0.bookSourceName == "ESJ Zone@zone" || $0.bookSourceName == "ESJ ZONE@zone"))
+            }) {
+                // Update rules and configuration from bundled version while preserving user login state and toggles
+                var updated = s
+                updated.loginHeader = sources[idx].loginHeader
+                updated.loginInfo = sources[idx].loginInfo
+                if let customOrder = sources[idx].customOrder {
+                    updated.customOrder = customOrder
                 }
+                if let enabled = sources[idx].enabled {
+                    updated.enabled = enabled
+                }
+                sources[idx] = updated
+                didChange = true
             } else if !sources.contains(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
                 sources.append(s)
                 didChange = true
@@ -214,14 +224,24 @@ public class BookStore: ObservableObject {
         saveBookshelf()
     }
 
-    public func updateProgress(bookUrl: String, chapterIndex: Int, chapterTitle: String) {
+    public func updateProgress(bookUrl: String, chapterIndex: Int, chapterTitle: String, chapterPos: Int = 0) {
         if let index = bookshelf.firstIndex(where: { $0.bookUrl == bookUrl }) {
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             bookshelf[index].durChapterIndex = chapterIndex
+            bookshelf[index].durChapterPos = chapterPos
             bookshelf[index].durChapterTitle = chapterTitle
             bookshelf[index].durChapterTime = now
             bookshelf[index].lastCheckTime = now
             saveBookshelf()
+
+            // Asynchronously sync progress to WebDAV if configured
+            let updatedBook = bookshelf[index]
+            let config = WebDAVService.shared.loadConfig()
+            if !config.url.isEmpty && !config.username.isEmpty {
+                Task {
+                    try? await WebDAVService.shared.uploadBookProgress(book: updatedBook, config: config)
+                }
+            }
         }
     }
 
@@ -462,6 +482,10 @@ public class BookStore: ObservableObject {
            var list = try? JSONDecoder().decode([BookChapter].self, from: data) {
             var needsRepair = false
             for i in 0..<list.count {
+                if list[i].index != i {
+                    list[i].index = i
+                    needsRepair = true
+                }
                 if list[i].url.contains("%23") {
                     list[i].url = list[i].url.replacingOccurrences(of: "%23", with: "#")
                     needsRepair = true

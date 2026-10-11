@@ -41,7 +41,7 @@ public class BookContentService {
         let chapterElements = analyzer.getElements(tocRule.chapterList)
         var chapters: [BookChapter] = []
 
-        for (index, item) in chapterElements.enumerated() {
+        for (_, item) in chapterElements.enumerated() {
             let itemAnalyzer = RuleAnalyzer(
                 content: item,
                 baseUrl: parsedReq.url.absoluteString,
@@ -58,7 +58,7 @@ public class BookContentService {
                 bookUrl: book.bookUrl,
                 url: url,
                 title: title,
-                index: index
+                index: chapters.count
             )
             chapters.append(chapter)
         }
@@ -274,6 +274,51 @@ public class BookContentService {
     public func clearCache(for bookUrl: String) {
         let dir = chapterCacheDirectory(bookUrl: bookUrl)
         try? FileManager.default.removeItem(at: dir)
+    }
+
+    public func hasCachedChapter(bookUrl: String, chapterIndex: Int) -> Bool {
+        let file = chapterCacheFile(bookUrl: bookUrl, chapterIndex: chapterIndex)
+        return FileManager.default.fileExists(atPath: file.path)
+    }
+
+    private var preDownloadTask: Task<Void, Never>? = nil
+
+    /// 仿照 Android Legado preDownload()：在后台自动预缓存当前章节前后各 10 章
+    public func preDownloadChapters(around currentIndex: Int, chapters: [BookChapter], source: BookSource?, count: Int = 10) {
+        preDownloadTask?.cancel()
+        guard !chapters.isEmpty else { return }
+
+        preDownloadTask = Task.detached(priority: .utility) { [weak self] in
+            guard let self = self else { return }
+
+            // 1. 优先预下载后续章节 (currentIndex + 1 到 currentIndex + count)
+            let maxIndex = min(currentIndex + count, chapters.count - 1)
+            if currentIndex + 1 <= maxIndex {
+                for i in (currentIndex + 1)...maxIndex {
+                    if Task.isCancelled { return }
+                    let ch = chapters[i]
+                    if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
+                        continue
+                    }
+                    _ = try? await self.fetchChapterContent(chapter: ch, source: source)
+                    try? await Task.sleep(nanoseconds: 80_000_000) // 80ms 节奏间隔，避免被防爬虫限流
+                }
+            }
+
+            // 2. 预下载前面的章节 (currentIndex - 1 倒序到 currentIndex - count)
+            let minIndex = max(0, currentIndex - count)
+            if currentIndex - 1 >= minIndex {
+                for i in stride(from: currentIndex - 1, through: minIndex, by: -1) {
+                    if Task.isCancelled { return }
+                    let ch = chapters[i]
+                    if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
+                        continue
+                    }
+                    _ = try? await self.fetchChapterContent(chapter: ch, source: source)
+                    try? await Task.sleep(nanoseconds: 80_000_000)
+                }
+            }
+        }
     }
 
     public func getCacheCount(for bookUrl: String) -> Int {

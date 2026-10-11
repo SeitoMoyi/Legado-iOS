@@ -1,4 +1,5 @@
 import XCTest
+import CoreText
 @testable import LegadoCore
 
 final class LegadoCoreTests: XCTestCase {
@@ -512,6 +513,122 @@ final class LegadoCoreTests: XCTestCase {
         XCTAssertEqual(restoreResult.sources?.first?.bookSourceName, "测试书源")
     }
 
+    func testWebDAVConfigFileNameAndBackwardsCompatibility() throws {
+        // 1. Filename formatting
+        let testDate = Date(timeIntervalSince1970: 1760200000) // 2025-10-11
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = formatter.string(from: testDate)
+
+        let nameWithDevice = WebDAVConfig.generateBackupFileName(date: testDate, deviceName: "iPhone 16 Pro")
+        XCTAssertEqual(nameWithDevice, "backup\(dateStr)-iPhone 16 Pro.zip")
+
+        let nameSanitized = WebDAVConfig.generateBackupFileName(date: testDate, deviceName: "Phone/Model:Test")
+        XCTAssertEqual(nameSanitized, "backup\(dateStr)-Phone-Model-Test.zip")
+
+        let nameNoDevice = WebDAVConfig.generateBackupFileName(date: testDate, deviceName: nil)
+        XCTAssertEqual(nameNoDevice, "backup\(dateStr).zip")
+
+        // 2. Legacy config JSON decoding without deviceName
+        let legacyJson = """
+        {
+            "url": "https://dav.jianguoyun.com/dav/",
+            "username": "user@example.com",
+            "password": "secretpassword",
+            "remotePath": "legado"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(WebDAVConfig.self, from: legacyJson)
+        XCTAssertEqual(decoded.username, "user@example.com")
+        XCTAssertEqual(decoded.remotePath, "legado")
+        XCTAssertFalse(decoded.deviceName.isEmpty)
+    }
+
+    func testCreateAndRestoreBackupZip() throws {
+        var testBook = Book(bookUrl: "https://novel.test/1", name: "异世界冒险记", author: "测试作家")
+        testBook.durChapterIndex = 42
+        testBook.durChapterPos = 135
+        testBook.durChapterTitle = "第43话 关键剧情"
+        let testBooks = [testBook]
+
+        let testSource = BookSource(bookSourceUrl: "https://novel.test", bookSourceName: "测试小说源")
+        let testSources = [testSource]
+
+        let (zipData, fileName) = try WebDAVService.shared.createBackupZip(
+            books: testBooks,
+            sources: testSources,
+            deviceName: "iPhone",
+            date: Date()
+        )
+
+        XCTAssertTrue(fileName.hasPrefix("backup"))
+        XCTAssertTrue(fileName.hasSuffix("-iPhone.zip"))
+        XCTAssertGreaterThan(zipData.count, 0)
+
+        // Test restoring from this newly created zip
+        let restored = try WebDAVService.shared.restoreFromZip(data: zipData)
+        XCTAssertEqual(restored.books?.count, 1)
+        XCTAssertEqual(restored.books?.first?.name, "异世界冒险记")
+        XCTAssertEqual(restored.books?.first?.durChapterIndex, 42)
+        XCTAssertEqual(restored.books?.first?.durChapterPos, 135)
+        XCTAssertEqual(restored.books?.first?.durChapterTitle, "第43话 关键剧情")
+        XCTAssertEqual(restored.sources?.count, 1)
+        XCTAssertEqual(restored.sources?.first?.bookSourceName, "测试小说源")
+    }
+
+    func testWebDAVPropfindXmlParsing() throws {
+        let sampleXml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <d:multistatus xmlns:d="DAV:">
+            <d:response>
+                <d:href>/dav/legado/</d:href>
+                <d:propstat>
+                    <d:prop>
+                        <d:resourcetype><d:collection/></d:resourcetype>
+                    </d:prop>
+                </d:propstat>
+            </d:response>
+            <d:response>
+                <d:href>/dav/legado/backup2026-09-29-25060RK16C.zip</d:href>
+                <d:propstat>
+                    <d:prop>
+                        <d:getcontentlength>123456</d:getcontentlength>
+                        <d:getlastmodified>Tue, 29 Sep 2026 12:00:00 GMT</d:getlastmodified>
+                    </d:prop>
+                </d:propstat>
+            </d:response>
+            <d:response>
+                <d:href>/dav/legado/backup2026-10-11-iPhone.zip</d:href>
+                <d:propstat>
+                    <d:prop>
+                        <d:getcontentlength>234567</d:getcontentlength>
+                        <d:getlastmodified>Sun, 11 Oct 2026 15:30:00 GMT</d:getlastmodified>
+                    </d:prop>
+                </d:propstat>
+            </d:response>
+            <d:response>
+                <d:href>/dav/legado/bookshelf.json</d:href>
+                <d:propstat>
+                    <d:prop>
+                        <d:getcontentlength>54321</d:getcontentlength>
+                    </d:prop>
+                </d:propstat>
+            </d:response>
+        </d:multistatus>
+        """
+
+        let baseUrl = URL(string: "https://dav.jianguoyun.com/dav/legado/")!
+        let backups = WebDAVService.shared.parseBackupsFromPropfindXML(sampleXml, baseURL: baseUrl)
+
+        XCTAssertEqual(backups.count, 2)
+        // Descending order: 2026-10-11 should be first, 2026-09-29 second
+        XCTAssertEqual(backups[0].fileName, "backup2026-10-11-iPhone.zip")
+        XCTAssertEqual(backups[0].size, 234567)
+        XCTAssertEqual(backups[1].fileName, "backup2026-09-29-25060RK16C.zip")
+        XCTAssertEqual(backups[1].size, 123456)
+    }
+
     func testExploreCategoriesParsing() throws {
         let altUrl = URL(fileURLWithPath: "Sources/LegadoApp/Resources/bookSources.json")
         let data = try Data(contentsOf: altUrl)
@@ -621,6 +738,81 @@ final class LegadoCoreTests: XCTestCase {
         BookContentService.shared.clearCache(for: testBookUrl)
         XCTAssertNil(BookContentService.shared.getCachedChapterContent(bookUrl: testBookUrl, chapterIndex: chIndex))
         XCTAssertEqual(BookContentService.shared.getCacheCount(for: testBookUrl), 0)
+    }
+
+    func testCoreTextTypographyPagination() throws {
+        #if canImport(CoreText)
+        let sampleText = "　　我睁开眼睛，陌生的天花板映入眼帘。不对，这能称之为天花板吗？等间隔竖立的柱子上绑着绳子，绳子上盖着布，用来代替屋顶。与其说是天花板，不如说是帐篷比较正确。「！好痛……！」我正想坐起身，剧烈的头痛让我忍不住呻吟。"
+
+        let font = CTFontCreateWithName("PingFangSC-Regular" as CFString, 18.0, nil)
+        let attrString = CFAttributedStringCreate(nil, sampleText as CFString, [kCTFontAttributeName: font] as CFDictionary)!
+        let typesetter = CTTypesetterCreateWithAttributedString(attrString)
+
+        var start = 0
+        let textLen = CFStringGetLength(sampleText as CFString)
+        let usableWidth: Double = 340.0
+        var lines: [String] = []
+
+        while start < textLen {
+            let count = CTTypesetterSuggestLineBreak(typesetter, start, usableWidth)
+            let line = CTTypesetterCreateLine(typesetter, CFRange(location: start, length: count))
+            let isLastLine = (start + count >= textLen)
+            let finalLine = isLastLine ? line : (CTLineCreateJustifiedLine(line, 1.0, usableWidth) ?? line)
+            let lineRange = CTLineGetStringRange(finalLine)
+            let nsStr = sampleText as NSString
+            let sub = nsStr.substring(with: NSRange(location: lineRange.location, length: lineRange.length))
+            lines.append(sub)
+            start += count
+        }
+
+        XCTAssertGreaterThan(lines.count, 2)
+        print("Generated \(lines.count) lines:")
+        for (idx, l) in lines.enumerated() {
+            print("Line \(idx): \(l)")
+        }
+        #endif
+    }
+
+    func testBookWithVolumeDividersChapterContiguity() async throws {
+        let currentFileUrl = URL(fileURLWithPath: #file)
+        let rootDir = currentFileUrl
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let assetFile = rootDir.appendingPathComponent("Sources/LegadoApp/Resources/bookSources.json")
+        guard FileManager.default.fileExists(atPath: assetFile.path) else { return }
+
+        let data = try Data(contentsOf: assetFile)
+        let sources = try JSONDecoder().decode([BookSource].self, from: data)
+        guard let jifanSource = sources.first(where: { $0.bookSourceName == "机翻机器人" }) else { return }
+
+        // Test book: "只是抱着胳膊在后方看戏的转生者，不小心给勇者鼓了个掌，结果被当成了幕后黑手。"
+        // URL: https://n.novelia.cc/api/novel/kakuyomu/16818093077104932645
+        // This novel contains volume divisions (序章, 第一章, 英雄指定启动篇, etc.) without chapterId.
+        let testBook = Book(
+            bookUrl: "https://n.novelia.cc/api/novel/kakuyomu/16818093077104932645",
+            name: "只是抱着胳膊在后方看戏的转生者，不小心给勇者鼓了个掌，结果被当成了幕后黑手。",
+            author: "森空亭",
+            origin: jifanSource.bookSourceUrl,
+            originName: jifanSource.bookSourceName
+        )
+
+        let (detailedBook, chapters) = try await BookContentService.shared.fetchBookDetail(book: testBook, source: jifanSource)
+
+        print("[Test] Fetched '\(detailedBook.name)', total readable chapters: \(chapters.count)")
+        XCTAssertGreaterThan(chapters.count, 0)
+        XCTAssertEqual(chapters.count, detailedBook.totalChapterNum)
+
+        // Verify that EVERY chapter index matches its array position exactly (0, 1, 2, ..., count-1)
+        for (idx, ch) in chapters.enumerated() {
+            XCTAssertEqual(ch.index, idx, "Chapter '\(ch.title)' index \(ch.index) must strictly equal array index \(idx)")
+        }
+
+        // Verify first and last chapters
+        XCTAssertTrue(chapters[0].title.contains("第1话"))
+        XCTAssertEqual(chapters[0].index, 0)
+        XCTAssertTrue(chapters.last!.title.contains("第27话"))
+        XCTAssertEqual(chapters.last!.index, chapters.count - 1)
     }
 }
 

@@ -1,25 +1,86 @@
 import Foundation
 import ZIPFoundation
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 public struct WebDAVConfig: Codable, Equatable {
     public var url: String
     public var username: String
     public var password: String
     public var remotePath: String
+    public var deviceName: String
     public var lastSyncTime: Date?
+
+    public static var defaultDeviceName: String {
+        #if canImport(UIKit)
+        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        return "iOS"
+        #elseif os(macOS)
+        if let name = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        return "Mac"
+        #else
+        return "Device"
+        #endif
+    }
+
+    public static func generateBackupFileName(date: Date = Date(), deviceName: String?) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = formatter.string(from: date)
+
+        let rawDevice = (deviceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanDevice = rawDevice
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\\", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "?", with: "")
+            .replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "<", with: "")
+            .replacingOccurrences(of: ">", with: "")
+            .replacingOccurrences(of: "|", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-_ "))
+
+        if !cleanDevice.isEmpty {
+            return "backup\(dateStr)-\(cleanDevice).zip"
+        } else {
+            return "backup\(dateStr).zip"
+        }
+    }
 
     public init(
         url: String = "https://dav.jianguoyun.com/dav/",
         username: String = "",
         password: String = "",
         remotePath: String = "legado",
+        deviceName: String = WebDAVConfig.defaultDeviceName,
         lastSyncTime: Date? = nil
     ) {
         self.url = url
         self.username = username
         self.password = password
         self.remotePath = remotePath
+        self.deviceName = deviceName.isEmpty ? Self.defaultDeviceName : deviceName
         self.lastSyncTime = lastSyncTime
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case url, username, password, remotePath, deviceName, lastSyncTime
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? "https://dav.jianguoyun.com/dav/"
+        self.username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
+        self.password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        self.remotePath = try container.decodeIfPresent(String.self, forKey: .remotePath) ?? "legado"
+        self.deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName) ?? Self.defaultDeviceName
+        self.lastSyncTime = try container.decodeIfPresent(Date.self, forKey: .lastSyncTime)
     }
 
     /// Computes the base URL for syncing (ensures trailing slash and appends remotePath)
@@ -55,6 +116,21 @@ public struct WebDAVConfig: Codable, Equatable {
         let credentials = "\(username):\(password)"
         let encoded = credentials.data(using: .utf8)?.base64EncodedString() ?? ""
         return "Basic \(encoded)"
+    }
+}
+
+public struct RemoteBackupInfo: Identifiable, Equatable {
+    public var id: String { fileName }
+    public var fileName: String
+    public var url: URL
+    public var lastModified: Date?
+    public var size: Int64?
+
+    public init(fileName: String, url: URL, lastModified: Date? = nil, size: Int64? = nil) {
+        self.fileName = fileName
+        self.url = url
+        self.lastModified = lastModified
+        self.size = size
     }
 }
 
@@ -167,9 +243,14 @@ public class WebDAVService {
     }
 
     /// Creates the directory via MKCOL if it doesn't exist
+    /// Creates the directory via MKCOL if it doesn't exist
     public func createDirectoryIfNeeded(config: WebDAVConfig) async throws {
         guard let dirUrl = config.directoryURL else { throw WebDAVError.invalidURL }
-        let req = makeRequest(url: dirUrl, method: "MKCOL", config: config)
+        try await createDirectoryIfNeeded(url: dirUrl, config: config)
+    }
+
+    public func createDirectoryIfNeeded(url: URL, config: WebDAVConfig) async throws {
+        let req = makeRequest(url: url, method: "MKCOL", config: config)
         let (_, response) = try await session.data(for: req)
         if let httpResponse = response as? HTTPURLResponse {
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
@@ -179,8 +260,76 @@ public class WebDAVService {
         }
     }
 
-    /// Backs up bookshelf and sources to WebDAV server
-    public func backup(books: [Book], sources: [BookSource], config: WebDAVConfig) async throws -> (booksCount: Int, sourcesCount: Int) {
+    public func sanitizeFileName(_ name: String) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: "\\/:*?\"<>|")
+        return name.components(separatedBy: invalidCharacters).joined(separator: "_")
+    }
+
+    /// Uploads reading progress for a single book to WebDAV (e.g. legado/bookProgress/name_author.json)
+    public func uploadBookProgress(book: Book, config: WebDAVConfig) async throws {
+        guard let dirUrl = config.directoryURL else { return }
+        let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
+        try? await createDirectoryIfNeeded(url: progressDirUrl, config: config)
+
+        let prog = BookProgress(
+            name: book.name,
+            author: book.author,
+            durChapterIndex: book.durChapterIndex,
+            durChapterPos: book.durChapterPos,
+            durChapterTime: book.durChapterTime > 0 ? book.durChapterTime : Int64(Date().timeIntervalSince1970 * 1000),
+            durChapterTitle: book.durChapterTitle
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted]
+        let progData = try encoder.encode(prog)
+        let cleanFileName = sanitizeFileName("\(book.name)_\(book.author).json")
+        let progFileUrl = progressDirUrl.appendingPathComponent(cleanFileName)
+        let progReq = makeRequest(url: progFileUrl, method: "PUT", config: config, body: progData, contentType: "application/json; charset=utf-8")
+        let (_, response) = try await session.data(for: progReq)
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+            throw WebDAVError.unauthorized
+        }
+    }
+
+    /// Creates an Android-compatible backup ZIP archive containing bookshelf.json and bookSource.json
+    public func createBackupZip(
+        books: [Book],
+        sources: [BookSource],
+        deviceName: String = WebDAVConfig.defaultDeviceName,
+        date: Date = Date()
+    ) throws -> (data: Data, fileName: String) {
+        let fileName = WebDAVConfig.generateBackupFileName(date: date, deviceName: deviceName)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted]
+
+        let booksData = try encoder.encode(books)
+        let sourcesData = try encoder.encode(sources)
+
+        let booksFile = tempDir.appendingPathComponent("bookshelf.json")
+        let sourcesFile = tempDir.appendingPathComponent("bookSource.json")
+
+        try booksData.write(to: booksFile)
+        try sourcesData.write(to: sourcesFile)
+
+        let zipFile = tempDir.appendingPathComponent(fileName)
+        try {
+            let archive = try Archive(url: zipFile, accessMode: .create)
+            try archive.addEntry(with: "bookshelf.json", relativeTo: tempDir, compressionMethod: .deflate)
+            try archive.addEntry(with: "bookSource.json", relativeTo: tempDir, compressionMethod: .deflate)
+        }()
+
+        let zipData = try Data(contentsOf: zipFile)
+        return (zipData, fileName)
+    }
+
+    /// Backs up bookshelf and sources to WebDAV server in Android Legado format (backupYYYY-MM-DD-deviceName.zip)
+    public func backup(books: [Book], sources: [BookSource], config: WebDAVConfig) async throws -> (booksCount: Int, sourcesCount: Int, backupFileName: String) {
         guard let dirUrl = config.directoryURL else {
             throw WebDAVError.invalidURL
         }
@@ -191,111 +340,270 @@ public class WebDAVService {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
 
-        // 1. Upload bookshelf.json
+        // 1. Create and upload Android Legado compatible ZIP archive: backupYYYY-MM-DD-deviceName.zip
+        let (zipData, zipFileName) = try createBackupZip(books: books, sources: sources, deviceName: config.deviceName)
+        let zipUrl = dirUrl.appendingPathComponent(zipFileName)
+        let zipReq = makeRequest(url: zipUrl, method: "PUT", config: config, body: zipData, contentType: "application/zip")
+        let (_, zipResponse) = try await session.data(for: zipReq)
+        guard let httpZip = zipResponse as? HTTPURLResponse else {
+            throw WebDAVError.custom("上传备份压缩包无响应")
+        }
+        if httpZip.statusCode == 401 || httpZip.statusCode == 403 {
+            throw WebDAVError.unauthorized
+        }
+        guard (200...299).contains(httpZip.statusCode) else {
+            throw WebDAVError.serverError(httpZip.statusCode, "上传备份文件失败")
+        }
+
+        // 2. Also upload standalone bookshelf.json & bookSource.json for convenience and backwards compatibility
         let booksData = try encoder.encode(books)
         let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
         let booksReq = makeRequest(url: booksUrl, method: "PUT", config: config, body: booksData, contentType: "application/json; charset=utf-8")
-        let (_, booksResponse) = try await session.data(for: booksReq)
-        guard let httpBooks = booksResponse as? HTTPURLResponse else {
-            throw WebDAVError.custom("上传书架数据无响应")
-        }
-        if httpBooks.statusCode == 401 || httpBooks.statusCode == 403 {
-            throw WebDAVError.unauthorized
-        }
-        guard (200...299).contains(httpBooks.statusCode) else {
-            throw WebDAVError.serverError(httpBooks.statusCode, "上传书架失败")
-        }
+        _ = try? await session.data(for: booksReq)
 
-        // 2. Upload bookSource.json
         let sourcesData = try encoder.encode(sources)
         let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
         let sourcesReq = makeRequest(url: sourcesUrl, method: "PUT", config: config, body: sourcesData, contentType: "application/json; charset=utf-8")
-        let (_, sourcesResponse) = try await session.data(for: sourcesReq)
-        guard let httpSources = sourcesResponse as? HTTPURLResponse else {
-            throw WebDAVError.custom("上传书源数据无响应")
-        }
-        if httpSources.statusCode == 401 || httpSources.statusCode == 403 {
-            throw WebDAVError.unauthorized
-        }
-        guard (200...299).contains(httpSources.statusCode) else {
-            throw WebDAVError.serverError(httpSources.statusCode, "上传书源失败")
-        }
+        _ = try? await session.data(for: sourcesReq)
+
+        // Note: We do NOT perform 40+ sequential blocking HTTP PUT requests to bookProgress/ here!
+        // All books' durChapterIndex & durChapterPos are already completely preserved inside bookshelf.json in the zip archive.
+        // Individual bookProgress/ files are automatically synced on demand when reading.
 
         // Update last sync time
         var updatedConfig = config
         updatedConfig.lastSyncTime = Date()
         saveConfig(updatedConfig)
 
-        return (books.count, sources.count)
+        return (books.count, sources.count, zipFileName)
     }
 
-    /// Restores bookshelf and sources from WebDAV server (supports both direct JSON files and Android backup*.zip)
-    public func restore(config: WebDAVConfig) async throws -> (books: [Book]?, sources: [BookSource]?) {
+    /// Lists all backup*.zip archives in the WebDAV directory, sorted descending (latest first)
+    public func listRemoteBackups(config: WebDAVConfig) async throws -> [RemoteBackupInfo] {
+        guard let dirUrl = config.directoryURL else {
+            throw WebDAVError.invalidURL
+        }
+
+        var propReq = makeRequest(url: dirUrl, method: "PROPFIND", config: config)
+        propReq.setValue("1", forHTTPHeaderField: "Depth")
+        let (data, response) = try await session.data(for: propReq)
+        guard let http = response as? HTTPURLResponse else {
+            throw WebDAVError.custom("无法连接到 WebDAV 服务器")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw WebDAVError.unauthorized
+        }
+        guard (200...299).contains(http.statusCode) || http.statusCode == 207 else {
+            return []
+        }
+
+        guard let xml = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        return parseBackupsFromPropfindXML(xml, baseURL: dirUrl)
+    }
+
+    public func parseBackupsFromPropfindXML(_ xml: String, baseURL: URL) -> [RemoteBackupInfo] {
+        var results: [RemoteBackupInfo] = []
+
+        let responsePattern = #"(?is)<(?:[a-zA-Z0-9_-]+:)?response\b[^>]*>(.*?)</(?:[a-zA-Z0-9_-]+:)?response>"#
+        guard let responseRegex = try? NSRegularExpression(pattern: responsePattern) else {
+            return []
+        }
+
+        let range = NSRange(xml.startIndex..<xml.endIndex, in: xml)
+        let matches = responseRegex.matches(in: xml, options: [], range: range)
+
+        let hrefPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?href\b[^>]*>([^<]+)</(?:[a-zA-Z0-9_-]+:)?href>"#
+        let hrefRegex = try? NSRegularExpression(pattern: hrefPattern)
+
+        let lengthPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?getcontentlength\b[^>]*>([0-9]+)</(?:[a-zA-Z0-9_-]+:)?getcontentlength>"#
+        let lengthRegex = try? NSRegularExpression(pattern: lengthPattern)
+
+        let modPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?getlastmodified\b[^>]*>([^<]+)</(?:[a-zA-Z0-9_-]+:)?getlastmodified>"#
+        let modRegex = try? NSRegularExpression(pattern: modPattern)
+
+        let rfc822Formatter = DateFormatter()
+        rfc822Formatter.locale = Locale(identifier: "en_US_POSIX")
+        rfc822Formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+
+        for match in matches {
+            guard let responseRange = Range(match.range(at: 1), in: xml) else { continue }
+            let responseChunk = String(xml[responseRange])
+
+            guard let hrefMatch = hrefRegex?.firstMatch(in: responseChunk, range: NSRange(responseChunk.startIndex..<responseChunk.endIndex, in: responseChunk)),
+                  let hrefR = Range(hrefMatch.range(at: 1), in: responseChunk) else { continue }
+            let rawHref = String(responseChunk[hrefR]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let decodedHref = rawHref.removingPercentEncoding ?? rawHref
+            let fileName = URL(fileURLWithPath: decodedHref).lastPathComponent
+
+            guard fileName.lowercased().hasPrefix("backup") && fileName.lowercased().hasSuffix(".zip") else {
+                continue
+            }
+
+            guard let fullUrl = URL(string: rawHref, relativeTo: baseURL)?.absoluteURL else {
+                continue
+            }
+
+            var size: Int64? = nil
+            if let lenMatch = lengthRegex?.firstMatch(in: responseChunk, range: NSRange(responseChunk.startIndex..<responseChunk.endIndex, in: responseChunk)),
+               let lenR = Range(lenMatch.range(at: 1), in: responseChunk) {
+                size = Int64(String(responseChunk[lenR]))
+            }
+
+            var lastModified: Date? = nil
+            if let modMatch = modRegex?.firstMatch(in: responseChunk, range: NSRange(responseChunk.startIndex..<responseChunk.endIndex, in: responseChunk)),
+               let modR = Range(modMatch.range(at: 1), in: responseChunk) {
+                let modStr = String(responseChunk[modR]).trimmingCharacters(in: .whitespacesAndNewlines)
+                lastModified = rfc822Formatter.date(from: modStr)
+            }
+
+            results.append(RemoteBackupInfo(
+                fileName: fileName,
+                url: fullUrl,
+                lastModified: lastModified,
+                size: size
+            ))
+        }
+
+        return results.sorted { a, b in
+            if let d1 = a.lastModified, let d2 = b.lastModified, abs(d1.timeIntervalSince(d2)) > 1.0 {
+                return d1 > d2
+            }
+            return a.fileName > b.fileName
+        }
+    }
+
+    /// Restores bookshelf and sources from WebDAV server (supports both Android backup*.zip and direct JSON files)
+    public func restore(config: WebDAVConfig, backupFileName: String? = nil) async throws -> (books: [Book]?, sources: [BookSource]?, backupName: String?) {
         guard let dirUrl = config.directoryURL else {
             throw WebDAVError.invalidURL
         }
 
         var restoredBooks: [Book]? = nil
         var restoredSources: [BookSource]? = nil
+        var usedBackupName: String? = nil
 
-        // 1. Try downloading bookshelf.json
-        let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
-        let booksReq = makeRequest(url: booksUrl, method: "GET", config: config)
-        let (booksData, booksResponse) = try await session.data(for: booksReq)
-        if let httpBooks = booksResponse as? HTTPURLResponse {
-            if httpBooks.statusCode == 401 || httpBooks.statusCode == 403 {
-                throw WebDAVError.unauthorized
+        // 1. Try finding and downloading Android-compatible backup*.zip files first
+        if let remoteBackups = try? await listRemoteBackups(config: config), !remoteBackups.isEmpty {
+            let targetBackup: RemoteBackupInfo
+            if let specificName = backupFileName, let found = remoteBackups.first(where: { $0.fileName == specificName }) {
+                targetBackup = found
+            } else {
+                targetBackup = remoteBackups[0]
             }
-            if (200...299).contains(httpBooks.statusCode) {
-                if let decodedBooks = try? JSONDecoder().decode([Book].self, from: booksData) {
-                    restoredBooks = decodedBooks
+
+            let zipReq = makeRequest(url: targetBackup.url, method: "GET", config: config)
+            if let (zipData, zipResp) = try? await session.data(for: zipReq),
+               let httpZip = zipResp as? HTTPURLResponse, (200...299).contains(httpZip.statusCode) {
+                let zipResult = try? restoreFromZip(data: zipData)
+                restoredBooks = zipResult?.books
+                restoredSources = zipResult?.sources
+                usedBackupName = targetBackup.fileName
+            }
+        }
+
+        // 2. If no zip was restored, try loose bookshelf.json and bookSource.json
+        if restoredBooks == nil {
+            let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
+            let booksReq = makeRequest(url: booksUrl, method: "GET", config: config)
+            if let (booksData, booksResponse) = try? await session.data(for: booksReq),
+               let httpBooks = booksResponse as? HTTPURLResponse {
+                if httpBooks.statusCode == 401 || httpBooks.statusCode == 403 {
+                    throw WebDAVError.unauthorized
+                }
+                if (200...299).contains(httpBooks.statusCode) {
+                    if let decodedBooks = try? JSONDecoder().decode([Book].self, from: booksData) {
+                        restoredBooks = decodedBooks
+                        if usedBackupName == nil { usedBackupName = "bookshelf.json" }
+                    }
                 }
             }
         }
 
-        // 2. Try downloading bookSource.json
-        let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
-        let sourcesReq = makeRequest(url: sourcesUrl, method: "GET", config: config)
-        let (sourcesData, sourcesResponse) = try await session.data(for: sourcesReq)
-        if let httpSources = sourcesResponse as? HTTPURLResponse {
-            if httpSources.statusCode == 401 || httpSources.statusCode == 403 {
-                throw WebDAVError.unauthorized
-            }
-            if (200...299).contains(httpSources.statusCode) {
-                if let decodedSources = try? JSONDecoder().decode([BookSource].self, from: sourcesData) {
-                    restoredSources = decodedSources
+        if restoredSources == nil {
+            let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
+            let sourcesReq = makeRequest(url: sourcesUrl, method: "GET", config: config)
+            if let (sourcesData, sourcesResponse) = try? await session.data(for: sourcesReq),
+               let httpSources = sourcesResponse as? HTTPURLResponse {
+                if httpSources.statusCode == 401 || httpSources.statusCode == 403 {
+                    throw WebDAVError.unauthorized
+                }
+                if (200...299).contains(httpSources.statusCode) {
+                    if let decodedSources = try? JSONDecoder().decode([BookSource].self, from: sourcesData) {
+                        restoredSources = decodedSources
+                    }
                 }
             }
         }
 
-        // 3. Fallback: Check for Android backup*.zip files on remote WebDAV if no JSON found
-        if restoredBooks == nil && restoredSources == nil {
-            var propReq = makeRequest(url: dirUrl, method: "PROPFIND", config: config)
+        // 3. Sync any latest progress from remote bookProgress/ folder using single PROPFIND + concurrent batch fetch
+        if var books = restoredBooks {
+            let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
+            var propReq = makeRequest(url: progressDirUrl, method: "PROPFIND", config: config)
             propReq.setValue("1", forHTTPHeaderField: "Depth")
             if let (propData, propResp) = try? await session.data(for: propReq),
-               let httpProp = propResp as? HTTPURLResponse, (200...299).contains(httpProp.statusCode),
+               let httpProp = propResp as? HTTPURLResponse, (200...299).contains(httpProp.statusCode) || httpProp.statusCode == 207,
                let propXml = String(data: propData, encoding: .utf8) {
-                // Find all backup*.zip occurrences in href
-                let pattern = #"href>([^<]+backup[^<]*\.zip)<"#
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+
+                let hrefPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?href\b[^>]*>([^<]+\.json)</(?:[a-zA-Z0-9_-]+:)?href>"#
+                if let regex = try? NSRegularExpression(pattern: hrefPattern) {
                     let range = NSRange(propXml.startIndex..<propXml.endIndex, in: propXml)
                     let matches = regex.matches(in: propXml, options: [], range: range)
-                    var zipUrls: [URL] = []
+                    var remoteFiles: [String: URL] = [:]
                     for match in matches {
                         if let r = Range(match.range(at: 1), in: propXml) {
-                            let rawPath = String(propXml[r])
-                            if let fullUrl = URL(string: rawPath, relativeTo: dirUrl)?.absoluteURL {
-                                zipUrls.append(fullUrl)
+                            let rawPath = String(propXml[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            let decoded = rawPath.removingPercentEncoding ?? rawPath
+                            let fn = URL(fileURLWithPath: decoded).lastPathComponent
+                            if let full = URL(string: rawPath, relativeTo: progressDirUrl)?.absoluteURL {
+                                remoteFiles[fn] = full
                             }
                         }
                     }
-                    if let latestZipUrl = zipUrls.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).first {
-                        let zipReq = makeRequest(url: latestZipUrl, method: "GET", config: config)
-                        if let (zipData, zipResp) = try? await session.data(for: zipReq),
-                           let httpZip = zipResp as? HTTPURLResponse, (200...299).contains(httpZip.statusCode) {
-                            let zipResult = try? restoreFromZip(data: zipData)
-                            restoredBooks = zipResult?.books
-                            restoredSources = zipResult?.sources
+
+                    if !remoteFiles.isEmpty {
+                        var tasks: [(index: Int, url: URL)] = []
+                        for i in 0..<books.count {
+                            let expectedName = sanitizeFileName("\(books[i].name)_\(books[i].author).json")
+                            if let fUrl = remoteFiles[expectedName] {
+                                tasks.append((i, fUrl))
+                            }
+                        }
+
+                        if !tasks.isEmpty {
+                            await withTaskGroup(of: (Int, BookProgress?).self) { group in
+                                for item in tasks {
+                                    group.addTask {
+                                        let pReq = self.makeRequest(url: item.url, method: "GET", config: config)
+                                        if let (pData, pResp) = try? await self.session.data(for: pReq),
+                                           let httpP = pResp as? HTTPURLResponse, (200...299).contains(httpP.statusCode),
+                                           let prog = try? JSONDecoder().decode(BookProgress.self, from: pData) {
+                                            return (item.index, prog)
+                                        }
+                                        return (item.index, nil)
+                                    }
+                                }
+
+                                for await (idx, progOpt) in group {
+                                    if let prog = progOpt, idx < books.count {
+                                        if prog.durChapterIndex > books[idx].durChapterIndex ||
+                                            (prog.durChapterIndex == books[idx].durChapterIndex && prog.durChapterPos >= books[idx].durChapterPos) {
+                                            books[idx].durChapterIndex = prog.durChapterIndex
+                                            books[idx].durChapterPos = prog.durChapterPos
+                                            if let title = prog.durChapterTitle, !title.isEmpty {
+                                                books[idx].durChapterTitle = title
+                                            }
+                                            if let time = prog.durChapterTime {
+                                                books[idx].durChapterTime = time
+                                                books[idx].lastCheckTime = time
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            restoredBooks = books
                         }
                     }
                 }
@@ -311,7 +619,7 @@ public class WebDAVService {
         updatedConfig.lastSyncTime = Date()
         saveConfig(updatedConfig)
 
-        return (restoredBooks, restoredSources)
+        return (restoredBooks, restoredSources, usedBackupName)
     }
 
     // MARK: - Zip Archive Restoration (Android Legado Compatible)

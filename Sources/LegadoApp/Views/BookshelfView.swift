@@ -24,7 +24,8 @@ public struct BookshelfView: View {
     }
 
     public var body: some View {
-        NavigationView {
+        ZStack {
+            NavigationView {
             Group {
                 if bookStore.bookshelf.isEmpty {
                     emptyShelfView
@@ -130,11 +131,17 @@ public struct BookshelfView: View {
             .fullScreenCover(item: $selectedBook) { book in
                 readerCoverView(for: book)
             }
-            #else
-            .sheet(item: $selectedBook) { book in
-                readerCoverView(for: book)
-            }
             #endif
+        }
+        #if !os(iOS)
+        if let book = selectedBook {
+            readerCoverView(for: book)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+                .transition(.opacity)
+                .zIndex(999)
+        }
+        #endif
         }
     }
 
@@ -142,7 +149,9 @@ public struct BookshelfView: View {
     private func readerCoverView(for book: Book) -> some View {
         let source = bookStore.findSource(for: book)
         NavigationView {
-            ReaderView(book: book, source: source)
+            ReaderView(book: book, source: source, onDismiss: {
+                selectedBook = nil
+            })
         }
     }
 

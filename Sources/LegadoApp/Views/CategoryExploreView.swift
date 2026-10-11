@@ -376,7 +376,10 @@ public struct CategoryExploreView: View {
         let cats = BookExploreService.shared.parseExploreCategories(source: source)
         self.categories = cats
 
-        if let firstActionable = cats.first(where: { !$0.isHeader && $0.url != nil && !$0.url!.isEmpty }) {
+        // Prefer selecting "全部" as initial category so public books load immediately; presets like 阅读历史 remain available in the top bar
+        if let allCategory = cats.first(where: { $0.title == "全部" && $0.url != nil && !$0.url!.isEmpty }) {
+            selectCategory(allCategory)
+        } else if let firstActionable = cats.first(where: { !$0.isHeader && $0.url != nil && !$0.url!.isEmpty }) {
             selectCategory(firstActionable)
         } else {
             selectedCategory = nil
@@ -408,7 +411,11 @@ public struct CategoryExploreView: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = error.localizedDescription
+                    if error.localizedDescription.contains("403") {
+                        self.errorMessage = "请先在书源管理中登录该书源账号以同步查看「\(category.title)」"
+                    } else {
+                        self.errorMessage = error.localizedDescription
+                    }
                     self.isLoading = false
                 }
             }

@@ -18,7 +18,7 @@ public struct BookDetailView: View {
     @State private var isLoadingDetails: Bool = false
     @State private var errorMessage: String? = nil
 
-    @State private var showTOCSheet: Bool = false
+    @State private var navigateToTOC: Bool = false
     @State private var isIntroExpanded: Bool = false
     @State private var isReading: Bool = false
     @State private var selectedChapterIndex: Int = 0
@@ -75,89 +75,102 @@ public struct BookDetailView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Header: Cover + Title + Author + Badges
-                    headerCard
-                        .padding(.horizontal)
-                        .padding(.top, 12)
-
-                    // Tags flow
-                    if !tags.isEmpty {
-                        tagsSection
+        ZStack {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Header: Cover + Title + Author + Badges
+                        headerCard
                             .padding(.horizontal)
+                            .padding(.top, 12)
+
+                        // Tags flow
+                        if !tags.isEmpty {
+                            tagsSection
+                                .padding(.horizontal)
+                        }
+
+                        // Directory / TOC preview card
+                        tocPreviewCard
+                            .padding(.horizontal)
+
+                        // Intro section (Real story synopsis)
+                        introSection
+                            .padding(.horizontal)
+
+                        Spacer(minLength: 24)
                     }
-
-                    // Directory / TOC preview card
-                    tocPreviewCard
-                        .padding(.horizontal)
-
-                    // Intro section (Real story synopsis)
-                    introSection
-                        .padding(.horizontal)
-
-                    Spacer(minLength: 24)
                 }
+
+                // Fixed Bottom Action Bar (Add to shelf + Read Now)
+                bottomActionBar
             }
-
-            // Fixed Bottom Action Bar (Add to shelf + Read Now)
-            bottomActionBar
-        }
-        .navigationTitle("书籍详情")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button(role: .destructive) {
-                        let count = BookContentService.shared.getCacheCount(for: currentBook.bookUrl)
-                        BookContentService.shared.clearCache(for: currentBook.bookUrl)
-                        actionAlertMessage = "已清除本书缓存章节" + (count > 0 ? " (\(count)章)" : "")
-                        showActionAlert = true
-                    } label: {
-                        Label("清除缓存", systemImage: "trash")
-                    }
-
-                    Button {
-                        Task {
-                            await loadBookDetails()
-                            actionAlertMessage = "目录与详情已刷新"
+            .navigationTitle("书籍详情")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) {
+                            let count = BookContentService.shared.getCacheCount(for: currentBook.bookUrl)
+                            BookContentService.shared.clearCache(for: currentBook.bookUrl)
+                            actionAlertMessage = "已清除本书缓存章节" + (count > 0 ? " (\(count)章)" : "")
                             showActionAlert = true
+                        } label: {
+                            Label("清除缓存", systemImage: "trash")
+                        }
+
+                        Button {
+                            Task {
+                                await loadBookDetails()
+                                actionAlertMessage = "目录与详情已刷新"
+                                showActionAlert = true
+                            }
+                        } label: {
+                            Label("刷新目录与详情", systemImage: "arrow.clockwise")
                         }
                     } label: {
-                        Label("刷新目录与详情", systemImage: "arrow.clockwise")
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.primary)
                 }
             }
-        }
-        .alert(actionAlertMessage, isPresented: $showActionAlert) {
-            Button("确定", role: .cancel) {}
-        }
-        .sheet(isPresented: $showTOCSheet) {
-            NavigationView {
-                ChapterListView(
-                    chapters: chapters,
-                    currentChapterIndex: currentBookshelfBook.durChapterIndex,
-                    onSelectChapter: { index in
-                        selectedChapterIndex = index
-                        showTOCSheet = false
-                        isReading = true
-                    }
-                )
+            .alert(actionAlertMessage, isPresented: $showActionAlert) {
+                Button("确定", role: .cancel) {}
             }
+            .background(
+                NavigationLink(
+                    isActive: $navigateToTOC,
+                    destination: {
+                        ChapterListView(
+                            chapters: chapters,
+                            currentChapterIndex: currentBookshelfBook.durChapterIndex,
+                            onSelectChapter: { index in
+                                selectedChapterIndex = index
+                                isReading = true
+                            }
+                        )
+                    },
+                    label: { EmptyView() }
+                )
+                .hidden()
+                .frame(width: 0, height: 0)
+            )
+
+            #if !os(iOS)
+            if isReading {
+                readerCoverView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .transition(.opacity)
+                    .zIndex(999)
+            }
+            #endif
         }
         #if os(iOS)
         .fullScreenCover(isPresented: $isReading) {
-            readerCoverView
-        }
-        #else
-        .sheet(isPresented: $isReading) {
             readerCoverView
         }
         #endif
@@ -171,7 +184,9 @@ public struct BookDetailView: View {
         let activeBook = isInBookshelf ? currentBookshelfBook : currentBook
         let resolvedSource = source ?? bookStore.findSource(for: activeBook)
         NavigationView {
-            ReaderView(book: activeBook, source: resolvedSource, initialChapterIndex: selectedChapterIndex)
+            ReaderView(book: activeBook, source: resolvedSource, initialChapterIndex: selectedChapterIndex, onDismiss: {
+                isReading = false
+            })
         }
     }
 
@@ -298,7 +313,7 @@ public struct BookDetailView: View {
 
     private var tocPreviewCard: some View {
         Button(action: {
-            showTOCSheet = true
+            navigateToTOC = true
         }) {
             HStack(spacing: 12) {
                 Image(systemName: "list.bullet")
@@ -587,12 +602,5 @@ struct ChapterListView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("关闭") {
-                    dismiss()
-                }
-            }
-        }
     }
 }

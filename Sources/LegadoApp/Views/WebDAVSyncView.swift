@@ -11,17 +11,22 @@ public struct WebDAVSyncView: View {
     @State private var username: String = ""
     @State private var password: String = ""
     @State private var remotePath: String = "legado"
+    @State private var deviceName: String = ""
     @State private var lastSyncTime: Date? = nil
 
     @State private var isTesting: Bool = false
     @State private var isBackingUp: Bool = false
     @State private var isRestoring: Bool = false
+    @State private var isFetchingBackups: Bool = false
+    @State private var remoteBackups: [RemoteBackupInfo] = []
+    @State private var showBackupPickerSheet: Bool = false
     @State private var showFileImporter: Bool = false
 
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
     @State private var showAlert: Bool = false
     @State private var showRestoreConfirm: Bool = false
+    @State private var selectedRestoreBackupName: String? = nil
 
     public init() {}
 
@@ -31,6 +36,7 @@ public struct WebDAVSyncView: View {
             username: username,
             password: password,
             remotePath: remotePath,
+            deviceName: deviceName.isEmpty ? WebDAVConfig.defaultDeviceName : deviceName,
             lastSyncTime: lastSyncTime
         )
     }
@@ -55,10 +61,17 @@ public struct WebDAVSyncView: View {
             Button("取消", role: .cancel) {}
             Button("确定恢复", role: .destructive) {
                 saveConfig()
-                restoreFromWebDAV()
+                restoreFromWebDAV(backupFileName: selectedRestoreBackupName)
             }
         } message: {
-            Text("恢复操作将从 WebDAV 下载最新备份（bookshelf.json 或 Android backup*.zip），并与当前本地数据合并更新。是否继续？")
+            if let name = selectedRestoreBackupName {
+                Text("将从 WebDAV 下载指定的备份文件 [\(name)] 并与本地数据合并更新。是否继续？")
+            } else {
+                Text("恢复操作将从 WebDAV 下载最新的 Android 兼容备份包（backup*.zip 或 bookshelf.json），并与当前本地数据合并更新。是否继续？")
+            }
+        }
+        .sheet(isPresented: $showBackupPickerSheet) {
+            backupPickerView
         }
         .fileImporter(
             isPresented: $showFileImporter,
@@ -108,6 +121,16 @@ public struct WebDAVSyncView: View {
                     #endif
             }
 
+            HStack {
+                Text("设备名称")
+                    .frame(width: 85, alignment: .leading)
+                TextField(WebDAVConfig.defaultDeviceName, text: $deviceName)
+                    #if os(iOS)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    #endif
+            }
+
             // Quick presets
             VStack(alignment: .leading, spacing: 8) {
                 Text("快捷填入服务预设")
@@ -143,7 +166,7 @@ public struct WebDAVSyncView: View {
         } header: {
             Text("WebDAV 服务器设置")
         } footer: {
-            Text("提示：坚果云等服务需在网页端设置 -> 安全设置中生成「应用专用密码」填入。")
+            Text("提示：坚果云等服务需在网页端设置 -> 安全设置中生成「应用专用密码」填入。备份将打包为 backupYYYY-MM-DD-设备名称.zip，完全兼容 Android Legado 备份格式。")
         }
     }
 
@@ -195,7 +218,7 @@ public struct WebDAVSyncView: View {
                     Text(isTesting ? "正在测试连接..." : "测试连接")
                 }
             }
-            .disabled(isTesting || isBackingUp || isRestoring || url.isEmpty)
+            .disabled(isTesting || isBackingUp || isRestoring || isFetchingBackups || url.isEmpty)
 
             Button {
                 saveConfig()
@@ -211,9 +234,26 @@ public struct WebDAVSyncView: View {
                     Text(isBackingUp ? "正在备份中..." : "立即备份至 WebDAV")
                 }
             }
-            .disabled(isTesting || isBackingUp || isRestoring || url.isEmpty || username.isEmpty)
+            .disabled(isTesting || isBackingUp || isRestoring || isFetchingBackups || url.isEmpty || username.isEmpty)
+
+            Button {
+                saveConfig()
+                fetchRemoteBackups()
+            } label: {
+                HStack {
+                    if isFetchingBackups {
+                        ProgressView()
+                            .padding(.trailing, 4)
+                    } else {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    Text(isFetchingBackups ? "正在获取云端备份..." : "选择云端历史备份恢复...")
+                }
+            }
+            .disabled(isTesting || isBackingUp || isRestoring || isFetchingBackups || url.isEmpty || username.isEmpty)
 
             Button(role: .destructive) {
+                selectedRestoreBackupName = nil
                 showRestoreConfirm = true
             } label: {
                 HStack {
@@ -223,10 +263,10 @@ public struct WebDAVSyncView: View {
                     } else {
                         Image(systemName: "arrow.down.doc")
                     }
-                    Text(isRestoring ? "正在恢复中..." : "从 WebDAV 恢复数据")
+                    Text(isRestoring ? "正在恢复中..." : "从 WebDAV 恢复最新数据")
                 }
             }
-            .disabled(isTesting || isBackingUp || isRestoring || url.isEmpty || username.isEmpty)
+            .disabled(isTesting || isBackingUp || isRestoring || isFetchingBackups || url.isEmpty || username.isEmpty)
         }
     }
 
@@ -245,6 +285,63 @@ public struct WebDAVSyncView: View {
             Text("支持选取 Android 版 Legado 导出的 backup*.zip 备份包（可配合 bookProgress 进度目录），自动恢复 100% 书籍、书源与阅读进度，无需经过网络直接生效。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var backupPickerView: some View {
+        NavigationView {
+            List {
+                Section(header: Text("云端备份包 (\(remoteBackups.count) 个)")) {
+                    ForEach(remoteBackups) { backup in
+                        Button {
+                            showBackupPickerSheet = false
+                            selectedRestoreBackupName = backup.fileName
+                            showRestoreConfirm = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "doc.zipper")
+                                    .font(.title2)
+                                    .foregroundColor(.accentColor)
+                                    .padding(.trailing, 4)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(backup.fileName)
+                                        .font(.system(.subheadline, design: .monospaced))
+                                        .foregroundColor(.primary)
+                                    HStack(spacing: 12) {
+                                        if let date = backup.lastModified {
+                                            Text(formatDate(date))
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let size = backup.size {
+                                            Text(formatFileSize(size))
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择云端备份")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        showBackupPickerSheet = false
+                    }
+                }
+            }
         }
     }
 
@@ -275,6 +372,7 @@ public struct WebDAVSyncView: View {
         self.username = config.username
         self.password = config.password
         self.remotePath = config.remotePath
+        self.deviceName = config.deviceName
         self.lastSyncTime = config.lastSyncTime
     }
 
@@ -304,6 +402,33 @@ public struct WebDAVSyncView: View {
         }
     }
 
+    private func fetchRemoteBackups() {
+        isFetchingBackups = true
+        Task {
+            do {
+                let backups = try await WebDAVService.shared.listRemoteBackups(config: currentConfig)
+                await MainActor.run {
+                    isFetchingBackups = false
+                    self.remoteBackups = backups
+                    if backups.isEmpty {
+                        alertTitle = "未发现备份包"
+                        alertMessage = "在远程目录 [\(remotePath)] 下未找到以 backup 开头的 .zip 备份包。"
+                        showAlert = true
+                    } else {
+                        showBackupPickerSheet = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isFetchingBackups = false
+                    alertTitle = "获取备份失败"
+                    alertMessage = error.localizedDescription
+                    showAlert = true
+                }
+            }
+        }
+    }
+
     private func backupToWebDAV() {
         isBackingUp = true
         Task {
@@ -317,7 +442,7 @@ public struct WebDAVSyncView: View {
                     isBackingUp = false
                     lastSyncTime = Date()
                     alertTitle = "备份成功"
-                    alertMessage = "已成功上传至 WebDAV 远程目录 [\(remotePath)]：\n• 书架藏书：\(result.booksCount) 本\n• 书源配置：\(result.sourcesCount) 个"
+                    alertMessage = "已成功生成 Android 兼容压缩包并上传至 WebDAV 远程目录 [\(remotePath)]：\n• 备份文件：\(result.backupFileName)\n• 书架藏书：\(result.booksCount) 本\n• 书源配置：\(result.sourcesCount) 个"
                     showAlert = true
                 }
             } catch {
@@ -331,17 +456,23 @@ public struct WebDAVSyncView: View {
         }
     }
 
-    private func restoreFromWebDAV() {
+    private func restoreFromWebDAV(backupFileName: String? = nil) {
         isRestoring = true
         Task {
             do {
-                let (books, sources) = try await WebDAVService.shared.restore(config: currentConfig)
+                let (books, sources, backupName) = try await WebDAVService.shared.restore(
+                    config: currentConfig,
+                    backupFileName: backupFileName
+                )
                 let result = bookStore.restoreFromWebDAV(books: books, sources: sources)
                 await MainActor.run {
                     isRestoring = false
                     lastSyncTime = Date()
                     alertTitle = "恢复成功"
                     var detail = "已完成从 WebDAV 数据合并：\n"
+                    if let name = backupName {
+                        detail += "• 备份包：\(name)\n"
+                    }
                     if let b = books {
                         detail += "• 书架同步：\(b.count) 本 (新增 \(result.booksAdded) 本)\n"
                     } else {
@@ -364,6 +495,15 @@ public struct WebDAVSyncView: View {
                 }
             }
         }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let kb = Double(bytes) / 1024.0
+        if kb < 1024.0 {
+            return String(format: "%.1f KB", kb)
+        }
+        let mb = kb / 1024.0
+        return String(format: "%.1f MB", mb)
     }
 
     private func formatDate(_ date: Date) -> String {

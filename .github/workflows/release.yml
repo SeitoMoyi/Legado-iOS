@@ -1,17 +1,15 @@
-name: Build & Pre-Release
+name: Build & Release
 
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for release (e.g. v0.1.0)'
-        required: true
-        default: 'v0.1.0'
+        description: 'Tag name for release (e.g. v0.2.0)'
+        required: false
+        default: 'v0.2.0'
 
 jobs:
   build-and-release:
@@ -33,6 +31,18 @@ jobs:
         run: |
           swift test
 
+      - name: Determine Release Tag
+        id: version_step
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [ -f "VERSION" ]; then
+            TAG=$(cat VERSION | tr -d '[:space:]')
+          else
+            TAG="v0.2.0"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
       - name: Build Archive (Unsigned)
         run: |
           xcodebuild -project Legado.xcodeproj \
@@ -51,43 +61,40 @@ jobs:
           mkdir -p build/Payload
           cp -R build/LegadoApp.xcarchive/Products/Applications/LegadoApp.app build/Payload/
           cd build
-          RELEASE_TAG="${{ github.ref_name }}"
-          if [ -z "$RELEASE_TAG" ] || [ "$RELEASE_TAG" = "main" ]; then
-            RELEASE_TAG="${{ github.event.inputs.tag_name || 'v0.1.0' }}"
-          fi
+          RELEASE_TAG="${{ steps.version_step.outputs.tag }}"
           zip -r "Legado-${RELEASE_TAG}.ipa" Payload
           ls -la "Legado-${RELEASE_TAG}.ipa"
-          echo "tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          cd ..
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Legado-${{ steps.package.outputs.tag }}-ipa
+          name: Legado-${{ steps.version_step.outputs.tag }}-ipa
           path: build/Legado-*.ipa
 
-      - name: Create Pre-Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || github.event.inputs.tag_name }}
-          name: "Legado iOS ${{ github.ref_name || github.event.inputs.tag_name }} (Preview)"
-          prerelease: true
+          tag_name: ${{ steps.version_step.outputs.tag }}
+          name: "Legado iOS ${{ steps.version_step.outputs.tag }}"
+          prerelease: false
           draft: false
           generate_release_notes: true
           files: build/Legado-*.ipa
           body: |
-            ### Legado iOS (开源阅读 iOS 版) Pre-release ${{ github.ref_name || github.event.inputs.tag_name }}
+            ### Legado iOS (开源阅读 iOS 版) ${{ steps.version_step.outputs.tag }}
 
-            #### 🌟 核心功能
-            - **Legado 3.0 书源生态**：兼容 CSS/XPath/JSONPath/正则/JS/模版混合规则，支持本地 `.json` 文件导入、网络导入与内置 Web 交互登录。
-            - **底部分类发现流**：三级快速切换（书源药丸切换 -> 预设分类与矩阵弹窗 -> 书籍流与无限分页）。
-            - **沉浸式全屏阅读器**：多主题（羊皮纸、柔光暗调、纯黑夜间、护眼绿）、覆盖/平滑/垂直三种翻页模式、全屏点按控制、章节滑块跳转、离线正文缓存与单书缓存清理。
-            - **WebDAV 多端互通**：深度兼容 Android 端 Legado 备份包（`backup*.zip` 及 `bookProgress/` 快照），支持本地直接导入与云端同步。
-            - **插图原画渲染**：支持正文插图解析与自动 Referer 防盗链请求头。
-            - **全局暗黑模式**：跟随系统、浅色、深色模式自由切换。
+            #### 🌟 核心更新与特性
+            - **WebDAV Android 兼容 ZIP 备份**：完整对齐 Android Legado 标准的 `backupYYYY-MM-DD-deviceName.zip` 归档格式，保留全部书籍元数据与精确阅读进度（`durChapterIndex`, `durChapterPos`, `durChapterTime`）。
+            - **云端历史备份选择**：支持一键检索 WebDAV 云端所有历史备份包（包括 Android 手机与 iOS 备份），展示日期、体积并支持自由点选合并恢复。
+            - **秒级极速 WebDAV 备份**：彻底移除全量备份时的阻塞请求，备份由 30+ 秒降至 1 秒内完成。
+            - **连续滚动无缝翻页**：滚动模式下下拉预加载上一章并无缝衔接阅读断点，不再跳回章节首页。
+            - **分卷书籍目录连贯修复**：完美解决分卷小说因卷标导致的目录断章与前后翻页问题。
+            - **全屏沉浸阅读器**：各入口（详情页、目录跳转等）进入阅读器均规范为原生全屏展示。
+            - **书源与预设更新**：机翻机器人书源新增“阅读历史”与“默认收藏夹”个人中心发现流；规范书源命名。
 
             #### 📱 安装说明
             下载下方的 `Legado-*.ipa` 附件，支持通过以下方式进行侧载安装：
             - **TrollStore**（巨魔商店，推荐，免签名永不过期）
-            - **AltStore / SideStore**（个人证书签名）
+            - **AltStore / SideStore**（个人免费证书签名）
             - **Sideloadly / 爱思助手**
