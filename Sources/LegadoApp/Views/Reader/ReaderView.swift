@@ -37,6 +37,8 @@ public struct ReaderView: View {
 
     @State private var isLoadingInitial: Bool = true
     @State private var isLoadingNextChapter: Bool = false
+    @State private var isLoadingPrevChapter: Bool = false
+    @State private var scrollToChapterId: String? = nil
     @State private var errorMessage: String? = nil
 
     @State private var showTOC: Bool = false
@@ -207,10 +209,50 @@ public struct ReaderView: View {
     }
 
     // MARK: - Mode 1: Infinite Scroll Down (连续滚动)
+    // MARK: - Mode 1: Infinite Scroll Down (连续滚动)
     private var infiniteScrollView: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    // Previous Chapter Trigger / Header (Top of list)
+                    if let firstLoaded = loadedChapters.first, firstLoaded.chapter.index > 0 {
+                        VStack(spacing: 8) {
+                            if isLoadingPrevChapter {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("正在加载上一章: \(chapters[firstLoaded.chapter.index - 1].title)...")
+                                        .font(.caption)
+                                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                            } else {
+                                Button(action: {
+                                    loadPreviousChapterForInfiniteScroll(before: firstLoaded.chapter.index)
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.up.circle")
+                                            .font(.system(size: 13))
+                                        Text("上滑或轻点加载上一章 · \(chapters[firstLoaded.chapter.index - 1].title)")
+                                            .font(.system(size: 12))
+                                    }
+                                    .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                }
+                                .onAppear {
+                                    loadPreviousChapterForInfiniteScroll(before: firstLoaded.chapter.index)
+                                }
+                            }
+
+                            Rectangle()
+                                .fill(readerConfig.theme.textColor.opacity(0.12))
+                                .frame(height: 1)
+                                .padding(.horizontal, 50)
+                        }
+                        .id("top_prev_loader")
+                    }
+
                     ForEach(loadedChapters) { loadedCh in
                         VStack(alignment: .leading, spacing: readerConfig.lineSpacing) {
                             // Chapter Title
@@ -222,7 +264,7 @@ public struct ReaderView: View {
                                 .padding(.bottom, 10)
                                 .id("chapter_\(loadedCh.chapter.index)")
                                 .onAppear {
-                                    if currentChapterIndex != loadedCh.chapter.index {
+                                    if scrollToChapterId == nil && currentChapterIndex != loadedCh.chapter.index {
                                         currentChapterIndex = loadedCh.chapter.index
                                         BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex, chapterTitle: loadedCh.chapter.title)
                                     }
@@ -293,6 +335,18 @@ public struct ReaderView: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showControls.toggle()
+                }
+            }
+            .onChange(of: scrollToChapterId) { newTarget in
+                if let target = newTarget {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(target, anchor: .top)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        if scrollToChapterId == target {
+                            scrollToChapterId = nil
+                        }
+                    }
                 }
             }
         }
@@ -443,7 +497,7 @@ public struct ReaderView: View {
 
             Spacer()
 
-            // Title & Chapter Info
+            // Title & Chapter Info in Center
             VStack(spacing: 2) {
                 Text(book.name)
                     .font(.system(size: 15, weight: .semibold))
@@ -456,26 +510,13 @@ public struct ReaderView: View {
                         .lineLimit(1)
                 }
             }
-            .frame(maxWidth: 200)
+            .frame(maxWidth: 240)
 
             Spacer()
 
-            // Right side: Text search and settings buttons
-            HStack(spacing: 16) {
-                Button(action: { showSearch = true }) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(readerConfig.theme.textColor)
-                        .frame(width: 32, height: 32)
-                }
-
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "textformat.size")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(readerConfig.theme.textColor)
-                        .frame(width: 32, height: 32)
-                }
-            }
+            // Balanced placeholder so center title remains perfectly centered
+            Color.clear
+                .frame(width: 54, height: 32)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -515,80 +556,79 @@ public struct ReaderView: View {
     }
 
     private var chapterNavigationRow: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 14) {
-                Button(action: {
-                    if currentChapterIndex > 0 {
-                        audioService.stop()
-                        let newIdx = currentChapterIndex - 1
-                        currentChapterIndex = newIdx
-                        currentPageIndex = 0
-                        loadInitialChapter(at: newIdx)
-                    }
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("上一章")
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(currentChapterIndex > 0 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+        HStack(spacing: 14) {
+            Button(action: {
+                previousChapter()
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                    Text("上一章")
                 }
-                .disabled(currentChapterIndex <= 0)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(currentChapterIndex > 0 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+            }
+            .disabled(currentChapterIndex <= 0)
 
-                if chapters.count > 1 {
-                    Slider(
-                        value: Binding(
-                            get: { Double(currentChapterIndex) },
-                            set: { newValue in
-                                let target = Int(newValue.rounded())
-                                if target != currentChapterIndex && target >= 0 && target < chapters.count {
-                                    audioService.stop()
-                                    currentChapterIndex = target
-                                    currentPageIndex = 0
-                                    loadInitialChapter(at: target)
-                                }
+            if chapters.count > 1 {
+                Slider(
+                    value: Binding(
+                        get: { Double(currentChapterIndex) },
+                        set: { newValue in
+                            let target = Int(newValue.rounded())
+                            if target != currentChapterIndex && target >= 0 && target < chapters.count {
+                                jumpToChapter(target)
                             }
-                        ),
-                        in: 0...Double(chapters.count - 1),
-                        step: 1
-                    )
-                    .accentColor(.accentColor)
-                } else {
-                    Spacer()
-                }
-
-                Button(action: {
-                    if currentChapterIndex < chapters.count - 1 {
-                        audioService.stop()
-                        let newIdx = currentChapterIndex + 1
-                        currentChapterIndex = newIdx
-                        currentPageIndex = 0
-                        loadInitialChapter(at: newIdx)
-                    }
-                }) {
-                    HStack(spacing: 4) {
-                        Text("下一章")
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(currentChapterIndex < chapters.count - 1 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
-                }
-                .disabled(currentChapterIndex >= chapters.count - 1)
+                        }
+                    ),
+                    in: 0...Double(chapters.count - 1),
+                    step: 1
+                )
+                .accentColor(.accentColor)
+            } else {
+                Spacer()
             }
 
-            if !chapters.isEmpty && currentChapterIndex < chapters.count {
-                HStack {
-                    Text("第 \(currentChapterIndex + 1) / \(chapters.count) 章")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
-                    Spacer()
-                    Text(chapters[currentChapterIndex].title)
-                        .font(.system(size: 11))
-                        .foregroundColor(readerConfig.theme.textColor.opacity(0.7))
-                        .lineLimit(1)
+            Button(action: {
+                nextChapter()
+            }) {
+                HStack(spacing: 4) {
+                    Text("下一章")
+                    Image(systemName: "chevron.right")
                 }
-                .padding(.horizontal, 4)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(currentChapterIndex < chapters.count - 1 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
             }
+            .disabled(currentChapterIndex >= chapters.count - 1)
+        }
+    }
+
+    private func previousChapter() {
+        guard currentChapterIndex > 0 else { return }
+        jumpToChapter(currentChapterIndex - 1)
+    }
+
+    private func nextChapter() {
+        guard currentChapterIndex < chapters.count - 1 else { return }
+        jumpToChapter(currentChapterIndex + 1)
+    }
+
+    private func jumpToChapter(_ targetIndex: Int) {
+        guard targetIndex >= 0 && targetIndex < chapters.count else { return }
+        audioService.stop()
+        currentChapterIndex = targetIndex
+        currentPageIndex = 0
+
+        if readerConfig.pageMode == .scroll {
+            if loadedChapters.contains(where: { $0.chapter.index == targetIndex }) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    scrollToChapterId = "chapter_\(targetIndex)"
+                }
+                BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: targetIndex, chapterTitle: chapters[targetIndex].title)
+            } else {
+                loadInitialChapter(at: targetIndex, targetPageIndex: 0, scrollToTarget: true)
+            }
+        } else {
+            loadInitialChapter(at: targetIndex, targetPageIndex: 0)
         }
     }
 
@@ -661,10 +701,7 @@ public struct ReaderView: View {
                     showControls = false
                 }
                 if targetIndex != currentChapterIndex {
-                    audioService.stop()
-                    currentChapterIndex = targetIndex
-                    currentPageIndex = 0
-                    loadInitialChapter(at: targetIndex)
+                    jumpToChapter(targetIndex)
                 }
             }
         )
@@ -674,11 +711,8 @@ public struct ReaderView: View {
         NavigationView {
             List(chapters) { ch in
                 Button(action: {
-                    audioService.stop()
-                    currentChapterIndex = ch.index
-                    currentPageIndex = 0
                     showTOC = false
-                    loadInitialChapter(at: ch.index)
+                    jumpToChapter(ch.index)
                 }) {
                     HStack {
                         Text(ch.title)
@@ -784,10 +818,12 @@ public struct ReaderView: View {
         }
     }
 
-    private func loadInitialChapter(at index: Int, targetPageIndex: Int = 0) {
+    private func loadInitialChapter(at index: Int, targetPageIndex: Int = 0, scrollToTarget: Bool = false) {
         guard !chapters.isEmpty, index < chapters.count else { return }
         let currentChapter = chapters[index]
-        isLoadingInitial = true
+        if loadedChapters.isEmpty {
+            isLoadingInitial = true
+        }
         errorMessage = nil
 
         let source = effectiveSource
@@ -810,9 +846,40 @@ public struct ReaderView: View {
 
                 self.isLoadingInitial = false
                 BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: index, chapterTitle: currentChapter.title)
+
+                if scrollToTarget || readerConfig.pageMode == .scroll {
+                    self.scrollToChapterId = "chapter_\(index)"
+                }
             } catch {
                 self.errorMessage = "正文解析失败: \(error.localizedDescription)"
                 self.isLoadingInitial = false
+            }
+        }
+    }
+
+    private func loadPreviousChapterForInfiniteScroll(before index: Int) {
+        let prevIndex = index - 1
+        guard prevIndex >= 0 else { return }
+        if loadedChapters.contains(where: { $0.chapter.index == prevIndex }) || isLoadingPrevChapter {
+            return
+        }
+
+        let prevChapter = chapters[prevIndex]
+        isLoadingPrevChapter = true
+        let source = effectiveSource
+
+        Task { @MainActor in
+            do {
+                let content = try await BookContentService.shared.fetchChapterContent(chapter: prevChapter, source: source)
+                let blocks = parseContentBlocks(from: content)
+                let pages = paginate(blocks: blocks)
+                let loaded = LoadedChapter(chapter: prevChapter, content: content, blocks: blocks, pages: pages)
+
+                self.loadedChapters.insert(loaded, at: 0)
+                self.isLoadingPrevChapter = false
+            } catch {
+                print("[ReaderView] ⚠️ Failed to load previous chapter \(prevIndex): \(error)")
+                self.isLoadingPrevChapter = false
             }
         }
     }
