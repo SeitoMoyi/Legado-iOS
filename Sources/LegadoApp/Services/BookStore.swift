@@ -235,12 +235,7 @@ public class BookStore: ObservableObject {
         await withTaskGroup(of: Book?.self) { group in
             for book in networkBooks {
                 group.addTask {
-                    guard let source = self.sources.first(where: {
-                        $0.bookSourceUrl == book.origin ||
-                        $0.bookSourceName == book.originName ||
-                        book.origin.contains($0.bookSourceUrl) ||
-                        $0.bookSourceUrl.contains(book.origin)
-                    }) else { return nil }
+                    guard let source = self.findSource(for: book) else { return nil }
 
                     do {
                         let (detailedBook, chapters) = try await BookContentService.shared.fetchBookDetail(book: book, source: source)
@@ -303,11 +298,91 @@ public class BookStore: ObservableObject {
         saveSources()
     }
 
-    public func updateSource(_ source: BookSource) {
-        if let idx = sources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl || $0.id == source.id }) {
-            sources[idx] = source
+    /// Robustly resolves the BookSource corresponding to a Book using URL, Name, Domain, or Aliases
+    public func findSource(for book: Book) -> BookSource? {
+        if book.origin == "local" || book.bookUrl.hasPrefix("file://") || book.bookUrl.hasPrefix("epub://") || book.bookUrl.hasPrefix("txt://") {
+            return nil
+        }
+
+        // 1. Exact URL match
+        if let s = sources.first(where: { $0.bookSourceUrl == book.origin }) {
+            return s
+        }
+
+        // 2. Exact Name match
+        if !book.originName.isEmpty, let s = sources.first(where: { $0.bookSourceName == book.originName }) {
+            return s
+        }
+
+        // 3. Domain / Host Match (e.g. esjzone.cc / esjzone.one, novelia.cc / xkvi.top)
+        let bookHost = URL(string: book.origin)?.host ?? URL(string: book.bookUrl)?.host ?? ""
+        if !bookHost.isEmpty {
+            for s in sources {
+                let sHost = URL(string: s.bookSourceUrl)?.host ?? ""
+                if !sHost.isEmpty && sHost == bookHost {
+                    return s
+                }
+            }
+        }
+
+        // 4. Known aliases & proxies (Novelia <-> xkvi / fishhawk)
+        let isNoveliaBook = book.origin.contains("xkvi.top") || book.origin.contains("fishhawk.top") || book.origin.contains("novelia.cc") || book.bookUrl.contains("novelia.cc") || book.bookUrl.contains("xkvi.top")
+        if isNoveliaBook {
+            if let s = sources.first(where: { $0.bookSourceUrl.contains("novelia.cc") || $0.bookSourceUrl.contains("xkvi.top") || $0.bookSourceName.contains("机翻") }) {
+                return s
+            }
+        }
+
+        // 5. ESJ Zone aliases
+        let isEsjBook = book.origin.lowercased().contains("esj") || book.bookUrl.lowercased().contains("esj")
+        if isEsjBook {
+            if let s = sources.first(where: { $0.bookSourceUrl.lowercased().contains("esj") || $0.bookSourceName.lowercased().contains("esj") }) {
+                return s
+            }
+        }
+
+        // 6. Substring / URL contains matching
+        if let s = sources.first(where: {
+            book.origin.contains($0.bookSourceUrl) ||
+            $0.bookSourceUrl.contains(book.origin) ||
+            book.bookUrl.hasPrefix($0.bookSourceUrl) ||
+            (!book.originName.isEmpty && $0.bookSourceName.contains(book.originName)) ||
+            (!book.originName.isEmpty && book.originName.contains($0.bookSourceName))
+        }) {
+            return s
+        }
+
+        return sources.first
+    }
+
+    public func updateSource(originalSource: BookSource? = nil, newSource: BookSource) {
+        let oldUrl = originalSource?.bookSourceUrl ?? newSource.bookSourceUrl
+        let oldName = originalSource?.bookSourceName ?? newSource.bookSourceName
+
+        if let idx = sources.firstIndex(where: { $0.bookSourceUrl == oldUrl || $0.id == (originalSource?.id ?? newSource.id) }) {
+            sources[idx] = newSource
             saveSources()
         }
+
+        // Synchronize all books on the bookshelf that referenced the old source name or URL
+        var bookshelfModified = false
+        for i in 0..<bookshelf.count {
+            if bookshelf[i].origin == oldUrl ||
+               bookshelf[i].originName == oldName ||
+               (oldUrl.contains("novelia.cc") && (bookshelf[i].origin.contains("xkvi.top") || bookshelf[i].originName.contains("机翻"))) {
+                bookshelf[i].origin = newSource.bookSourceUrl
+                bookshelf[i].originName = newSource.bookSourceName
+                bookshelfModified = true
+            }
+        }
+        if bookshelfModified {
+            saveBookshelf()
+        }
+    }
+
+    public func updateSource(_ source: BookSource) {
+        let original = sources.first(where: { $0.id == source.id || $0.bookSourceUrl == source.bookSourceUrl })
+        updateSource(originalSource: original, newSource: source)
     }
 
     public func pinSource(sourceUrl: String) {

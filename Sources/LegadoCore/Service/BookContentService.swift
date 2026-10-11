@@ -236,7 +236,7 @@ public class BookContentService {
         }
 
         // Clean up common web garbage and sanitize HTML tags
-        contentText = BookContentService.cleanHtml(contentText)
+        contentText = BookContentService.cleanHtml(contentText, baseUrl: parsedReq.url.absoluteString)
 
         if !contentText.isEmpty {
             saveCachedChapterContent(bookUrl: chapter.bookUrl, chapterIndex: chapter.index, content: contentText)
@@ -282,9 +282,23 @@ public class BookContentService {
         return files.filter { $0.hasSuffix(".txt") }.count
     }
 
-    /// Sanitizes HTML text, converting <p> and <br> to paragraphs and stripping other tags
-    public static func cleanHtml(_ raw: String) -> String {
+    /// Sanitizes HTML text, converting <img> to [image:url], <p> and <br> to paragraphs, and stripping other tags
+    public static func cleanHtml(_ raw: String, baseUrl: String? = nil) -> String {
         var text = raw
+
+        // Convert <img> tags to \n\n[image:url]\n\n before stripping HTML tags
+        let imgPattern = "(?i)<img\\s+[^>]*?>"
+        if let imgRegex = try? NSRegularExpression(pattern: imgPattern) {
+            let nsText = text as NSString
+            let matches = imgRegex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+            for match in matches.reversed() {
+                let imgTag = nsText.substring(with: match.range)
+                if let src = extractImageSrc(from: imgTag, baseUrl: baseUrl), !src.isEmpty {
+                    text = (text as NSString).replacingCharacters(in: match.range, with: "\n\n[image:\(src)]\n\n")
+                }
+            }
+        }
+
         // Convert <br> and <br/> to newlines
         text = text.replacingOccurrences(of: "(?i)<br\\s*/?>", with: "\n", options: .regularExpression)
         // Convert </p> to double newlines
@@ -304,5 +318,48 @@ public class BookContentService {
         // Collapse 3+ consecutive newlines to 2
         text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func extractImageSrc(from imgTag: String, baseUrl: String?) -> String? {
+        let patterns = [
+            "(?i)data-original\\s*=\\s*[\"']([^\"']+)[\"']",
+            "(?i)data-src\\s*=\\s*[\"']([^\"']+)[\"']",
+            "(?i)src\\s*=\\s*[\"']([^\"']+)[\"']"
+        ]
+
+        var rawSrc: String? = nil
+        for pattern in patterns {
+            if let rx = try? NSRegularExpression(pattern: pattern),
+               let match = rx.firstMatch(in: imgTag, range: NSRange(location: 0, length: (imgTag as NSString).length)),
+               match.numberOfRanges > 1 {
+                let found = (imgTag as NSString).substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !found.isEmpty && !found.hasPrefix("data:image") {
+                    rawSrc = found
+                    break
+                }
+            }
+        }
+
+        guard let src = rawSrc else { return nil }
+
+        // Filter out decorative avatars/logos
+        if src.contains("discord_logo") || src.contains("nophoto.png") {
+            return nil
+        }
+
+        // Resolve relative URL
+        if src.hasPrefix("http://") || src.hasPrefix("https://") {
+            return src
+        } else if src.hasPrefix("//") {
+            return "https:" + src
+        } else if let base = baseUrl, let baseObj = URL(string: base) {
+            if src.hasPrefix("/") {
+                let origin = "\(baseObj.scheme ?? "https")://\(baseObj.host ?? "")"
+                return origin + src
+            } else {
+                return baseObj.deletingLastPathComponent().appendingPathComponent(src).absoluteString
+            }
+        }
+        return src
     }
 }

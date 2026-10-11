@@ -2,6 +2,8 @@ name: Build & Pre-Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -44,6 +46,7 @@ jobs:
             CODE_SIGN_IDENTITY=""
 
       - name: Package IPA
+        id: package
         run: |
           mkdir -p build/Payload
           cp -R build/LegadoApp.xcarchive/Products/Applications/LegadoApp.app build/Payload/
@@ -54,8 +57,16 @@ jobs:
           fi
           zip -r "Legado-${RELEASE_TAG}.ipa" Payload
           ls -la "Legado-${RELEASE_TAG}.ipa"
+          echo "tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Legado-${{ steps.package.outputs.tag }}-ipa
+          path: build/Legado-*.ipa
 
       - name: Create Pre-Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name || github.event.inputs.tag_name }}
@@ -72,6 +83,7 @@ jobs:
             - **底部分类发现流**：三级快速切换（书源药丸切换 -> 预设分类与矩阵弹窗 -> 书籍流与无限分页）。
             - **沉浸式全屏阅读器**：多主题（羊皮纸、柔光暗调、纯黑夜间、护眼绿）、覆盖/平滑/垂直三种翻页模式、全屏点按控制、章节滑块跳转、离线正文缓存与单书缓存清理。
             - **WebDAV 多端互通**：深度兼容 Android 端 Legado 备份包（`backup*.zip` 及 `bookProgress/` 快照），支持本地直接导入与云端同步。
+            - **插图原画渲染**：支持正文插图解析与自动 Referer 防盗链请求头。
             - **全局暗黑模式**：跟随系统、浅色、深色模式自由切换。
 
             #### 📱 安装说明

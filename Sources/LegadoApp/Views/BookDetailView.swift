@@ -169,12 +169,7 @@ public struct BookDetailView: View {
     @ViewBuilder
     private var readerCoverView: some View {
         let activeBook = isInBookshelf ? currentBookshelfBook : currentBook
-        let resolvedSource = source ?? bookStore.sources.first(where: {
-            $0.bookSourceUrl == activeBook.origin ||
-            $0.bookSourceName == activeBook.originName ||
-            activeBook.origin.contains($0.bookSourceUrl) ||
-            $0.bookSourceUrl.contains(activeBook.origin)
-        })
+        let resolvedSource = source ?? bookStore.findSource(for: activeBook)
         NavigationView {
             ReaderView(book: activeBook, source: resolvedSource, initialChapterIndex: selectedChapterIndex)
         }
@@ -494,12 +489,7 @@ public struct BookDetailView: View {
             }
         }
 
-        let resolvedSource = source ?? bookStore.sources.first(where: {
-            $0.bookSourceUrl == currentBook.origin ||
-            $0.bookSourceName == currentBook.originName ||
-            currentBook.origin.contains($0.bookSourceUrl) ||
-            $0.bookSourceUrl.contains(currentBook.origin)
-        })
+        let resolvedSource = source ?? bookStore.findSource(for: currentBook)
 
         guard let src = resolvedSource else { return }
 

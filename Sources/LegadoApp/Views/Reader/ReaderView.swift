@@ -11,6 +11,10 @@ public struct ReaderView: View {
     let book: Book
     let source: BookSource?
 
+    private var effectiveSource: BookSource? {
+        source ?? BookStore.shared.findSource(for: book)
+    }
+
     @State private var chapters: [BookChapter] = []
     @State private var currentChapterIndex: Int = 0
     @State private var chapterContent: String = ""
@@ -79,7 +83,7 @@ public struct ReaderView: View {
 
                             ForEach(contentBlocks) { block in
                                 if block.isImage, let urlStr = block.imageUrl {
-                                    ChapterImageView(urlString: urlStr)
+                                    ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
                                 } else {
                                     Text(block.text)
                                         .font(.system(size: readerConfig.fontSize))
@@ -119,11 +123,17 @@ public struct ReaderView: View {
         .task {
             await loadTOCAndChapter()
         }
+        .onDisappear {
+            audioService.stop()
+        }
     }
 
     private var topNavigationBar: some View {
         HStack {
-            Button(action: { dismiss() }) {
+            Button(action: {
+                audioService.stop()
+                dismiss()
+            }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(readerConfig.theme.textColor)
@@ -134,13 +144,9 @@ public struct ReaderView: View {
 
             // TTS Play/Pause
             Button(action: {
-                if audioService.isPlaying {
-                    audioService.pause()
-                } else {
-                    audioService.speak(text: chapterContent)
-                }
+                audioService.togglePlayPause(text: chapterContent)
             }) {
-                Image(systemName: audioService.isPlaying ? "pause.circle.fill" : "play.circle")
+                Image(systemName: audioService.isPlaying ? "pause.circle.fill" : (audioService.isPaused ? "play.circle.fill" : "play.circle"))
                     .font(.system(size: 20))
                     .foregroundColor(readerConfig.theme.textColor)
                     .frame(width: 36, height: 44)
@@ -172,6 +178,7 @@ public struct ReaderView: View {
         HStack {
             Button("上一章") {
                 if currentChapterIndex > 0 {
+                    audioService.stop()
                     currentChapterIndex -= 1
                     loadCurrentChapter()
                 }
@@ -190,6 +197,7 @@ public struct ReaderView: View {
 
             Button("下一章") {
                 if currentChapterIndex < chapters.count - 1 {
+                    audioService.stop()
                     currentChapterIndex += 1
                     loadCurrentChapter()
                 }
@@ -206,6 +214,7 @@ public struct ReaderView: View {
         NavigationView {
             List(chapters) { ch in
                 Button(action: {
+                    audioService.stop()
                     currentChapterIndex = ch.index
                     showTOC = false
                     loadCurrentChapter()
@@ -282,7 +291,8 @@ public struct ReaderView: View {
             }
         }
 
-        guard let source = source else {
+        let effectiveSource = source ?? BookStore.shared.findSource(for: book)
+        guard let source = effectiveSource else {
             errorMessage = "未找到书籍关联的书源"
             isLoading = false
             return
@@ -307,9 +317,11 @@ public struct ReaderView: View {
         isLoading = true
         errorMessage = nil
 
+        let effectiveSource = source ?? BookStore.shared.findSource(for: book)
+
         Task { @MainActor in
             do {
-                let content = try await BookContentService.shared.fetchChapterContent(chapter: currentChapter, source: source)
+                let content = try await BookContentService.shared.fetchChapterContent(chapter: currentChapter, source: effectiveSource)
                 self.chapterContent = content
                 self.isLoading = false
                 BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex, chapterTitle: currentChapter.title)
@@ -380,42 +392,128 @@ public struct ContentBlock: Identifiable {
 
 public struct ChapterImageView: View {
     public let urlString: String
+    public let referer: String?
 
-    public init(urlString: String) {
+    @State private var imageData: Data? = nil
+    @State private var isLoading: Bool = false
+    @State private var loadFailed: Bool = false
+
+    private static let imageCache = NSCache<NSString, NSData>()
+
+    public init(urlString: String, referer: String? = nil) {
         self.urlString = urlString
+        self.referer = referer
     }
 
     public var body: some View {
         Group {
-            if urlString.hasPrefix("file://") {
-                if let url = URL(string: urlString),
-                   let data = try? Data(contentsOf: url),
-                   let img = platformImage(from: data) {
-                    img
-                        .resizable()
-                        .scaledToFit()
-                        .cornerRadius(8)
-                        .padding(.vertical, 6)
+            if let data = imageData, let img = platformImage(from: data) {
+                img
+                    .resizable()
+                    .scaledToFit()
+                    .cornerRadius(8)
+                    .padding(.vertical, 6)
+            } else if isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("加载插图中...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-            } else if let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable()
-                            .scaledToFit()
-                            .cornerRadius(8)
-                            .padding(.vertical, 6)
-                    case .failure:
-                        EmptyView()
-                    case .empty:
-                        ProgressView().padding(.vertical, 8)
-                    @unknown default:
-                        EmptyView()
+                .frame(maxWidth: .infinity, minHeight: 80)
+                .background(Color.secondary.opacity(0.05))
+                .cornerRadius(8)
+                .padding(.vertical, 6)
+            } else if loadFailed {
+                Button(action: { Task { await loadImage() } }) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                            .font(.system(size: 22))
+                            .foregroundColor(.secondary)
+                        Text("插图加载失败，点击重试")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
+                    .frame(maxWidth: .infinity, minHeight: 70)
+                    .background(Color.secondary.opacity(0.08))
+                    .cornerRadius(8)
+                    .padding(.vertical, 6)
                 }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear
+                    .frame(height: 1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+        .task(id: urlString) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // 1. Check in-memory cache
+        if let cached = Self.imageCache.object(forKey: trimmed as NSString) {
+            self.imageData = cached as Data
+            self.isLoading = false
+            self.loadFailed = false
+            return
+        }
+
+        // 2. Check local file
+        if trimmed.hasPrefix("file://") {
+            if let url = URL(string: trimmed), let data = try? Data(contentsOf: url) {
+                Self.imageCache.setObject(data as NSData, forKey: trimmed as NSString)
+                self.imageData = data
+                return
+            }
+        }
+
+        // 3. Remote URL with proper browser headers
+        guard let url = URL(string: trimmed) else {
+            self.loadFailed = true
+            return
+        }
+
+        self.isLoading = true
+        self.loadFailed = false
+
+        do {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
+            request.setValue("image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+
+            // Determine Referer
+            if let ref = referer, !ref.isEmpty {
+                request.setValue(ref, forHTTPHeaderField: "Referer")
+            } else if let host = url.host {
+                request.setValue("https://\(host)/", forHTTPHeaderField: "Referer")
+            }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, (http.statusCode == 200 || http.statusCode == 304), !data.isEmpty {
+                Self.imageCache.setObject(data as NSData, forKey: trimmed as NSString)
+                await MainActor.run {
+                    self.imageData = data
+                    self.isLoading = false
+                    self.loadFailed = false
+                }
+            } else {
+                await MainActor.run {
+                    self.isLoading = false
+                    self.loadFailed = true
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.isLoading = false
+                self.loadFailed = true
+            }
+        }
     }
 
     private func platformImage(from data: Data) -> Image? {

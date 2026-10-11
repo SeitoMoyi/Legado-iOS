@@ -73,12 +73,7 @@ public struct BookshelfView: View {
                         ),
                         destination: {
                             if let b = navigateToDetailBook {
-                                let source = bookStore.sources.first(where: {
-                                    $0.bookSourceUrl == b.origin ||
-                                    $0.bookSourceName == b.originName ||
-                                    b.origin.contains($0.bookSourceUrl) ||
-                                    $0.bookSourceUrl.contains(b.origin)
-                                })
+                                let source = bookStore.findSource(for: b)
                                 BookDetailView(book: b, source: source)
                             } else {
                                 EmptyView()
@@ -145,12 +140,7 @@ public struct BookshelfView: View {
 
     @ViewBuilder
     private func readerCoverView(for book: Book) -> some View {
-        let source = bookStore.sources.first(where: {
-            $0.bookSourceUrl == book.origin ||
-            $0.bookSourceName == book.originName ||
-            book.origin.contains($0.bookSourceUrl) ||
-            $0.bookSourceUrl.contains(book.origin)
-        })
+        let source = bookStore.findSource(for: book)
         NavigationView {
             ReaderView(book: book, source: source)
         }

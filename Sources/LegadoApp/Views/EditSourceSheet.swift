@@ -95,6 +95,6 @@ public struct EditSourceSheet: View {
         updated.exploreUrl = exploreUrl.isEmpty ? nil : exploreUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.enabled = isEnabled
 
-        bookStore.updateSource(updated)
+        bookStore.updateSource(originalSource: originalSource, newSource: updated)
     }
 }
