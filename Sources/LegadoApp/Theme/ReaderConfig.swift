@@ -27,6 +27,13 @@ public enum ReaderTheme: String, CaseIterable, Identifiable {
     }
 }
 
+public enum PageMode: String, CaseIterable, Identifiable {
+    case scroll = "连续滚动"
+    case pageByPage = "左右翻页"
+
+    public var id: String { rawValue }
+}
+
 public class ReaderConfig: ObservableObject {
     public static let shared = ReaderConfig()
 
@@ -34,5 +41,18 @@ public class ReaderConfig: ObservableObject {
     @Published public var lineSpacing: CGFloat = 8.0
     @Published public var theme: ReaderTheme = .parchment
 
-    public init() {}
+    @Published public var pageMode: PageMode {
+        didSet {
+            UserDefaults.standard.set(pageMode.rawValue, forKey: "reader_page_mode")
+        }
+    }
+
+    public init() {
+        if let savedMode = UserDefaults.standard.string(forKey: "reader_page_mode"),
+           let mode = PageMode(rawValue: savedMode) {
+            self.pageMode = mode
+        } else {
+            self.pageMode = .scroll
+        }
+    }
 }

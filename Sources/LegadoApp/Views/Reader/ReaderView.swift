@@ -3,6 +3,21 @@ import SwiftUI
 import LegadoCore
 #endif
 
+public struct ContentBlock: Identifiable {
+    public let id: Int
+    public let isImage: Bool
+    public let text: String
+    public let imageUrl: String?
+}
+
+public struct LoadedChapter: Identifiable {
+    public var id: Int { chapter.index }
+    public let chapter: BookChapter
+    public var content: String
+    public var blocks: [ContentBlock]
+    public var pages: [[ContentBlock]] = []
+}
+
 public struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var readerConfig = ReaderConfig.shared
@@ -17,14 +32,17 @@ public struct ReaderView: View {
 
     @State private var chapters: [BookChapter] = []
     @State private var currentChapterIndex: Int = 0
-    @State private var chapterContent: String = ""
-    @State private var isLoading: Bool = true
+    @State private var loadedChapters: [LoadedChapter] = []
+    @State private var currentPageIndex: Int = 0
+
+    @State private var isLoadingInitial: Bool = true
+    @State private var isLoadingNextChapter: Bool = false
     @State private var errorMessage: String? = nil
 
     @State private var showTOC: Bool = false
     @State private var showSettings: Bool = false
-
-    @State private var showControls: Bool = true
+    @State private var showSearch: Bool = false
+    @State private var showControls: Bool = false
 
     public init(book: Book, source: BookSource?, initialChapterIndex: Int? = nil) {
         self.book = book
@@ -32,18 +50,23 @@ public struct ReaderView: View {
         self._currentChapterIndex = State(initialValue: initialChapterIndex ?? book.durChapterIndex)
     }
 
+    private var currentLoadedChapter: LoadedChapter? {
+        loadedChapters.first(where: { $0.chapter.index == currentChapterIndex }) ?? loadedChapters.first
+    }
+
+    private var currentChapterContent: String {
+        currentLoadedChapter?.content ?? ""
+    }
+
     public var body: some View {
         ZStack {
             readerConfig.theme.backgroundColor
                 .ignoresSafeArea()
 
+            // 1. Reading Canvas + Permanent Fixed Bottom Status Bar
             VStack(spacing: 0) {
-                if showControls {
-                    topNavigationBar
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                if isLoading {
+                // Main Reader Body
+                if isLoadingInitial {
                     Spacer()
                     VStack(spacing: 16) {
                         ProgressView()
@@ -66,48 +89,60 @@ public struct ReaderView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                         Button("重试") {
-                            loadCurrentChapter()
+                            loadInitialChapter(at: currentChapterIndex)
                         }
                         .buttonStyle(.borderedProminent)
                     }
                     Spacer()
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: readerConfig.lineSpacing) {
-                            if !chapters.isEmpty && currentChapterIndex < chapters.count {
-                                Text(chapters[currentChapterIndex].title)
-                                    .font(.system(size: readerConfig.fontSize + 4, weight: .bold))
-                                    .foregroundColor(readerConfig.theme.textColor)
-                                    .padding(.bottom, 8)
-                            }
-
-                            ForEach(contentBlocks) { block in
-                                if block.isImage, let urlStr = block.imageUrl {
-                                    ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
-                                } else {
-                                    Text(block.text)
-                                        .font(.system(size: readerConfig.fontSize))
-                                        .lineSpacing(readerConfig.lineSpacing)
-                                        .foregroundColor(readerConfig.theme.textColor)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
+                    ZStack {
+                        if readerConfig.pageMode == .scroll {
+                            infiniteScrollView
+                        } else {
+                            pageByPageView
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // Fixed Permanent Status Bar (Always Visible at bottom of reading face)
+                fixedBottomStatusBar
+            }
+
+            // 2. Dismiss Backdrop (when controls are open, tapping anywhere outside bars dismisses them)
+            if showControls {
+                Color.black.opacity(0.001)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showControls.toggle()
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            showControls = false
                         }
                     }
-                }
+                    .ignoresSafeArea()
+            }
 
-                if showControls {
-                    bottomToolbar
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+            // 3. Top Navigation Bar Overlay (Sliding down from top)
+            if showControls {
+                VStack(spacing: 0) {
+                    topNavigationBar
+                    Spacer()
                 }
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
+            }
+
+            // 4. Bottom Control Panel Overlay (Sliding up from bottom)
+            if showControls {
+                VStack(spacing: 0) {
+                    Spacer()
+                    bottomControlPanel
+                }
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .move(edge: .bottom).combined(with: .opacity)
+                ))
             }
         }
         #if os(iOS)
@@ -120,94 +155,519 @@ public struct ReaderView: View {
         .sheet(isPresented: $showSettings) {
             settingsSheet
         }
+        .sheet(isPresented: $showSearch) {
+            searchSheet
+        }
         .task {
-            await loadTOCAndChapter()
+            await loadTOCAndStart()
         }
         .onDisappear {
             audioService.stop()
         }
     }
 
+    // MARK: - Permanent Fixed Bottom Status Bar
+    private var fixedBottomStatusBar: some View {
+        HStack(alignment: .center, spacing: 12) {
+            // Chapter Name
+            if !chapters.isEmpty && currentChapterIndex < chapters.count {
+                Text(chapters[currentChapterIndex].title)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Text(book.name)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            // Reading Percentage vs Whole Book
+            if !chapters.isEmpty {
+                let progressPercent = Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0
+                if readerConfig.pageMode == .pageByPage, let cur = currentLoadedChapter, !cur.pages.isEmpty {
+                    Text("\(currentPageIndex + 1)/\(cur.pages.count) · \(String(format: "%.1f%%", progressPercent))")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                } else {
+                    Text("\(currentChapterIndex + 1)/\(chapters.count) (\(String(format: "%.1f%%", progressPercent)))")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+        .frame(height: 22)
+        .background(readerConfig.theme.backgroundColor.opacity(0.96))
+    }
+
+    // MARK: - Mode 1: Infinite Scroll Down (连续滚动)
+    private var infiniteScrollView: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(loadedChapters) { loadedCh in
+                        VStack(alignment: .leading, spacing: readerConfig.lineSpacing) {
+                            // Chapter Title
+                            Text(loadedCh.chapter.title)
+                                .font(.system(size: readerConfig.fontSize + 4, weight: .bold))
+                                .foregroundColor(readerConfig.theme.textColor)
+                                .padding(.horizontal, 20)
+                                .padding(.top, 20)
+                                .padding(.bottom, 10)
+                                .id("chapter_\(loadedCh.chapter.index)")
+                                .onAppear {
+                                    if currentChapterIndex != loadedCh.chapter.index {
+                                        currentChapterIndex = loadedCh.chapter.index
+                                        BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex, chapterTitle: loadedCh.chapter.title)
+                                    }
+                                }
+
+                            // Chapter Paragraphs and Images
+                            ForEach(loadedCh.blocks) { block in
+                                if block.isImage, let urlStr = block.imageUrl {
+                                    ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
+                                        .padding(.horizontal, 20)
+                                } else {
+                                    Text(block.text)
+                                        .font(.system(size: readerConfig.fontSize))
+                                        .lineSpacing(readerConfig.lineSpacing)
+                                        .foregroundColor(readerConfig.theme.textColor)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, readerConfig.lineSpacing / 3)
+                                }
+                            }
+
+                            // Empty space between chapters
+                            if loadedCh.chapter.index < chapters.count - 1 {
+                                VStack(spacing: 12) {
+                                    Rectangle()
+                                        .fill(readerConfig.theme.textColor.opacity(0.12))
+                                        .frame(height: 1)
+                                        .padding(.horizontal, 50)
+
+                                    Text("第 \(loadedCh.chapter.index + 1) 章 完 · 下滑进入下一章")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(readerConfig.theme.textColor.opacity(0.45))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 110) // Generous empty space divider between chapters
+                                .onAppear {
+                                    loadNextChapterForInfiniteScroll(after: loadedCh.chapter.index)
+                                }
+                            } else {
+                                VStack(spacing: 8) {
+                                    Rectangle()
+                                        .fill(readerConfig.theme.textColor.opacity(0.12))
+                                        .frame(height: 1)
+                                        .padding(.horizontal, 50)
+                                    Text("全书完")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(readerConfig.theme.textColor.opacity(0.5))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 100)
+                            }
+                        }
+                    }
+
+                    if isLoadingNextChapter {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("正在加载下一章...")
+                                .font(.caption)
+                                .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showControls.toggle()
+                }
+            }
+        }
+    }
+
+    // MARK: - Mode 2: Page by Page (左右翻页)
+    private var pageByPageView: some View {
+        GeometryReader { geo in
+            let pages = currentLoadedChapter?.pages ?? []
+
+            ZStack {
+                if pages.isEmpty || currentPageIndex >= pages.count {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else {
+                    let pageBlocks = pages[currentPageIndex]
+                    VStack(alignment: .leading, spacing: readerConfig.lineSpacing) {
+                        // If it's page 0, display Chapter Title at top
+                        if currentPageIndex == 0, let cur = currentLoadedChapter {
+                            Text(cur.chapter.title)
+                                .font(.system(size: readerConfig.fontSize + 3, weight: .bold))
+                                .foregroundColor(readerConfig.theme.textColor)
+                                .padding(.bottom, 8)
+                        }
+
+                        // Page Content
+                        ForEach(pageBlocks) { block in
+                            if block.isImage, let urlStr = block.imageUrl {
+                                ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
+                            } else {
+                                Text(block.text)
+                                    .font(.system(size: readerConfig.fontSize))
+                                    .lineSpacing(readerConfig.lineSpacing)
+                                    .foregroundColor(readerConfig.theme.textColor)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, readerConfig.lineSpacing / 3)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+                    .id("page_\(currentChapterIndex)_\(currentPageIndex)")
+                }
+
+                // Three-Zone Tap Controller & Drag Gesture
+                HStack(spacing: 0) {
+                    // Left 30%: Previous Page
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.3)
+                        .onTapGesture {
+                            turnPage(forward: false)
+                        }
+
+                    // Middle 40%: Toggle Controls
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.4)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showControls.toggle()
+                            }
+                        }
+
+                    // Right 30%: Next Page
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: geo.size.width * 0.3)
+                        .onTapGesture {
+                            turnPage(forward: true)
+                        }
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { value in
+                        if value.translation.width < -40 {
+                            turnPage(forward: true)
+                        } else if value.translation.width > 40 {
+                            turnPage(forward: false)
+                        }
+                    }
+            )
+        }
+    }
+
+    // MARK: - Page Turn Handler (Once chapter ends, next chapter starts next page)
+    private func turnPage(forward: Bool) {
+        guard let current = currentLoadedChapter else { return }
+        let totalPages = current.pages.count
+
+        if forward {
+            if currentPageIndex < totalPages - 1 {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    currentPageIndex += 1
+                }
+            } else {
+                // Chapter ended! Once one chapter ends, the new chapter starts the next page!
+                if currentChapterIndex < chapters.count - 1 {
+                    audioService.stop()
+                    let nextIdx = currentChapterIndex + 1
+                    currentChapterIndex = nextIdx
+                    currentPageIndex = 0
+                    loadInitialChapter(at: nextIdx, targetPageIndex: 0)
+                }
+            }
+        } else {
+            if currentPageIndex > 0 {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    currentPageIndex -= 1
+                }
+            } else {
+                // Return to previous chapter's last page!
+                if currentChapterIndex > 0 {
+                    audioService.stop()
+                    let prevIdx = currentChapterIndex - 1
+                    currentChapterIndex = prevIdx
+                    loadInitialChapter(at: prevIdx, targetPageIndex: -1) // -1 indicates last page
+                }
+            }
+        }
+    }
+
+    // MARK: - Navigation Bars & Toolbars (Apple Books Layout)
     private var topNavigationBar: some View {
-        HStack {
+        HStack(alignment: .center) {
+            // Exit button
             Button(action: {
                 audioService.stop()
                 dismiss()
             }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(readerConfig.theme.textColor)
-                    .frame(width: 44, height: 44, alignment: .leading)
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("书架")
+                        .font(.system(size: 16))
+                }
+                .foregroundColor(readerConfig.theme.textColor)
+                .contentShape(Rectangle())
             }
 
             Spacer()
 
-            // TTS Play/Pause
-            Button(action: {
-                audioService.togglePlayPause(text: chapterContent)
-            }) {
-                Image(systemName: audioService.isPlaying ? "pause.circle.fill" : (audioService.isPaused ? "play.circle.fill" : "play.circle"))
-                    .font(.system(size: 20))
+            // Title & Chapter Info
+            VStack(spacing: 2) {
+                Text(book.name)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(readerConfig.theme.textColor)
-                    .frame(width: 36, height: 44)
+                    .lineLimit(1)
+                if !chapters.isEmpty && currentChapterIndex < chapters.count {
+                    Text(chapters[currentChapterIndex].title)
+                        .font(.system(size: 11))
+                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                        .lineLimit(1)
+                }
             }
+            .frame(maxWidth: 200)
 
-            // Table of contents
-            Button(action: { showTOC = true }) {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 18))
-                    .foregroundColor(readerConfig.theme.textColor)
-                    .frame(width: 36, height: 44)
-            }
+            Spacer()
 
-            // Typography & Theme settings
-            Button(action: { showSettings = true }) {
-                Image(systemName: "textformat.size")
-                    .font(.system(size: 18))
-                    .foregroundColor(readerConfig.theme.textColor)
-                    .frame(width: 36, height: 44)
+            // Right side: Text search and settings buttons
+            HStack(spacing: 16) {
+                Button(action: { showSearch = true }) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(readerConfig.theme.textColor)
+                        .frame(width: 32, height: 32)
+                }
+
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(readerConfig.theme.textColor)
+                        .frame(width: 32, height: 32)
+                }
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 44)
-        .background(readerConfig.theme.backgroundColor.opacity(0.98))
-        .overlay(Rectangle().frame(height: 1).foregroundColor(Color.gray.opacity(0.15)), alignment: .bottom)
+        .padding(.vertical, 10)
+        .background(
+            readerConfig.theme.backgroundColor
+                .opacity(0.97)
+                .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
+                .ignoresSafeArea(edges: .top)
+        )
+        .overlay(
+            Rectangle()
+                .fill(readerConfig.theme.textColor.opacity(0.12))
+                .frame(height: 0.5),
+            alignment: .bottom
+        )
     }
 
-    private var bottomToolbar: some View {
-        HStack {
-            Button("上一章") {
-                if currentChapterIndex > 0 {
-                    audioService.stop()
-                    currentChapterIndex -= 1
-                    loadCurrentChapter()
-                }
-            }
-            .disabled(currentChapterIndex <= 0)
+    private var bottomControlPanel: some View {
+        VStack(spacing: 14) {
+            chapterNavigationRow
 
-            Spacer()
+            Rectangle()
+                .fill(readerConfig.theme.textColor.opacity(0.12))
+                .frame(height: 0.5)
 
-            if !chapters.isEmpty {
-                Text("\(currentChapterIndex + 1) / \(chapters.count)")
-                    .font(.footnote)
-                    .foregroundColor(readerConfig.theme.textColor.opacity(0.8))
-            }
-
-            Spacer()
-
-            Button("下一章") {
-                if currentChapterIndex < chapters.count - 1 {
-                    audioService.stop()
-                    currentChapterIndex += 1
-                    loadCurrentChapter()
-                }
-            }
-            .disabled(currentChapterIndex >= chapters.count - 1)
+            bottomActionRow
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(readerConfig.theme.backgroundColor.opacity(0.95))
-        .overlay(Rectangle().frame(height: 1).foregroundColor(Color.gray.opacity(0.2)), alignment: .top)
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .background(
+            readerConfig.theme.backgroundColor
+                .opacity(0.97)
+                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: -4)
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private var chapterNavigationRow: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 14) {
+                Button(action: {
+                    if currentChapterIndex > 0 {
+                        audioService.stop()
+                        let newIdx = currentChapterIndex - 1
+                        currentChapterIndex = newIdx
+                        currentPageIndex = 0
+                        loadInitialChapter(at: newIdx)
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("上一章")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(currentChapterIndex > 0 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+                }
+                .disabled(currentChapterIndex <= 0)
+
+                if chapters.count > 1 {
+                    Slider(
+                        value: Binding(
+                            get: { Double(currentChapterIndex) },
+                            set: { newValue in
+                                let target = Int(newValue.rounded())
+                                if target != currentChapterIndex && target >= 0 && target < chapters.count {
+                                    audioService.stop()
+                                    currentChapterIndex = target
+                                    currentPageIndex = 0
+                                    loadInitialChapter(at: target)
+                                }
+                            }
+                        ),
+                        in: 0...Double(chapters.count - 1),
+                        step: 1
+                    )
+                    .accentColor(.accentColor)
+                } else {
+                    Spacer()
+                }
+
+                Button(action: {
+                    if currentChapterIndex < chapters.count - 1 {
+                        audioService.stop()
+                        let newIdx = currentChapterIndex + 1
+                        currentChapterIndex = newIdx
+                        currentPageIndex = 0
+                        loadInitialChapter(at: newIdx)
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text("下一章")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(currentChapterIndex < chapters.count - 1 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+                }
+                .disabled(currentChapterIndex >= chapters.count - 1)
+            }
+
+            if !chapters.isEmpty && currentChapterIndex < chapters.count {
+                HStack {
+                    Text("第 \(currentChapterIndex + 1) / \(chapters.count) 章")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                    Spacer()
+                    Text(chapters[currentChapterIndex].title)
+                        .font(.system(size: 11))
+                        .foregroundColor(readerConfig.theme.textColor.opacity(0.7))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private var bottomActionRow: some View {
+        HStack(spacing: 0) {
+            // Contents Table (目录)
+            Button(action: { showTOC = true }) {
+                VStack(spacing: 4) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 20))
+                    Text("目录")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(readerConfig.theme.textColor)
+                .frame(maxWidth: .infinity)
+            }
+
+            // Text Search (搜索)
+            Button(action: { showSearch = true }) {
+                VStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 20))
+                    Text("搜索")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(readerConfig.theme.textColor)
+                .frame(maxWidth: .infinity)
+            }
+
+            // TTS (听书)
+            Button(action: {
+                audioService.togglePlayPause(text: currentChapterContent)
+            }) {
+                VStack(spacing: 4) {
+                    Image(systemName: audioService.isPlaying ? "pause.circle.fill" : (audioService.isPaused ? "play.circle.fill" : "headphones"))
+                        .font(.system(size: 20))
+                        .foregroundColor(audioService.isPlaying ? .accentColor : readerConfig.theme.textColor)
+                    Text(audioService.isPlaying ? "暂停" : (audioService.isPaused ? "继续" : "听书"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(audioService.isPlaying ? .accentColor : readerConfig.theme.textColor)
+                }
+                .foregroundColor(readerConfig.theme.textColor)
+                .frame(maxWidth: .infinity)
+            }
+
+            // Interface Settings (界面设置)
+            Button(action: { showSettings = true }) {
+                VStack(spacing: 4) {
+                    Image(systemName: "textformat.size")
+                        .font(.system(size: 20))
+                    Text("界面")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(readerConfig.theme.textColor)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var searchSheet: some View {
+        ReaderSearchSheet(
+            book: book,
+            currentChapterIndex: currentChapterIndex,
+            currentChapterTitle: (!chapters.isEmpty && currentChapterIndex < chapters.count) ? chapters[currentChapterIndex].title : "",
+            currentContent: currentChapterContent,
+            chapters: chapters,
+            onSelectChapter: { targetIndex, _ in
+                showSearch = false
+                withAnimation {
+                    showControls = false
+                }
+                if targetIndex != currentChapterIndex {
+                    audioService.stop()
+                    currentChapterIndex = targetIndex
+                    currentPageIndex = 0
+                    loadInitialChapter(at: targetIndex)
+                }
+            }
+        )
     }
 
     private var tocSheet: some View {
@@ -216,8 +676,9 @@ public struct ReaderView: View {
                 Button(action: {
                     audioService.stop()
                     currentChapterIndex = ch.index
+                    currentPageIndex = 0
                     showTOC = false
-                    loadCurrentChapter()
+                    loadInitialChapter(at: ch.index)
                 }) {
                     HStack {
                         Text(ch.title)
@@ -245,11 +706,23 @@ public struct ReaderView: View {
     private var settingsSheet: some View {
         NavigationView {
             Form {
+                Section("翻页模式") {
+                    Picker("阅读模式", selection: $readerConfig.pageMode) {
+                        ForEach(PageMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Section("字号设置") {
                     HStack {
                         Text("A-")
                             .font(.body)
                         Slider(value: $readerConfig.fontSize, in: 12...32, step: 1)
+                            .onChange(of: readerConfig.fontSize) { _ in
+                                recomputePagination()
+                            }
                         Text("A+")
                             .font(.title3)
                         Text("\(Int(readerConfig.fontSize)) pt")
@@ -278,7 +751,8 @@ public struct ReaderView: View {
         }
     }
 
-    private func loadTOCAndChapter() async {
+    // MARK: - Data Loading Pipeline
+    private func loadTOCAndStart() async {
         if book.origin == "local" {
             let localChapters = BookStore.shared.getChapters(for: book.bookUrl)
             if !localChapters.isEmpty {
@@ -286,15 +760,14 @@ public struct ReaderView: View {
                 if currentChapterIndex >= localChapters.count {
                     currentChapterIndex = 0
                 }
-                loadCurrentChapter()
+                loadInitialChapter(at: currentChapterIndex)
                 return
             }
         }
 
-        let effectiveSource = source ?? BookStore.shared.findSource(for: book)
         guard let source = effectiveSource else {
             errorMessage = "未找到书籍关联的书源"
-            isLoading = false
+            isLoadingInitial = false
             return
         }
 
@@ -304,39 +777,91 @@ public struct ReaderView: View {
             if currentChapterIndex >= fetchedChapters.count {
                 currentChapterIndex = 0
             }
-            loadCurrentChapter()
+            loadInitialChapter(at: currentChapterIndex)
         } catch {
             self.errorMessage = "目录解析失败: \(error.localizedDescription)"
-            self.isLoading = false
+            self.isLoadingInitial = false
         }
     }
 
-    private func loadCurrentChapter() {
-        guard !chapters.isEmpty, currentChapterIndex < chapters.count else { return }
-        let currentChapter = chapters[currentChapterIndex]
-        isLoading = true
+    private func loadInitialChapter(at index: Int, targetPageIndex: Int = 0) {
+        guard !chapters.isEmpty, index < chapters.count else { return }
+        let currentChapter = chapters[index]
+        isLoadingInitial = true
         errorMessage = nil
 
-        let effectiveSource = source ?? BookStore.shared.findSource(for: book)
+        let source = effectiveSource
 
         Task { @MainActor in
             do {
-                let content = try await BookContentService.shared.fetchChapterContent(chapter: currentChapter, source: effectiveSource)
-                self.chapterContent = content
-                self.isLoading = false
-                BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex, chapterTitle: currentChapter.title)
+                let content = try await BookContentService.shared.fetchChapterContent(chapter: currentChapter, source: source)
+                let blocks = parseContentBlocks(from: content)
+                let pages = paginate(blocks: blocks)
+                let loaded = LoadedChapter(chapter: currentChapter, content: content, blocks: blocks, pages: pages)
+
+                self.loadedChapters = [loaded]
+                self.currentChapterIndex = index
+
+                if targetPageIndex == -1 {
+                    self.currentPageIndex = max(0, pages.count - 1)
+                } else {
+                    self.currentPageIndex = min(targetPageIndex, max(0, pages.count - 1))
+                }
+
+                self.isLoadingInitial = false
+                BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: index, chapterTitle: currentChapter.title)
             } catch {
                 self.errorMessage = "正文解析失败: \(error.localizedDescription)"
-                self.isLoading = false
+                self.isLoadingInitial = false
             }
         }
     }
 
-    private var contentBlocks: [ContentBlock] {
+    private func loadNextChapterForInfiniteScroll(after index: Int) {
+        let nextIndex = index + 1
+        guard nextIndex < chapters.count else { return }
+        // If already loaded or currently loading, return
+        if loadedChapters.contains(where: { $0.chapter.index == nextIndex }) || isLoadingNextChapter {
+            return
+        }
+
+        let nextChapter = chapters[nextIndex]
+        isLoadingNextChapter = true
+        let source = effectiveSource
+
+        Task { @MainActor in
+            do {
+                let content = try await BookContentService.shared.fetchChapterContent(chapter: nextChapter, source: source)
+                let blocks = parseContentBlocks(from: content)
+                let pages = paginate(blocks: blocks)
+                let loaded = LoadedChapter(chapter: nextChapter, content: content, blocks: blocks, pages: pages)
+
+                self.loadedChapters.append(loaded)
+                self.isLoadingNextChapter = false
+            } catch {
+                print("[ReaderView] ⚠️ Failed to preload chapter \(nextIndex): \(error)")
+                self.isLoadingNextChapter = false
+            }
+        }
+    }
+
+    private func recomputePagination() {
+        for i in 0..<loadedChapters.count {
+            loadedChapters[i].pages = paginate(blocks: loadedChapters[i].blocks)
+        }
+        if let cur = currentLoadedChapter {
+            if currentPageIndex >= cur.pages.count {
+                currentPageIndex = max(0, cur.pages.count - 1)
+            }
+        }
+    }
+
+    // MARK: - Paragraph and Page Parser
+    private func parseContentBlocks(from text: String) -> [ContentBlock] {
         var blocks: [ContentBlock] = []
         var currentId = 0
         let regex = try? NSRegularExpression(pattern: "\\[image:(.*?)\\]")
-        let lines = chapterContent.components(separatedBy: "\n")
+        let lines = text.components(separatedBy: "\n")
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -381,15 +906,51 @@ public struct ReaderView: View {
         }
         return blocks
     }
+
+    private func paginate(blocks: [ContentBlock]) -> [[ContentBlock]] {
+        let approxCharsPerPage = max(200, Int(7000 / readerConfig.fontSize))
+        var pages: [[ContentBlock]] = []
+        var currentPage: [ContentBlock] = []
+        var currentCount = 0
+
+        for block in blocks {
+            if block.isImage {
+                if currentCount > 120 {
+                    pages.append(currentPage)
+                    currentPage = []
+                    currentCount = 0
+                }
+                currentPage.append(block)
+                currentCount += 240
+                if currentCount >= approxCharsPerPage {
+                    pages.append(currentPage)
+                    currentPage = []
+                    currentCount = 0
+                }
+            } else {
+                let count = block.text.count
+                if currentCount > 0 && (currentCount + count > approxCharsPerPage) {
+                    pages.append(currentPage)
+                    currentPage = []
+                    currentCount = 0
+                }
+                currentPage.append(block)
+                currentCount += count
+                if currentCount >= approxCharsPerPage {
+                    pages.append(currentPage)
+                    currentPage = []
+                    currentCount = 0
+                }
+            }
+        }
+        if !currentPage.isEmpty {
+            pages.append(currentPage)
+        }
+        return pages.isEmpty ? [[]] : pages
+    }
 }
 
-public struct ContentBlock: Identifiable {
-    public let id: Int
-    public let isImage: Bool
-    public let text: String
-    public let imageUrl: String?
-}
-
+// MARK: - Chapter Image Component with Anti-Hotlinking Headers & Cache
 public struct ChapterImageView: View {
     public let urlString: String
     public let referer: String?
@@ -529,3 +1090,136 @@ public struct ChapterImageView: View {
         return nil
     }
 }
+
+// MARK: - Reader Search Sheet
+public struct ReaderSearchSheet: View {
+    let book: Book
+    let currentChapterIndex: Int
+    let currentChapterTitle: String
+    let currentContent: String
+    let chapters: [BookChapter]
+    let onSelectChapter: (Int, String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText: String = ""
+    @State private var searchScope: Int = 0 // 0: 本章内容, 1: 目录章节
+
+    public struct SearchItem: Identifiable {
+        public let id = UUID()
+        public let chapterIndex: Int
+        public let title: String
+        public let snippet: String
+    }
+
+    private var currentChapterMatches: [SearchItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+
+        var results: [SearchItem] = []
+        let lines = currentContent.components(separatedBy: "\n")
+        for (lineIdx, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.localizedCaseInsensitiveContains(query) {
+                results.append(SearchItem(
+                    chapterIndex: currentChapterIndex,
+                    title: "\(currentChapterTitle) (第 \(lineIdx + 1) 段)",
+                    snippet: trimmed
+                ))
+            }
+        }
+        return results
+    }
+
+    private var tocMatches: [SearchItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+
+        return chapters.compactMap { ch in
+            if ch.title.localizedCaseInsensitiveContains(query) {
+                return SearchItem(
+                    chapterIndex: ch.index,
+                    title: "第 \(ch.index + 1) 章",
+                    snippet: ch.title
+                )
+            }
+            return nil
+        }
+    }
+
+    private var activeResults: [SearchItem] {
+        searchScope == 0 ? currentChapterMatches : tocMatches
+    }
+
+    public var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                Picker("搜索范围", selection: $searchScope) {
+                    Text("当前章节正文").tag(0)
+                    Text("目录章节搜索").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                if searchText.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text(searchScope == 0 ? "输入关键词搜索当前章节正文" : "输入关键词搜索目录章节")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                } else if activeResults.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text("未找到包含 “\(searchText)” 的内容")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                } else {
+                    List(activeResults) { item in
+                        Button(action: {
+                            onSelectChapter(item.chapterIndex, item.snippet)
+                        }) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(item.title)
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Text(item.snippet)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(3)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("查找")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .searchable(text: $searchText, prompt: searchScope == 0 ? "搜索当前章节内容..." : "搜索章节名称...")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
