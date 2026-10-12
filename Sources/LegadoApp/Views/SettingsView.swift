@@ -4,6 +4,7 @@ import LegadoCore
 #endif
 
 public struct SettingsView: View {
+
     @ObservedObject var bookStore = BookStore.shared
     @ObservedObject var readerConfig = ReaderConfig.shared
 
@@ -15,6 +16,12 @@ public struct SettingsView: View {
     @State private var clearCacheMessage: String? = nil
 
     public init() {}
+
+    /// Read from the bundle so the screen cannot drift from `MARKETING_VERSION` — it used to
+    /// say 1.0.0 while the project and the VERSION file said 0.2.0.
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "未知"
+    }
 
     public var body: some View {
         NavigationView {
@@ -154,6 +161,42 @@ public struct SettingsView: View {
                     }
                 }
 
+                // Section 5: 替换净化
+                Section(header: Text("正文处理")) {
+                    NavigationLink(destination: ReplaceRuleListView()) {
+                        HStack {
+                            Text("替换净化")
+                            Spacer()
+                            Text("\(bookStore.replaceRules.filter { $0.isEnabled }.count) / \(bookStore.replaceRules.count) 条启用")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Toggle("新书默认启用净化", isOn: Binding(
+                        get: { readerConfig.prefs.replaceEnableDefault },
+                        set: { var p = readerConfig.prefs; p.replaceEnableDefault = $0; readerConfig.prefs = p }
+                    ))
+
+                    Picker("简繁转换", selection: Binding(
+                        get: { readerConfig.prefs.chineseConverterType },
+                        set: { var p = readerConfig.prefs; p.chineseConverterType = $0; readerConfig.prefs = p }
+                    )) {
+                        Text("关闭").tag(0)
+                        Text("繁体转简体").tag(1)
+                        Text("简体转繁体").tag(2)
+                    }
+
+                    Picker("图片样式", selection: Binding(
+                        get: { readerConfig.prefs.imageStyle },
+                        set: { var p = readerConfig.prefs; p.imageStyle = $0; readerConfig.prefs = p }
+                    )) {
+                        ForEach(ReadImageStyle.allCases) { style in
+                            Text(style.label).tag(style)
+                        }
+                    }
+                }
+
                 // Section 4: About
                 Section(header: Text("关于 Legado iOS")) {
                     HStack {
@@ -166,7 +209,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("当前版本")
                         Spacer()
-                        Text("1.0.0")
+                        Text(appVersion)
                             .foregroundColor(.secondary)
                     }
 
@@ -191,6 +234,9 @@ public struct SettingsView: View {
             .alert("清理阅读缓存", isPresented: $showClearCacheAlert) {
                 Button("取消", role: .cancel) {}
                 Button("确定清理", role: .destructive) {
+                    for book in bookStore.bookshelf {
+                        BookContentService.shared.clearCache(for: book.bookUrl)
+                    }
                     clearCacheMessage = "缓存已成功清理"
                 }
             } message: {

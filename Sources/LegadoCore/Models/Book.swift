@@ -25,6 +25,11 @@ public struct Book: Codable, Identifiable, Equatable {
     public var totalChapterNum: Int
     public var lastCheckTime: Int64
 
+    /// Per-book 替换净化 switch. Android keeps this inside the `readConfig` JSON column
+    /// (`Book.getUseReplaceRule`); a flat optional is equivalent for us, and GSON ignores
+    /// an unknown top-level key when the book is restored on Android.
+    public var useReplaceRule: Bool?
+
     public init(
         bookUrl: String,
         name: String,
@@ -42,7 +47,8 @@ public struct Book: Codable, Identifiable, Equatable {
         durChapterPos: Int = 0,
         durChapterTime: Int64 = 0,
         totalChapterNum: Int = 0,
-        lastCheckTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+        lastCheckTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
+        useReplaceRule: Bool? = nil
     ) {
         self.bookUrl = bookUrl
         self.name = name
@@ -61,12 +67,14 @@ public struct Book: Codable, Identifiable, Equatable {
         self.durChapterTime = durChapterTime
         self.totalChapterNum = totalChapterNum
         self.lastCheckTime = lastCheckTime
+        self.useReplaceRule = useReplaceRule
     }
 
     enum CodingKeys: String, CodingKey {
         case bookUrl, name, author, kind, coverUrl, intro
         case origin, originName, tocUrl, wordCount, latestChapterTitle
         case durChapterTitle, durChapterIndex, durChapterPos, durChapterTime, totalChapterNum, lastCheckTime
+        case useReplaceRule
     }
 
     public init(from decoder: Decoder) throws {
@@ -88,6 +96,7 @@ public struct Book: Codable, Identifiable, Equatable {
         self.durChapterTime = (try? container.decode(Int64.self, forKey: .durChapterTime)) ?? 0
         self.totalChapterNum = (try? container.decode(Int.self, forKey: .totalChapterNum)) ?? 0
         self.lastCheckTime = (try? container.decode(Int64.self, forKey: .lastCheckTime)) ?? Int64(Date().timeIntervalSince1970 * 1000)
+        self.useReplaceRule = try? container.decodeIfPresent(Bool.self, forKey: .useReplaceRule)
     }
 }
 
@@ -165,6 +174,9 @@ public struct SearchBook: Codable, Identifiable, Equatable {
     public var origin: String
     public var originName: String
     public var wordCount: String?
+    /// Every source that returned this same title+author. Android aggregates the same way to
+    /// rank results by how many sources carry a book; optional so payloads without it decode.
+    public var origins: [String]?
 
     public init(
         name: String,
@@ -176,7 +188,8 @@ public struct SearchBook: Codable, Identifiable, Equatable {
         latestChapterTitle: String? = nil,
         origin: String,
         originName: String,
-        wordCount: String? = nil
+        wordCount: String? = nil,
+        origins: [String]? = nil
     ) {
         self.name = name
         self.author = author
@@ -188,5 +201,12 @@ public struct SearchBook: Codable, Identifiable, Equatable {
         self.origin = origin
         self.originName = originName
         self.wordCount = wordCount
+        self.origins = origins ?? [origin]
     }
+
+    /// Number of sources that offered this book.
+    public var originCount: Int { max(1, origins?.count ?? 1) }
+
+    /// Android's merge key: the same title and author on several sources is one row.
+    public var mergeKey: String { "\(name)\u{1}\(author)" }
 }

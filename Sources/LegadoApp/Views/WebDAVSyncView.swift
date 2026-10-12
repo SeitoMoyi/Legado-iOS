@@ -277,7 +277,7 @@ public struct WebDAVSyncView: View {
                 showFileImporter = true
             } label: {
                 HStack {
-                    Image(systemName: "doc.badge.arrow.up")
+                    Image(systemName: "arrow.down.doc")
                     Text("导入本地 Android 备份包 (.zip)")
                 }
             }

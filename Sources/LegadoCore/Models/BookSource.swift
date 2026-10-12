@@ -35,6 +35,15 @@ public struct BookSource: Codable, Identifiable, Equatable {
     public var loginHeader: String?
     public var variable: String?
 
+    /// Android splits group lists with `AppPattern.splitGroupRegex = Regex("[,;，；]")`.
+    /// `\n` is added because hand-edited source JSON frequently puts one group per line.
+    public var groups: [String] {
+        (bookSourceGroup ?? "")
+            .components(separatedBy: CharacterSet(charactersIn: ",;，；\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     public var isLogged: Bool {
         guard let h = loginHeader, !h.isEmpty else { return false }
         return true

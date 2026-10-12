@@ -15,7 +15,8 @@ public struct NetworkResponse {
 }
 
 public class NetworkClient {
-    public static let shared = NetworkClient()
+    /// Swap this in tests to point every service at a mocked `URLSession`.
+    public static var shared = NetworkClient()
     private let session: URLSession
 
     public init(session: URLSession = .shared) {
@@ -27,7 +28,25 @@ public class NetworkClient {
         public let method: String
         public let headers: [String: String]
         public let body: Data?
+        /// `charset` from the URL options. Android uses it for request encoding; we also
+        /// pass it to `CharsetDetector` as a decode hint.
+        public let charset: String?
+        /// `retry` from the URL options, clamped to `maxRetry`.
+        public let retry: Int
+
+        public init(url: URL, method: String, headers: [String: String], body: Data?,
+                    charset: String? = nil, retry: Int = 0) {
+            self.url = url
+            self.method = method
+            self.headers = headers
+            self.body = body
+            self.charset = charset
+            self.retry = retry
+        }
     }
+
+    /// Source authors routinely mistype `retry`; cap it so a bad rule cannot hammer a site.
+    static let maxRetry = 3
 
     /// Parses Legado's custom URL syntax:
     /// e.g. "https://domain.com/search,{\"method\":\"POST\",\"body\":{\"key\":\"val\"},\"headers\":{\"X\":\"Y\"}}"
@@ -65,6 +84,8 @@ public class NetworkClient {
         }
 
         // Check if there is an options JSON appended with a comma
+        var declaredCharset: String? = nil
+        var retryCount = 0
         if let commaIndex = cleanUrl.firstIndex(of: ","),
            cleanUrl[cleanUrl.index(after: commaIndex)...].trimmingCharacters(in: .whitespaces).starts(with: "{") {
             let urlPart = String(cleanUrl[..<commaIndex]).trimmingCharacters(in: .whitespaces)
@@ -75,6 +96,12 @@ public class NetworkClient {
                let options = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
                 if let m = options["method"] as? String {
                     method = m.uppercased()
+                }
+                if let c = options["charset"] as? String, !c.isEmpty {
+                    declaredCharset = c
+                }
+                if let r = options["retry"] as? NSNumber {
+                    retryCount = min(max(0, r.intValue), NetworkClient.maxRetry)
                 }
                 if let h = options["headers"] as? [String: Any] {
                     for (k, v) in h {
@@ -107,11 +134,32 @@ public class NetworkClient {
             }
         }
         guard let url = targetUrl else { return nil }
-        return ParsedRequest(url: url, method: method, headers: headers, body: bodyData)
+        return ParsedRequest(url: url, method: method, headers: headers, body: bodyData,
+                             charset: declaredCharset, retry: retryCount)
     }
 
-    /// Performs an asynchronous HTTP request
+    /// Performs an asynchronous HTTP request, honouring the `retry` option.
     public func request(parsed: ParsedRequest) async throws -> NetworkResponse {
+        var lastError: Error? = nil
+        for attempt in 0...parsed.retry {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            do {
+                let response = try await performOnce(parsed: parsed)
+                // 5xx is what Android retries on; 4xx is a real answer the rules must see.
+                if response.statusCode >= 500 && attempt < parsed.retry { continue }
+                return response
+            } catch {
+                lastError = error
+                if attempt >= parsed.retry { throw error }
+            }
+        }
+        if let lastError { throw lastError }
+        return try await performOnce(parsed: parsed)
+    }
+
+    private func performOnce(parsed: ParsedRequest) async throws -> NetworkResponse {
         var req = URLRequest(url: parsed.url)
         req.httpMethod = parsed.method
         req.httpBody = parsed.body
@@ -130,7 +178,7 @@ public class NetworkClient {
             }
         }
 
-        let bodyStr = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        let bodyStr = CharsetDetector.decode(data, headers: respHeaders, declared: parsed.charset)
         return NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders)
     }
 
@@ -160,7 +208,7 @@ public class NetworkClient {
                 }
             }
 
-            let bodyStr = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+            let bodyStr = CharsetDetector.decode(data, headers: respHeaders, declared: parsed.charset)
             result = NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders)
         }
         task.resume()

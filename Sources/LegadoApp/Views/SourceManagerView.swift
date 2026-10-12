@@ -48,7 +48,7 @@ public struct SourceManagerView: View {
                             }
 
                             Button {
-                                SearchViewModel.shared.selectedSourceUrl = source.bookSourceUrl
+                                SearchViewModel.shared.selectSource(url: source.bookSourceUrl)
                                 selectedSourceForSearch = source
                             } label: {
                                 Label("搜索", systemImage: "magnifyingglass")

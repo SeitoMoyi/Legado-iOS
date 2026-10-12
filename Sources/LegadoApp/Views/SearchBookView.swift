@@ -5,7 +5,10 @@ import LegadoCore
 
 public struct SearchBookView: View {
     @ObservedObject var viewModel = SearchViewModel.shared
+    @ObservedObject var bookStore = BookStore.shared
     @State private var selectedDetailBook: SearchBook? = nil
+    @State private var showScope = false
+    @State private var confirmClearHistory = false
 
     public init() {}
 
@@ -39,15 +42,17 @@ public struct SearchBookView: View {
             .padding(.horizontal)
             .padding(.top, 8)
 
+            scopeControlRow
+
             // Source filter chips
             if !viewModel.availableSources.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         FilterChip(
                             title: "全部书源 (\(viewModel.availableSources.count))",
-                            isSelected: viewModel.selectedSourceUrl == nil
+                            isSelected: viewModel.scope.isAll
                         ) {
-                            viewModel.selectedSourceUrl = nil
+                            viewModel.selectSource(url: nil)
                             if !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                                 viewModel.startSearch()
                             }
@@ -56,9 +61,9 @@ public struct SearchBookView: View {
                         ForEach(viewModel.availableSources) { source in
                             FilterChip(
                                 title: source.bookSourceName,
-                                isSelected: viewModel.selectedSourceUrl == source.bookSourceUrl
+                                isSelected: viewModel.scope.sourceUrl == source.bookSourceUrl
                             ) {
-                                viewModel.selectedSourceUrl = source.bookSourceUrl
+                                viewModel.selectSource(url: source.bookSourceUrl)
                                 if !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                                     viewModel.startSearch()
                                 }
@@ -97,16 +102,7 @@ public struct SearchBookView: View {
                 }
                 Spacer()
             } else if viewModel.searchResults.isEmpty && viewModel.searchQuery.isEmpty {
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "books.vertical")
-                        .font(.system(size: 40))
-                        .foregroundColor(.secondary.opacity(0.5))
-                    Text("输入关键词开启全网搜索")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
+                historyView
             } else {
                 List {
                     ForEach(viewModel.searchResults) { item in
@@ -134,6 +130,7 @@ public struct SearchBookView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .onAppear { viewModel.reconcileScope() }
         .background(
             // Programmatic navigation link outside List to avoid any row insertion or navigation reset
             NavigationLink(
@@ -199,6 +196,103 @@ public struct SearchBookView: View {
                 Spacer()
             }
             .padding(.vertical, 12)
+        }
+    }
+
+    // MARK: - 范围 / 精准 / 停止
+
+    private var scopeControlRow: some View {
+        HStack(spacing: 12) {
+            Button {
+                showScope = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 13))
+                    Text(viewModel.scope.summary(sourceName: viewModel.scopedSourceName))
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.accentColor.opacity(viewModel.scope.isAll ? 0.08 : 0.16)))
+            }
+            .buttonStyle(.plain)
+
+            Toggle(isOn: $viewModel.precisionSearch) {
+                Text("精准搜索").font(.system(size: 13))
+            }
+            .toggleStyle(.button)
+
+            Spacer()
+
+            if viewModel.isSearching {
+                Button("停止") { viewModel.stopSearch() }
+                    .font(.system(size: 13))
+            } else if viewModel.isManuallyStopped {
+                Button("继续") { viewModel.resumeSearch() }
+                    .font(.system(size: 13))
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 6)
+        .sheet(isPresented: $showScope) {
+            SearchScopeSheet(onDone: {
+                guard !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                viewModel.startSearch()
+            })
+        }
+    }
+
+    // MARK: - 搜索历史
+
+    private var historyView: some View {
+        let history = bookStore.searchHistory(matching: viewModel.searchQuery)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if history.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "books.vertical")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("输入关键词开启全网搜索")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+                } else {
+                    HStack {
+                        Text("搜索历史")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Button("清除") { confirmClearHistory = true }
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)],
+                              alignment: .leading,
+                              spacing: 8) {
+                        ForEach(history) { item in
+                            FilterChip(title: item.word, isSelected: false) {
+                                viewModel.searchQuery = item.word
+                                viewModel.startSearch()
+                            }
+                            .contextMenu {
+                                Button("删除") { bookStore.deleteSearchKeyword(item.word) }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding()
+        }
+        .confirmationDialog("确认清除所有搜索历史记录？", isPresented: $confirmClearHistory,
+                            titleVisibility: .visible) {
+            Button("清除", role: .destructive) { bookStore.clearSearchHistory() }
+            Button("取消", role: .cancel) {}
         }
     }
 }

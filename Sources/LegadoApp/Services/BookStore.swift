@@ -8,12 +8,30 @@ public class BookStore: ObservableObject {
 
     @Published public var bookshelf: [Book] = []
     @Published public var sources: [BookSource] = []
+    @Published public var replaceRules: [ReplaceRule] = []
+    @Published public var bookmarks: [Bookmark] = []
+    @Published public var searchHistory: [SearchKeyword] = []
 
     private let booksKey = "legado_bookshelf_v1"
     private let sourcesKey = "legado_sources_v1"
 
     public init() {
         loadData()
+        bindContentProcessor()
+    }
+
+    /// Keeps the core pipeline pointed at the live rule list and lets a rule that times out
+    /// disable itself here rather than in the core layer.
+    private func bindContentProcessor() {
+        ContentProcessor.shared.rules = replaceRules
+        ContentProcessor.shared.onRuleAutoDisabled = { [weak self] disabled in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard let index = self.replaceRules.firstIndex(where: { $0.id == disabled.id }) else { return }
+                self.replaceRules[index].isEnabled = false
+                self.saveReplaceRules()
+            }
+        }
     }
 
     private func getDocumentsDirectory() -> URL {
@@ -38,6 +56,10 @@ public class BookStore: ObservableObject {
            let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
             self.sources = decoded
         }
+
+        replaceRules = ReplaceRuleStore.load()
+        bookmarks = BookmarkStore.load()
+        searchHistory = SearchHistoryStore.load()
 
         // Merge or populate bundled default sources
         loadBundledSources()
@@ -126,6 +148,103 @@ public class BookStore: ObservableObject {
     public func saveBookshelf() {
         if let data = try? JSONEncoder().encode(bookshelf) {
             UserDefaults.standard.set(data, forKey: booksKey)
+        }
+    }
+
+    // MARK: - 替换净化 Rules
+
+    public func saveReplaceRules() {
+        ReplaceRuleStore.save(replaceRules)
+        ContentProcessor.shared.rules = replaceRules
+    }
+
+    /// Adds or replaces by id, keeping the list ordered by `order`.
+    public func upsertReplaceRule(_ rule: ReplaceRule) {
+        if let index = replaceRules.firstIndex(where: { $0.id == rule.id }) {
+            replaceRules[index] = rule
+        } else {
+            replaceRules.append(rule)
+        }
+        replaceRules.sort { $0.order < $1.order }
+        saveReplaceRules()
+    }
+
+    public func deleteReplaceRule(id: Int64) {
+        replaceRules.removeAll { $0.id == id }
+        saveReplaceRules()
+    }
+
+    public func setReplaceRule(_ id: Int64, enabled: Bool) {
+        guard let index = replaceRules.firstIndex(where: { $0.id == id }) else { return }
+        replaceRules[index].isEnabled = enabled
+        saveReplaceRules()
+    }
+
+    public func moveReplaceRule(from source: IndexSet, to destination: Int) {
+        replaceRules.move(fromOffsets: source, toOffset: destination)
+        for index in replaceRules.indices { replaceRules[index].order = index }
+        saveReplaceRules()
+    }
+
+    /// Imports an Android `replaceRule.json` array.
+    public func importReplaceRules(json: String) -> Int {
+        let before = replaceRules.count
+        replaceRules = ReplaceRuleStore.importJSON(json, into: replaceRules)
+        saveReplaceRules()
+        return replaceRules.count - before
+    }
+
+    public func exportReplaceRulesJSON() -> String? {
+        ReplaceRuleStore.exportJSON(replaceRules)
+    }
+
+    /// The rules that currently apply to a book, for the 「起效的替换」 list.
+    public func matchingReplaceRules(bookName: String, bookOrigin: String, forTitle: Bool = false) -> [ReplaceRule] {
+        ContentProcessor.matchingRules(bookName: bookName, bookOrigin: bookOrigin,
+                                       from: replaceRules, forTitle: forTitle)
+    }
+
+    // MARK: - 书签
+
+    public func saveBookmarks() {
+        BookmarkStore.save(bookmarks)
+    }
+
+    public func addBookmark(_ bookmark: Bookmark) {
+        bookmarks.append(bookmark)
+        bookmarks = BookmarkStore.sorted(bookmarks)
+        saveBookmarks()
+    }
+
+    public func updateBookmark(_ bookmark: Bookmark) {
+        guard let index = bookmarks.firstIndex(where: { $0.time == bookmark.time }) else {
+            addBookmark(bookmark)
+            return
+        }
+        bookmarks[index] = bookmark
+        bookmarks = BookmarkStore.sorted(bookmarks)
+        saveBookmarks()
+    }
+
+    public func deleteBookmark(time: Int64) {
+        bookmarks.removeAll { $0.time == time }
+        saveBookmarks()
+    }
+
+    /// Scoped by name + author, which is how Android links bookmarks to books and what keeps
+    /// them alive across 换源.
+    public func bookmarks(for book: Book) -> [Bookmark] {
+        BookmarkStore.sorted(bookmarks.filter { $0.bookKey == Bookmark.key(bookName: book.name, bookAuthor: book.author) })
+    }
+
+    public func searchBookmarks(book: Book, keyword: String) -> [Bookmark] {
+        let needle = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scoped = bookmarks(for: book)
+        guard !needle.isEmpty else { return scoped }
+        return scoped.filter {
+            $0.chapterName.localizedCaseInsensitiveContains(needle)
+                || $0.content.localizedCaseInsensitiveContains(needle)
+                || $0.bookText.localizedCaseInsensitiveContains(needle)
         }
     }
 
@@ -222,6 +341,58 @@ public class BookStore: ObservableObject {
     public func removeBook(bookUrl: String) {
         bookshelf.removeAll { $0.bookUrl == bookUrl }
         saveBookshelf()
+    }
+
+    // MARK: - 换源
+
+    /// Switches a book on the shelf to another source.
+    ///
+    /// The shelf slot is reused rather than removed-and-appended so the user's ordering
+    /// survives, and only the identity fields are rewritten — reading position is remapped by
+    /// the caller through `ChapterMatcher`. Old chapter text is discarded because it is keyed
+    /// by the previous `bookUrl`; bookmarks need no migration since they key off name+author.
+    @discardableResult
+    public func changeSource(oldBook: Book, to found: SearchBook, source: BookSource,
+                             newChapters: [BookChapter], mappedChapterIndex: Int) -> Book {
+        var updated = oldBook
+        updated.bookUrl = found.bookUrl
+        updated.origin = source.bookSourceUrl
+        updated.originName = source.bookSourceName
+        updated.tocUrl = found.bookUrl
+        if let cover = found.coverUrl, !cover.isEmpty { updated.coverUrl = cover }
+        if let intro = found.intro, !intro.isEmpty { updated.intro = intro }
+        if let kind = found.kind, !kind.isEmpty { updated.kind = kind }
+        if let words = found.wordCount, !words.isEmpty { updated.wordCount = words }
+        if !found.name.isEmpty { updated.name = found.name }
+        if !found.author.isEmpty, found.author != "未知作者" { updated.author = found.author }
+
+        updated.totalChapterNum = newChapters.count
+        updated.latestChapterTitle = newChapters.last?.title ?? updated.latestChapterTitle
+        if newChapters.isEmpty {
+            updated.durChapterIndex = 0
+            updated.durChapterPos = 0
+            updated.durChapterTitle = nil
+        } else {
+            updated.durChapterIndex = min(max(mappedChapterIndex, 0), newChapters.count - 1)
+            // Android keeps the in-chapter offset verbatim; a slightly different rendering of
+            // the same chapter is closer than jumping back to its first line.
+            updated.durChapterTitle = newChapters[updated.durChapterIndex].title
+        }
+
+        if let index = bookshelf.firstIndex(where: { $0.bookUrl == oldBook.bookUrl }) {
+            bookshelf[index] = updated
+        } else {
+            bookshelf.insert(updated, at: 0)
+        }
+
+        if !oldBook.bookUrl.isEmpty, oldBook.bookUrl != updated.bookUrl {
+            BookContentService.shared.clearCache(for: oldBook.bookUrl)
+        }
+        if !newChapters.isEmpty {
+            saveChapters(newChapters, for: updated.bookUrl)
+        }
+        saveBookshelf()
+        return updated
     }
 
     public func updateProgress(bookUrl: String, chapterIndex: Int, chapterTitle: String, chapterPos: Int = 0) {
@@ -462,6 +633,36 @@ public class BookStore: ObservableObject {
         }
     }
 
+    // MARK: - 搜索历史
+
+    public func saveSearchHistory() {
+        SearchHistoryStore.save(searchHistory)
+    }
+
+    /// Android bumps the counter on a repeat rather than adding a duplicate row.
+    public func recordSearchKeyword(_ word: String) {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        searchHistory = SearchHistoryStore.record(trimmed, in: searchHistory)
+        saveSearchHistory()
+    }
+
+    public func deleteSearchKeyword(_ word: String) {
+        searchHistory.removeAll { $0.word == word }
+        saveSearchHistory()
+    }
+
+    public func clearSearchHistory() {
+        searchHistory.removeAll()
+        saveSearchHistory()
+    }
+
+    /// Recency when the field is empty, usage when the user is typing.
+    public func searchHistory(matching needle: String = "") -> [SearchKeyword] {
+        needle.isEmpty ? SearchHistoryStore.byTime(searchHistory)
+                       : SearchHistoryStore.matching(searchHistory, needle)
+    }
+
     // MARK: - EPUB & Chapter Storage
     private var chaptersCache: [String: [BookChapter]] = [:]
 
@@ -516,7 +717,7 @@ public class BookStore: ObservableObject {
         guard let data = try? Data(contentsOf: fileUrl) else {
             throw NSError(domain: "BookStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法读取TXT文件内容"])
         }
-        let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .init(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))) ?? String(decoding: data, as: UTF8.self)
+        let content = CharsetDetector.decode(data)
 
         let bookTitle = fileUrl.deletingPathExtension().lastPathComponent
         let bookUrl = "txt://\(CryptoUtils.md5(fileUrl.absoluteString))"

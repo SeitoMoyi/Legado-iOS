@@ -38,6 +38,20 @@
 			<key>productName</key>
 			<string>ZIPFoundation</string>
 		</dict>
+		<key>02E89341F132B64426326924</key>
+		<dict>
+			<key>fileRef</key>
+			<string>A04EF422A849A4FAA3181775</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>071AA79AC133B7B7D4B4B0FE</key>
+		<dict>
+			<key>fileRef</key>
+			<string>4439FB1801176755416A6C02</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>097938BE8F3F29D44C51C7A0</key>
 		<dict>
 			<key>fileRef</key>
@@ -53,6 +67,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoApp/Services/BookStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>10B82B1C4C6804F105C7CE4A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Settings/ReplaceRuleListView.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -81,6 +106,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>149DEA6DB8341E6DEE05137C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/ChangeSourceService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>18F2053E418685EEAF8FF6A6</key>
 		<dict>
 			<key>isa</key>
@@ -101,6 +137,24 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>19F010D0AE9B43D06C143693</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Utils/ChapterMatcher.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>1A37C35AD6D4F23A95398F96</key>
+		<dict>
+			<key>fileRef</key>
+			<string>710E2AC1C543B88044EDD3FD</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>1BABC9FE70385367B81EC546</key>
 		<dict>
 			<key>children</key>
@@ -113,6 +167,31 @@
 			<string>Products</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>1BE49ED3F55AC2D22AE6C482</key>
+		<dict>
+			<key>fileRef</key>
+			<string>DF2EEFF3E49DA4DE42FEB68E</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>1DB4D5A92146DEEC6E643173</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Sheets/ChangeSourceSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>1E0E24E3EC221327DA06EE0F</key>
+		<dict>
+			<key>fileRef</key>
+			<string>1DB4D5A92146DEEC6E643173</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>20C0E809CC37E2BAC0F6164B</key>
 		<dict>
@@ -133,6 +212,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoApp/Views/SourceWebLoginView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>229FDF38987A041CB9A359F6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/ReadConfig.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -158,6 +248,24 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Models/Book.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>29019FFE5CDA3E8B6445D859</key>
+		<dict>
+			<key>fileRef</key>
+			<string>229FDF38987A041CB9A359F6</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>2AEE05B09B75CA75B0DE894F</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/ReadStylePanel.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -210,6 +318,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>361198CF601EEB82BB13F5C1</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Utils/ChineseConverter.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>3B55980E3385262591FA2B23</key>
 		<dict>
 			<key>fileRef</key>
@@ -225,6 +344,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Service/BookSearchService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>3CD3557217EBCB9322CD98FB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Services/VolumeKeyObserver.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -259,7 +389,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.0</string>
+				<string>0.2.1</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -274,12 +404,34 @@
 			<key>name</key>
 			<string>Debug</string>
 		</dict>
+		<key>3E72F79B148C997AF904B851</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/ReaderStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>40889BD1C636DBE44D05E1D0</key>
 		<dict>
 			<key>fileRef</key>
 			<string>913C796CDE416D2C894DD5E3</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>42EF698EBD11D92EA30788CA</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/ReplaceRuleStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>4377AEE29C13CD8A50BCE5ED</key>
 		<dict>
@@ -291,6 +443,60 @@
 			<string>Sources/LegadoCore/Models/BookSource.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>4439FB1801176755416A6C02</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Sheets/BookmarkSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>4553996D6F8AE6507A915A5A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/Bookmark.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>4F814A81A080F9E4BF009068</key>
+		<dict>
+			<key>fileRef</key>
+			<string>96674C3FF4C27A98F9B32CFA</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>4FBBA6335AE9EE6CC8FC9D45</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/ReadAloudPanel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>50114AAB35EF50A83E7E45B7</key>
+		<dict>
+			<key>fileRef</key>
+			<string>5F063297B6F76DB555455CB2</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>502F11F9DB4BB112CE003911</key>
+		<dict>
+			<key>fileRef</key>
+			<string>149DEA6DB8341E6DEE05137C</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>56A0F6E7B159B88C9BE3A1DD</key>
 		<dict>
@@ -325,6 +531,38 @@
 			<string>PBXResourcesBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
+		</dict>
+		<key>5DC62802B909602B619E6EC4</key>
+		<dict>
+			<key>fileRef</key>
+			<string>4553996D6F8AE6507A915A5A</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>5F063297B6F76DB555455CB2</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Utils/TolerantJSON.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>62CAA263C56F8E41FC09582F</key>
+		<dict>
+			<key>fileRef</key>
+			<string>2AEE05B09B75CA75B0DE894F</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>64AAFFAB63944FF9C7975DD2</key>
+		<dict>
+			<key>fileRef</key>
+			<string>8998A960A0B71BC253A95AA4</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>66F32E672C0230504DDD4CA3</key>
 		<dict>
@@ -396,6 +634,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>710E2AC1C543B88044EDD3FD</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Search/SearchScopeSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>73473E053742E4A3C9B15D15</key>
 		<dict>
 			<key>isa</key>
@@ -428,12 +677,30 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>75714FE0873144D51D9EE39F</key>
+		<dict>
+			<key>fileRef</key>
+			<string>C1075C1609FDA4D2F1A8E871</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>75B697AEAF7E95CCBAB260E3</key>
 		<dict>
 			<key>fileRef</key>
 			<string>66F32E672C0230504DDD4CA3</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>7A65BFBF9DF1BA7ED70DF463</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/MoreSettingsPanel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>7B54E4C3682E2D192F748519</key>
 		<dict>
@@ -479,6 +746,32 @@
 				<string>21249808583C1D4A47BFB15C</string>
 				<string>913C796CDE416D2C894DD5E3</string>
 				<string>F97F8A5A96EDBC8F8194A9C4</string>
+				<string>229FDF38987A041CB9A359F6</string>
+				<string>3E72F79B148C997AF904B851</string>
+				<string>A04EF422A849A4FAA3181775</string>
+				<string>9308BA14B4F1C6677FED171D</string>
+				<string>D8BCD4F3BFC4281AB130D179</string>
+				<string>42EF698EBD11D92EA30788CA</string>
+				<string>361198CF601EEB82BB13F5C1</string>
+				<string>5F063297B6F76DB555455CB2</string>
+				<string>10B82B1C4C6804F105C7CE4A</string>
+				<string>3CD3557217EBCB9322CD98FB</string>
+				<string>7A65BFBF9DF1BA7ED70DF463</string>
+				<string>2AEE05B09B75CA75B0DE894F</string>
+				<string>A5ED91866F5F77BC33506255</string>
+				<string>C1075C1609FDA4D2F1A8E871</string>
+				<string>4439FB1801176755416A6C02</string>
+				<string>4553996D6F8AE6507A915A5A</string>
+				<string>4FBBA6335AE9EE6CC8FC9D45</string>
+				<string>D70806D0D2FC7AF0BEF01430</string>
+				<string>1DB4D5A92146DEEC6E643173</string>
+				<string>149DEA6DB8341E6DEE05137C</string>
+				<string>19F010D0AE9B43D06C143693</string>
+				<string>710E2AC1C543B88044EDD3FD</string>
+				<string>9B292CF3921DD001DFCE5E30</string>
+				<string>8998A960A0B71BC253A95AA4</string>
+				<string>DF2EEFF3E49DA4DE42FEB68E</string>
+				<string>96674C3FF4C27A98F9B32CFA</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -486,6 +779,13 @@
 			<string>Sources</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>7ED289232C5E315B87CC7CAC</key>
+		<dict>
+			<key>fileRef</key>
+			<string>19F010D0AE9B43D06C143693</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>7FD39639AEE8AF526AE33B57</key>
 		<dict>
@@ -543,6 +843,13 @@
 				<string>6AA38DB9F09E8937A03A7462</string>
 			</array>
 		</dict>
+		<key>8503D38D161CBC173668A9E3</key>
+		<dict>
+			<key>fileRef</key>
+			<string>9B292CF3921DD001DFCE5E30</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>877A59C8A2B3DE9D57625958</key>
 		<dict>
 			<key>buildConfigurations</key>
@@ -568,6 +875,24 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>8998A960A0B71BC253A95AA4</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/SearchScope.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>8AA1F522B7E2FCC6E26586DE</key>
+		<dict>
+			<key>fileRef</key>
+			<string>3CD3557217EBCB9322CD98FB</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>8B61983D6CE362549689E48B</key>
 		<dict>
 			<key>fileRef</key>
@@ -586,6 +911,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>8F93EC2D5C744435B71F2AEA</key>
+		<dict>
+			<key>fileRef</key>
+			<string>E7CB117E09164CBF86B15102</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>913C796CDE416D2C894DD5E3</key>
 		<dict>
 			<key>isa</key>
@@ -594,6 +926,35 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoApp/Views/WebDAVSyncView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>9265E987406F2D6021092D9A</key>
+		<dict>
+			<key>fileRef</key>
+			<string>10B82B1C4C6804F105C7CE4A</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>9308BA14B4F1C6677FED171D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/ReplaceRule.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>96674C3FF4C27A98F9B32CFA</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/TapZoneEditorPanel.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -608,6 +969,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>97DBF681B17A689EC72E6CF1</key>
+		<dict>
+			<key>fileRef</key>
+			<string>A5ED91866F5F77BC33506255</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>9946C064294873BDE8BC5720</key>
 		<dict>
 			<key>isa</key>
@@ -616,6 +984,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Engine/RuleAnalyzer.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>9B292CF3921DD001DFCE5E30</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/SearchKeyword.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -657,16 +1036,60 @@
 				<string>B40C9798457DF5AC871DEAC9</string>
 				<string>00A53D3303BC693F605060C5</string>
 				<string>40889BD1C636DBE44D05E1D0</string>
+				<string>29019FFE5CDA3E8B6445D859</string>
+				<string>CB752D468C5DD2F359B4EE2B</string>
+				<string>02E89341F132B64426326924</string>
+				<string>EA0A3AEF36F21011B4D4DD31</string>
+				<string>DEB54A21BAF6E3D6CDBB310F</string>
+				<string>AA27E50E617AE08E1521EC7D</string>
+				<string>A20281A4DEF859ACBBF84CEA</string>
+				<string>50114AAB35EF50A83E7E45B7</string>
+				<string>9265E987406F2D6021092D9A</string>
+				<string>8AA1F522B7E2FCC6E26586DE</string>
+				<string>F996B7EB9BB8D4ACE74FCE68</string>
+				<string>62CAA263C56F8E41FC09582F</string>
+				<string>97DBF681B17A689EC72E6CF1</string>
+				<string>75714FE0873144D51D9EE39F</string>
+				<string>071AA79AC133B7B7D4B4B0FE</string>
+				<string>5DC62802B909602B619E6EC4</string>
+				<string>E93ADECB864947094FD23416</string>
+				<string>C5E5ADF9CA87EC1946AA6599</string>
+				<string>1E0E24E3EC221327DA06EE0F</string>
+				<string>502F11F9DB4BB112CE003911</string>
+				<string>7ED289232C5E315B87CC7CAC</string>
+				<string>1A37C35AD6D4F23A95398F96</string>
+				<string>8503D38D161CBC173668A9E3</string>
+				<string>64AAFFAB63944FF9C7975DD2</string>
+				<string>1BE49ED3F55AC2D22AE6C482</string>
+				<string>4F814A81A080F9E4BF009068</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
 		</dict>
+		<key>A04EF422A849A4FAA3181775</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Utils/CharsetDetector.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>A17D23166431189F8B5F0FC7</key>
 		<dict>
 			<key>fileRef</key>
 			<string>19545F1A0E67955825D76F05</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>A20281A4DEF859ACBBF84CEA</key>
+		<dict>
+			<key>fileRef</key>
+			<string>361198CF601EEB82BB13F5C1</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -692,6 +1115,24 @@
 		<dict>
 			<key>fileRef</key>
 			<string>9946C064294873BDE8BC5720</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>A5ED91866F5F77BC33506255</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/ReaderOverlays.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>AA27E50E617AE08E1521EC7D</key>
+		<dict>
+			<key>fileRef</key>
+			<string>42EF698EBD11D92EA30788CA</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -721,17 +1162,6 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoApp/Views/ExploreBookListView.swift</string>
-			<key>sourceTree</key>
-			<string>&lt;group&gt;</string>
-		</dict>
-		<key>E7CB117E09164CBF86B15102</key>
-		<dict>
-			<key>isa</key>
-			<string>PBXFileReference</string>
-			<key>lastKnownFileType</key>
-			<string>sourcecode.swift</string>
-			<key>path</key>
-			<string>Sources/LegadoApp/Views/CategoryExploreView.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -785,6 +1215,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>C1075C1609FDA4D2F1A8E871</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Sheets/EffectiveReplacesSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>C4123C85F16890446C4DBE23</key>
 		<dict>
 			<key>isa</key>
@@ -795,6 +1236,13 @@
 			<string>Sources/LegadoCore/Service/NetworkClient.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>C5E5ADF9CA87EC1946AA6599</key>
+		<dict>
+			<key>fileRef</key>
+			<string>D70806D0D2FC7AF0BEF01430</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>C92DD416700C675A2583C93A</key>
 		<dict>
@@ -809,6 +1257,13 @@
 			<string>PBXFrameworksBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
+		</dict>
+		<key>CB752D468C5DD2F359B4EE2B</key>
+		<dict>
+			<key>fileRef</key>
+			<string>3E72F79B148C997AF904B851</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>CDBED0CE99550E76E8C8289F</key>
 		<dict>
@@ -878,6 +1333,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>D70806D0D2FC7AF0BEF01430</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/ReadAloudText.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>D7BF30D010DE644D9F654B1B</key>
 		<dict>
 			<key>isa</key>
@@ -891,6 +1357,17 @@
 				<key>minimumVersion</key>
 				<string>2.6.0</string>
 			</dict>
+		</dict>
+		<key>D8BCD4F3BFC4281AB130D179</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/ContentProcessor.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>D8DFA4D16089BF33BEFA2BEB</key>
 		<dict>
@@ -916,6 +1393,24 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>DEB54A21BAF6E3D6CDBB310F</key>
+		<dict>
+			<key>fileRef</key>
+			<string>D8BCD4F3BFC4281AB130D179</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>DF2EEFF3E49DA4DE42FEB68E</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Panels/ReaderPanelChrome.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>E025A9F1113B2712B61A62C0</key>
 		<dict>
 			<key>fileRef</key>
@@ -923,17 +1418,35 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
-		<key>8F93EC2D5C744435B71F2AEA</key>
-		<dict>
-			<key>fileRef</key>
-			<string>E7CB117E09164CBF86B15102</string>
-			<key>isa</key>
-			<string>PBXBuildFile</string>
-		</dict>
 		<key>E0A01E015DFCFD464E8D2A80</key>
 		<dict>
 			<key>fileRef</key>
 			<string>B7361373ACF23E848F46DA32</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>E7CB117E09164CBF86B15102</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/CategoryExploreView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>E93ADECB864947094FD23416</key>
+		<dict>
+			<key>fileRef</key>
+			<string>4FBBA6335AE9EE6CC8FC9D45</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>EA0A3AEF36F21011B4D4DD31</key>
+		<dict>
+			<key>fileRef</key>
+			<string>9308BA14B4F1C6677FED171D</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1008,7 +1521,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.0</string>
+				<string>0.2.1</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -1054,6 +1567,13 @@
 			<string>Sources/LegadoApp/Resources/bookSources.json</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>F996B7EB9BB8D4ACE74FCE68</key>
+		<dict>
+			<key>fileRef</key>
+			<string>7A65BFBF9DF1BA7ED70DF463</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>FD79CAFF75361C2DD5831AE4</key>
 		<dict>

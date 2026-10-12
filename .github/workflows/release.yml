@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name for release (e.g. v0.2.0)'
+        description: 'Tag name for release (leave empty to use the VERSION file)'
         required: false
-        default: 'v0.2.0'
+        default: ''
 
 jobs:
   build-and-release:
@@ -39,7 +39,7 @@ jobs:
           elif [ -f "VERSION" ]; then
             TAG=$(cat VERSION | tr -d '[:space:]')
           else
-            TAG="v0.2.0"
+            TAG="v0.2.1"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
@@ -84,14 +84,23 @@ jobs:
           body: |
             ### Legado iOS (开源阅读 iOS 版) ${{ steps.version_step.outputs.tag }}
 
-            #### 🌟 核心更新与特性
-            - **WebDAV Android 兼容 ZIP 备份**：完整对齐 Android Legado 标准的 `backupYYYY-MM-DD-deviceName.zip` 归档格式，保留全部书籍元数据与精确阅读进度（`durChapterIndex`, `durChapterPos`, `durChapterTime`）。
-            - **云端历史备份选择**：支持一键检索 WebDAV 云端所有历史备份包（包括 Android 手机与 iOS 备份），展示日期、体积并支持自由点选合并恢复。
-            - **秒级极速 WebDAV 备份**：彻底移除全量备份时的阻塞请求，备份由 30+ 秒降至 1 秒内完成。
-            - **连续滚动无缝翻页**：滚动模式下下拉预加载上一章并无缝衔接阅读断点，不再跳回章节首页。
-            - **分卷书籍目录连贯修复**：完美解决分卷小说因卷标导致的目录断章与前后翻页问题。
-            - **全屏沉浸阅读器**：各入口（详情页、目录跳转等）进入阅读器均规范为原生全屏展示。
-            - **书源与预设更新**：机翻机器人书源新增“阅读历史”与“默认收藏夹”个人中心发现流；规范书源命名。
+            #### 🌟 核心更新与特性 (v0.2.1)
+            - **阅读页三级菜单**：底部六键工具栏 + 顶栏溢出菜单 + 3×3 可自定义点击区域（14 种动作）+ 音量键翻页 + 四档翻页动画 + 屏幕常亮 + 首行缩进与页边距。
+            - **阅读配置持久化修复**：字号 / 行距 / 主题此前冷启动即丢失，现按 Android 同名键落盘。
+            - **书签体系**：添加 / 编辑 / 搜索 / 跳转还原到段内位置，导出 JSON 与 Markdown；按「书名 + 作者」建索引，换源后不丢，键名兼容 `bookmark.json`。
+            - **换源**：整书换源、本章换源、自动换源（入口在阅读页）；章节位置按比例估算 + 相似度 + 章节号三重映射。
+            - **替换净化**：规则增删改查 / 排序 / 导入导出、正则与作用域语义对齐 Android、超时自动禁用、简繁转换、「起效的替换」。
+            - **朗读控制面板**：逐段朗读、按页朗读、语速与音调、定时停止 0–180 分钟、后台播放与锁屏 / 耳机线控。
+            - **搜索范围与历史**：全部 / 多分组 / 单书源三态、精准搜索三桶排序、跨源 origins 合并、搜索历史（兼容 `searchHistory.json`）、停止 / 继续。
+            - **抓取兼容性**：字符集自动识别（GBK / Big5 / EUC-KR 不再乱码）、`nextContentUrl` 与 `nextTocUrl` 续页、5xx 自动重试。
+            - **移除 App 内亮度调节**：改用 iOS 系统控制中心。
+
+            #### 🐛 本版修掉的历史 bug
+            - 设置页「清理阅读缓存」原为 no-op：只弹提示，从不真正删除缓存文件。
+            - 「更多设置」/「朗读」面板原先悬在屏幕中段而非贴底（`.frame(maxHeight:)` 居中副作用）。
+            - 「净化」按钮图标 `eraser.pen` 不是有效 SF Symbol，iOS 15 上渲染为空白。
+            - 听书无法暂停：状态依赖 `AVSpeechSynthesizer.didPause` 回调，而该回调不保证送达。
+            - 「朗读」面板若干行标签未指定颜色，深色模式 + 浅色阅读主题时白字印在米色底上。
 
             #### 📱 安装说明
             下载下方的 `Legado-*.ipa` 附件，支持通过以下方式进行侧载安装：
