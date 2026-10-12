@@ -44,8 +44,17 @@ struct MoreSettingsPanel: View {
                                           value: pref(\.pageTouchSlop),
                                           range: 0...300, step: 5,
                                           suffix: slopLabel)
+                    ReaderPanelMenuRow(title: "进度条行为", config: config,
+                                       current: progressBehaviorLabel, labelWidth: nil) {
+                        ForEach(progressBehaviorChoices, id: \.value) { choice in
+                            Button(choice.label) {
+                                var prefs = config.prefs
+                                prefs.progressBarBehavior = choice.value
+                                config.prefs = prefs
+                            }
+                        }
+                    }
                 }
-
                 section("内容") {
                     ReaderPanelNavRow(title: "点击区域设置", config: config) { showTapZones = true }
                     ReaderPanelMenuRow(title: "简繁转换", config: config,
@@ -131,6 +140,12 @@ struct MoreSettingsPanel: View {
     private let converterChoices = [Choice(value: ChineseConverterMode.off, label: "关闭"),
                                     Choice(value: ChineseConverterMode.traditionalToSimple, label: "繁体转简体"),
                                     Choice(value: ChineseConverterMode.simpleToTraditional, label: "简体转繁体")]
+    private let progressBehaviorChoices = [Choice(value: 0, label: "按页调节"),
+                                           Choice(value: 1, label: "按章节调节")]
+
+    private var progressBehaviorLabel: String {
+        progressBehaviorChoices.first { $0.value == config.prefs.progressBarBehavior }?.label ?? "按页调节"
+    }
 
     private var keepLightLabel: String {
         keepLightChoices.first { $0.value == config.prefs.keepLight }?.label ?? "默认"
@@ -139,7 +154,6 @@ struct MoreSettingsPanel: View {
     private var converterLabel: String {
         converterChoices.first { $0.value == config.prefs.chineseConverterType }?.label ?? "关闭"
     }
-
     private func setKeepLight(_ value: Int) {
         var prefs = config.prefs
         prefs.keepLight = value

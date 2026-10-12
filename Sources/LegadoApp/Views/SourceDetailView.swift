@@ -10,6 +10,7 @@ public struct SourceDetailView: View {
 
     @State private var showEditSheet: Bool = false
     @State private var showLoginSheet: Bool = false
+    @State private var showVariableSheet: Bool = false
     @State private var showSingleSourceSearch: Bool = false
     @State private var categories: [ExploreCategory] = []
     @State private var isRefreshingCategories: Bool = false
@@ -50,7 +51,7 @@ public struct SourceDetailView: View {
                             .lineLimit(1)
                     }
 
-                    if let group = currentSource.bookSourceGroup, !group.isEmpty {
+                    if let group = currentSource.displayGroup, !group.isEmpty {
                         HStack(spacing: 4) {
                             Text("分组: \(group)")
                                 .font(.caption2)
@@ -138,6 +139,12 @@ public struct SourceDetailView: View {
                     } label: {
                         Label("刷新发现分类", systemImage: "arrow.clockwise")
                     }
+
+                    Button {
+                        showVariableSheet = true
+                    } label: {
+                        Label("设置源变量", systemImage: "text.badge.star")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -148,6 +155,18 @@ public struct SourceDetailView: View {
         }
         .sheet(isPresented: $showLoginSheet) {
             SourceLoginSheet(source: currentSource)
+        }
+        .sheet(isPresented: $showVariableSheet) {
+            VariableEditorSheet(
+                title: "设置源变量",
+                comment: currentSource.variableComment ?? "设置该书源的自定义参数：",
+                initialValue: currentSource.variable ?? (UserDefaults.standard.string(forKey: "legado_source_var_\(currentSource.bookSourceUrl)") ?? "")
+            ) { saved in
+                var s = currentSource
+                s.variable = saved.isEmpty ? nil : saved
+                bookStore.updateSource(originalSource: currentSource, newSource: s)
+                UserDefaults.standard.set(saved, forKey: "legado_source_var_\(currentSource.bookSourceUrl)")
+            }
         }
         .sheet(isPresented: $showSingleSourceSearch) {
             NavigationView {

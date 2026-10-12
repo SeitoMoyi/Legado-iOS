@@ -4,13 +4,35 @@ import UniformTypeIdentifiers
 import LegadoCore
 #endif
 
+#if canImport(UIKit)
+import UIKit
+#endif
+#if canImport(AppKit)
+import AppKit
+#endif
+
 public struct SourceManagerView: View {
     @ObservedObject var bookStore = BookStore.shared
 
+    @State private var searchText: String = ""
+    @State private var selectedGroupFilter: String = "全部"
+    @State private var isSelecting: Bool = false
+    @State private var selectedUrls: Set<String> = []
+
+    // Validation state
+    @State private var isValidating: Bool = false
+    @State private var validationChecked: Int = 0
+    @State private var validationTotal: Int = 0
+    @State private var validationFailedCount: Int = 0
+    @State private var validationTask: Task<Void, Never>? = nil
+
     @State private var showImportSheet: Bool = false
     @State private var showFileImporter: Bool = false
+    @State private var showDeleteConfirm: Bool = false
     @State private var selectedSourceForLogin: BookSource? = nil
     @State private var selectedSourceForEdit: BookSource? = nil
+    @State private var selectedSourceForDebug: BookSource? = nil
+    @State private var showNewSourceSheet: Bool = false
     @State private var selectedSourceForSearch: BookSource? = nil
     @State private var importText: String = ""
     @State private var importUrl: String = ""
@@ -19,125 +41,465 @@ public struct SourceManagerView: View {
 
     public init() {}
 
+    private let availableGroupFilters: [String] = ["全部", "已启用", "已禁用"]
+
+    private var filteredSources: [BookSource] {
+        var list = bookStore.sources
+
+        // 1. Group pill filter ("全部" / "已启用" / "已禁用")
+        switch selectedGroupFilter {
+        case "已启用":
+            list = list.filter { $0.enabled ?? true }
+        case "已禁用":
+            list = list.filter { !($0.enabled ?? true) }
+        default:
+            break
+        }
+        // 2. Search bar filter (`group:xxx` or name/url/group substring)
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return list }
+
+        if needle.lowercased().hasPrefix("group:") {
+            let gName = String(needle.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+            if !gName.isEmpty {
+                return list.filter { src in
+                    src.groups.contains { $0.localizedCaseInsensitiveContains(gName) }
+                }
+            }
+        }
+
+        return list.filter { src in
+            src.bookSourceName.localizedCaseInsensitiveContains(needle) ||
+            src.bookSourceUrl.localizedCaseInsensitiveContains(needle) ||
+            (src.bookSourceGroup?.localizedCaseInsensitiveContains(needle) ?? false) ||
+            (src.bookSourceComment?.localizedCaseInsensitiveContains(needle) ?? false)
+        }
+    }
+
     public var body: some View {
-        List {
-            Section(header: Text("已导入书源 (\(bookStore.sources.count)个)")) {
-                    ForEach(bookStore.sources) { source in
-                        NavigationLink(destination: SourceDetailView(source: source)) {
-                            sourceRow(for: source)
-                        }
-                        .contextMenu {
-                            Button {
-                                selectedSourceForEdit = source
-                            } label: {
-                                Label("编辑", systemImage: "pencil")
-                            }
+        VStack(spacing: 0) {
+            // Group filter pill bar
+            groupFilterBar
 
-                            Button {
-                                bookStore.pinSource(sourceUrl: source.bookSourceUrl)
-                            } label: {
-                                Label("置顶", systemImage: "pin")
-                            }
+            // Validation progress banner
+            if isValidating {
+                validationBanner
+            }
 
-                            if source.loginUi != nil || source.loginUrl != nil {
-                                Button {
-                                    selectedSourceForLogin = source
-                                } label: {
-                                    Label(source.isLogged ? "重新登录" : "登录", systemImage: "person.badge.key")
+            List {
+                Section(header: Text("书源 (\(filteredSources.count)/\(bookStore.sources.count))")) {
+                    ForEach(filteredSources) { source in
+                        if isSelecting {
+                            Button {
+                                toggleSelection(for: source.bookSourceUrl)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selectedUrls.contains(source.bookSourceUrl) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedUrls.contains(source.bookSourceUrl) ? .accentColor : .secondary)
+                                        .font(.system(size: 20))
+                                    sourceRow(for: source)
                                 }
                             }
-
-                            Button {
-                                SearchViewModel.shared.selectSource(url: source.bookSourceUrl)
-                                selectedSourceForSearch = source
-                            } label: {
-                                Label("搜索", systemImage: "magnifyingglass")
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink(destination: SourceDetailView(source: source)) {
+                                sourceRow(for: source)
                             }
+                            .contextMenu {
+                                Button {
+                                    selectedSourceForEdit = source
+                                } label: {
+                                    Label("编辑规则", systemImage: "pencil")
+                                }
 
-                            Button {
-                                refreshSource(source)
-                            } label: {
-                                Label("刷新", systemImage: "arrow.clockwise")
-                            }
+                                Button {
+                                    selectedSourceForDebug = source
+                                } label: {
+                                    Label("调试该源", systemImage: "ladybug")
+                                }
+                                Button {
+                                    bookStore.pinSource(sourceUrl: source.bookSourceUrl)
+                                } label: {
+                                    Label("置顶", systemImage: "pin")
+                                }
 
-                            Button(role: .destructive) {
-                                bookStore.deleteSource(sourceUrl: source.bookSourceUrl)
-                            } label: {
-                                Label("删除", systemImage: "trash")
+                                if !(source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                                    Button {
+                                        bookStore.toggleSourceExplore(sourceUrl: source.bookSourceUrl)
+                                    } label: {
+                                        Label((source.enabledExplore ?? true) ? "禁用发现" : "启用发现",
+                                              systemImage: (source.enabledExplore ?? true) ? "eye.slash" : "eye")
+                                    }
+                                }
+
+                                if source.loginUi != nil || source.loginUrl != nil {
+                                    Button {
+                                        selectedSourceForLogin = source
+                                    } label: {
+                                        Label(source.isLogged ? "重新登录" : "登录", systemImage: "person.badge.key")
+                                    }
+                                }
+
+                                Button {
+                                    SearchViewModel.shared.selectSource(url: source.bookSourceUrl)
+                                    selectedSourceForSearch = source
+                                } label: {
+                                    Label("仅在此源搜索", systemImage: "magnifyingglass")
+                                }
+
+                                Button {
+                                    refreshSource(source)
+                                } label: {
+                                    Label("刷新发现", systemImage: "arrow.clockwise")
+                                }
+
+                                Button {
+                                    copySourcesJSON(urls: [source.bookSourceUrl])
+                                } label: {
+                                    Label("拷贝书源 JSON", systemImage: "doc.on.doc")
+                                }
+
+                                Button(role: .destructive) {
+                                    bookStore.deleteSource(sourceUrl: source.bookSourceUrl)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
                             }
                         }
                     }
-                    .onDelete(perform: deleteSources)
+                    .onDelete(perform: deleteFilteredSources)
                 }
             }
-#if os(iOS)
+            #if os(iOS)
             .listStyle(.insetGrouped)
-#else
+            #else
             .listStyle(.inset)
-#endif
-            .navigationTitle("书源管理")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: { showImportSheet = true }) {
-                        Image(systemName: "plus")
+            #endif
+
+            if isSelecting {
+                batchActionBar
+            }
+        }
+        .searchable(text: $searchText, prompt: "搜索名称、域名或 group:分组")
+        .navigationTitle("书源管理")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if isSelecting {
+                    Button("完成") {
+                        withAnimation {
+                            isSelecting = false
+                            selectedUrls.removeAll()
+                        }
+                    }
+                } else {
+                    Menu {
+                        Button {
+                            withAnimation {
+                                isSelecting = true
+                            }
+                        } label: {
+                            Label("选择", systemImage: "checkmark.circle")
+                        }
+
+                        Button {
+                            showNewSourceSheet = true
+                        } label: {
+                            Label("新建空白书源", systemImage: "doc.badge.plus")
+                        }
+
+                        Button {
+                            showImportSheet = true
+                        } label: {
+                            Label("导入书源", systemImage: "plus.circle")
+                        }
+                        Button {
+                            startBatchValidation(sources: filteredSources)
+                        } label: {
+                            Label(isValidating ? "停止校验" : "校验当前列表书源",
+                                  systemImage: isValidating ? "stop.circle" : "checkmark.seal")
+                        }
+
+                        Button {
+                            copySourcesJSON(urls: nil)
+                        } label: {
+                            Label("导出全部书源至剪贴板", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
-            .sheet(isPresented: $showImportSheet) {
-                importSourceSheet
+        }
+        .confirmationDialog("确认删除选中的 \(selectedUrls.count) 个书源？", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("删除 (\(selectedUrls.count))", role: .destructive) {
+                bookStore.deleteSources(urls: selectedUrls)
+                selectedUrls.removeAll()
+                isSelecting = false
             }
-            .sheet(item: $selectedSourceForLogin) { source in
-                SourceLoginSheet(source: source)
+            Button("取消", role: .cancel) {}
+        }
+        .sheet(isPresented: $showImportSheet) {
+            importSourceSheet
+        }
+        .sheet(item: $selectedSourceForLogin) { source in
+            SourceLoginSheet(source: source)
+        }
+        .sheet(item: $selectedSourceForEdit) { source in
+            EditSourceSheet(source: source)
+        }
+        .sheet(item: $selectedSourceForDebug) { source in
+            SourceDebugSheet(source: source)
+        }
+        .sheet(isPresented: $showNewSourceSheet) {
+            EditSourceSheet(
+                source: BookSource(bookSourceUrl: "", bookSourceName: ""),
+                isCreatingNew: true
+            )
+        }
+        .sheet(item: $selectedSourceForSearch) { _ in
+            NavigationView {
+                SearchBookView()
             }
-            .sheet(item: $selectedSourceForEdit) { source in
-                EditSourceSheet(source: source)
-            }
-            .sheet(item: $selectedSourceForSearch) { _ in
-                NavigationView {
-                    SearchBookView()
-                }
-            }
-            .alert(alertMessage ?? "", isPresented: $showAlert) {
-                Button("确定", role: .cancel) {}
-            }
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: [.json, .plainText],
-                allowsMultipleSelection: true
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    var totalCount = 0
-                    var errorCount = 0
-                    for url in urls {
-                        let canAccess = url.startAccessingSecurityScopedResource()
-                        defer {
-                            if canAccess { url.stopAccessingSecurityScopedResource() }
-                        }
-                        do {
-                            let data = try Data(contentsOf: url)
-                            if let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .unicode) {
-                                let count = try bookStore.importSources(json: str)
-                                totalCount += count
-                            } else {
-                                errorCount += 1
-                            }
-                        } catch {
+        }
+        .alert(alertMessage ?? "", isPresented: $showAlert) {
+            Button("确定", role: .cancel) {}
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.json, .plainText],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                var totalCount = 0
+                var errorCount = 0
+                for url in urls {
+                    let canAccess = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if canAccess { url.stopAccessingSecurityScopedResource() }
+                    }
+                    do {
+                        let data = try Data(contentsOf: url)
+                        if let str = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .unicode) {
+                            let count = try bookStore.importSources(json: str)
+                            totalCount += count
+                        } else {
                             errorCount += 1
                         }
+                    } catch {
+                        errorCount += 1
                     }
-                    showImportSheet = false
-                    if totalCount > 0 {
-                        alertMessage = "成功导入 \(totalCount) 个书源！" + (errorCount > 0 ? " (\(errorCount)个文件解析失败)" : "")
+                }
+                showImportSheet = false
+                if totalCount > 0 {
+                    alertMessage = "成功导入 \(totalCount) 个书源！" + (errorCount > 0 ? " (\(errorCount)个文件解析失败)" : "")
+                } else {
+                    alertMessage = errorCount > 0 ? "导入失败：未能成功解析书源文件" : "未在文件中发现有效书源"
+                }
+                showAlert = true
+            case .failure(let error):
+                alertMessage = "打开文件失败: \(error.localizedDescription)"
+                showAlert = true
+            }
+        }
+    }
+
+    // MARK: - Subviews & Helpers
+
+    private var groupFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(availableGroupFilters, id: \.self) { group in
+                    let isSelected = (selectedGroupFilter == group)
+                    Button {
+                        selectedGroupFilter = group
+                    } label: {
+                        Text(group)
+                            .font(.caption.weight(isSelected ? .semibold : .regular))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.12))
+                            .foregroundColor(isSelected ? .white : .primary)
+                            .cornerRadius(14)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private var validationBanner: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .scaleEffect(0.85)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("正在校验书源 (\(validationChecked)/\(validationTotal)) · 失效 \(validationFailedCount)")
+                    .font(.caption.weight(.medium))
+                ProgressView(value: Double(validationChecked), total: Double(max(1, validationTotal)))
+                    .progressViewStyle(.linear)
+            }
+            Spacer()
+            Button("停止") {
+                stopValidation()
+            }
+            .font(.caption.bold())
+            .foregroundColor(.orange)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.secondary.opacity(0.1))
+    }
+
+    private var batchActionBar: some View {
+        let visibleUrls = Set(filteredSources.map { $0.bookSourceUrl })
+        let allVisibleSelected = !visibleUrls.isEmpty && visibleUrls.isSubset(of: selectedUrls)
+
+        return HStack(spacing: 16) {
+            Button(allVisibleSelected ? "取消全选" : "全选") {
+                if allVisibleSelected {
+                    selectedUrls.subtract(visibleUrls)
+                } else {
+                    selectedUrls.formUnion(visibleUrls)
+                }
+            }
+            .font(.caption.weight(.medium))
+
+            Button("反选") {
+                for u in visibleUrls {
+                    if selectedUrls.contains(u) {
+                        selectedUrls.remove(u)
                     } else {
-                        alertMessage = errorCount > 0 ? "导入失败：未能成功解析书源文件" : "未在文件中发现有效书源"
+                        selectedUrls.insert(u)
                     }
-                    showAlert = true
-                case .failure(let error):
-                    alertMessage = "打开文件失败: \(error.localizedDescription)"
+                }
+            }
+            .font(.caption.weight(.medium))
+
+            Spacer()
+
+            Button("启用") {
+                bookStore.setSourcesEnabled(urls: selectedUrls, enabled: true)
+            }
+            .font(.caption.weight(.medium))
+            .disabled(selectedUrls.isEmpty)
+
+            Button("禁用") {
+                bookStore.setSourcesEnabled(urls: selectedUrls, enabled: false)
+            }
+            .font(.caption.weight(.medium))
+            .disabled(selectedUrls.isEmpty)
+
+            Button("导出") {
+                copySourcesJSON(urls: selectedUrls)
+            }
+            .font(.caption.weight(.medium))
+            .disabled(selectedUrls.isEmpty)
+
+            Button("删除(\(selectedUrls.count))") {
+                showDeleteConfirm = true
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundColor(.red)
+            .disabled(selectedUrls.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.secondary.opacity(0.12))
+    }
+
+    private func toggleSelection(for url: String) {
+        if selectedUrls.contains(url) {
+            selectedUrls.remove(url)
+        } else {
+            selectedUrls.insert(url)
+        }
+    }
+
+    private func copySourcesJSON(urls: Set<String>?) {
+        guard let json = bookStore.exportSourcesJSON(urls: urls) else {
+            alertMessage = "没有可导出的书源"
+            showAlert = true
+            return
+        }
+        #if canImport(UIKit)
+        UIPasteboard.general.string = json
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(json, forType: .string)
+        #endif
+        let count = urls?.count ?? bookStore.sources.count
+        alertMessage = "已将 \(count) 个书源的 JSON 导出至剪贴板"
+        showAlert = true
+    }
+
+    private func startBatchValidation(sources: [BookSource]) {
+        if isValidating {
+            stopValidation()
+            return
+        }
+        guard !sources.isEmpty else { return }
+        isValidating = true
+        validationChecked = 0
+        validationTotal = sources.count
+        validationFailedCount = 0
+
+        validationTask = Task {
+            let chunkSize = 5
+            var index = 0
+            while index < sources.count {
+                if Task.isCancelled { break }
+                let chunk = Array(sources[index..<min(index + chunkSize, sources.count)])
+                await withTaskGroup(of: (String, Bool, Int64).self) { group in
+                    for src in chunk {
+                        group.addTask {
+                            let start = Date()
+                            do {
+                                let results = try await BookSearchService.shared.search(
+                                    source: src,
+                                    key: "我的",
+                                    page: 1
+                                )
+                                let elapsed = Int64(Date().timeIntervalSince(start) * 1000)
+                                return (src.bookSourceUrl, !results.isEmpty, elapsed)
+                            } catch {
+                                let elapsed = Int64(Date().timeIntervalSince(start) * 1000)
+                                return (src.bookSourceUrl, false, elapsed)
+                            }
+                        }
+                    }
+
+                    for await (url, passed, ms) in group {
+                        if Task.isCancelled { break }
+                        await MainActor.run {
+                            bookStore.markSourceValidationResult(sourceUrl: url, passed: passed, respondTimeMs: ms)
+                            validationChecked += 1
+                            if !passed {
+                                validationFailedCount += 1
+                            }
+                        }
+                    }
+                }
+                index += chunk.count
+            }
+
+            await MainActor.run {
+                let finished = !Task.isCancelled
+                isValidating = false
+                validationTask = nil
+                if finished {
+                    alertMessage = "校验完成：共校验 \(validationChecked) 个书源，发现 \(validationFailedCount) 个失效源（已标记「失效」）。"
                     showAlert = true
                 }
             }
+        }
+    }
+
+    private func stopValidation() {
+        validationTask?.cancel()
+        validationTask = nil
+        isValidating = false
     }
 
     private func refreshSource(_ source: BookSource) {
@@ -157,6 +519,20 @@ public struct SourceManagerView: View {
                 HStack(spacing: 6) {
                     Text(source.bookSourceName)
                         .font(.headline)
+                    if let group = source.displayGroup, !group.isEmpty {
+                        Text(group)
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(group.contains("失效") ? Color.red.opacity(0.15) : Color.secondary.opacity(0.12))
+                            .foregroundColor(group.contains("失效") ? .red : .secondary)
+                            .cornerRadius(4)
+                    }
+                    if let ms = source.respondTime, BookSource.isMeasuredRespondTime(ms) {
+                        Text("\(ms)ms")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(ms < 2000 ? .green : .orange)
+                    }
                     if source.loginUi != nil || source.loginUrl != nil {
                         loginButton(for: source)
                     }
@@ -169,11 +545,13 @@ public struct SourceManagerView: View {
 
             Spacer()
 
-            Toggle("", isOn: Binding(
-                get: { source.enabled ?? true },
-                set: { _ in bookStore.toggleSource(sourceUrl: source.bookSourceUrl) }
-            ))
-            .labelsHidden()
+            if !isSelecting {
+                Toggle("", isOn: Binding(
+                    get: { source.enabled ?? true },
+                    set: { _ in bookStore.toggleSource(sourceUrl: source.bookSourceUrl) }
+                ))
+                .labelsHidden()
+            }
         }
     }
 
@@ -196,13 +574,10 @@ public struct SourceManagerView: View {
         .buttonStyle(.plain)
     }
 
-    private func deleteSources(at offsets: IndexSet) {
-        for idx in offsets {
-            let s = bookStore.sources[idx]
-            bookStore.deleteSource(sourceUrl: s.bookSourceUrl)
-        }
+    private func deleteFilteredSources(at offsets: IndexSet) {
+        let targets = offsets.map { filteredSources[$0].bookSourceUrl }
+        bookStore.deleteSources(urls: Set(targets))
     }
-
     private var importSourceSheet: some View {
         NavigationView {
             Form {

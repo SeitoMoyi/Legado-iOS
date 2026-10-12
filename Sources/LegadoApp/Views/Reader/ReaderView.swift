@@ -106,6 +106,7 @@ public struct ReaderView: View {
     @State private var loginSource: BookSource?
     /// Guards against 自动换源 recursing when the replacement also fails.
     @State private var isAutoChangingSource: Bool = false
+    @State private var showRangeDownload: Bool = false
     @State private var editingBookmark: Bookmark?
     @State private var bookmarkIsNew: Bool = true
     @State private var panel: ReaderPanel = .none
@@ -117,6 +118,15 @@ public struct ReaderView: View {
     @State private var controlHintTask: Task<Void, Never>? = nil
     /// True while the reader keeps speaking after the view goes away ("后台").
     @State private var keepAloudInBackground: Bool = false
+    @State private var readingSessionStartTime: Date? = nil
+
+    // Auto Page Turn State
+    @State private var isAutoPageTurning: Bool = false
+    @State private var autoTurnIntervalSeconds: Double = 5.0
+    @State private var autoTurnTask: Task<Void, Never>? = nil
+
+    // Text Selection & Dict Popup State
+    @State private var selectedWordForDict: String? = nil
 
     public var onDismiss: (() -> Void)? = nil
 
@@ -334,9 +344,8 @@ public struct ReaderView: View {
                 readingCanvas
 
                 aloudFloatingLayer
-
+                autoTurnFloatingLayer
                 controlsLayer
-
                 panelLayer(maxHeight: outerGeo.size.height)
             }
             .onAppear {
@@ -344,6 +353,17 @@ public struct ReaderView: View {
                 updateContainerSizeIfNeeded(CGSize(width: outerGeo.size.width, height: readingHeight))
                 applyIdleTimerPreference()
                 wireAudioService()
+                readingSessionStartTime = Date()
+            }
+            .onDisappear {
+                if let start = readingSessionStartTime {
+                    let elapsedMs = Int64(Date().timeIntervalSince(start) * 1000)
+                    if elapsedMs > 2000 {
+                        ReadRecordStore.addDuration(bookName: book.name, durationMs: elapsedMs)
+                    }
+                    readingSessionStartTime = nil
+                }
+                stopAutoPageTurn()
             }
             .onChange(of: outerGeo.size) { newSize in
                 let readingHeight = max(200, newSize.height - 26)
@@ -393,6 +413,24 @@ public struct ReaderView: View {
                 }
             } onDelete: { removed in
                 BookStore.shared.deleteBookmark(time: removed.time)
+            }
+        }
+        .sheet(isPresented: $showRangeDownload) {
+            ChapterRangeDownloadSheet(
+                book: book,
+                chapters: chapters,
+                source: effectiveSource,
+                currentChapterIndex: currentChapterIndex
+            )
+        }
+        .sheet(item: $selectedWordForDict) { word in
+            NavigationView {
+                DictResultPopupView(word: word)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("完成") { selectedWordForDict = nil }
+                        }
+                    }
             }
         }
         .task {
@@ -506,6 +544,57 @@ public struct ReaderView: View {
         }
     }
 
+    @ViewBuilder private var autoTurnFloatingLayer: some View {
+        if isAutoPageTurning {
+            VStack(spacing: 0) {
+                Spacer()
+                HStack(spacing: 12) {
+                    Image(systemName: "timer")
+                        .foregroundColor(.accentColor)
+                    Text("自动翻页 (\(Int(autoTurnIntervalSeconds))s)")
+                        .font(.caption.bold())
+                        .foregroundColor(readerConfig.theme.textColor)
+
+                    Button("-1s") {
+                        autoTurnIntervalSeconds = max(2.0, autoTurnIntervalSeconds - 1.0)
+                        restartAutoTurnTimer()
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(readerConfig.theme.textColor.opacity(0.1))
+                    .cornerRadius(4)
+
+                    Button("+1s") {
+                        autoTurnIntervalSeconds = min(30.0, autoTurnIntervalSeconds + 1.0)
+                        restartAutoTurnTimer()
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(readerConfig.theme.textColor.opacity(0.1))
+                    .cornerRadius(4)
+
+                    Button {
+                        stopAutoPageTurn()
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.orange)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(readerConfig.theme.backgroundColor)
+                        .shadow(color: Color.black.opacity(0.2), radius: 6, x: 0, y: 3)
+                )
+                .padding(.bottom, 32)
+            }
+        }
+    }
+
     /// Top bar + bottom bar + the backdrop that dismisses them.
     @ViewBuilder private var controlsLayer: some View {
         if showControls && panel == .none {
@@ -613,8 +702,9 @@ public struct ReaderView: View {
                                 // Chapter Paragraphs and Images
                                 ForEach(loadedCh.blocks) { block in
                                     if block.isImage, let urlStr = block.imageUrl {
+                                        let isFullImg = readerConfig.prefs.imageStyle == .full
                                         ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
-                                            .padding(.horizontal, 20)
+                                            .padding(.horizontal, isFullImg ? 0 : 20)
                                             .id("block_\(loadedCh.chapter.index)_\(block.id)")
                                             .background(
                                                 GeometryReader { geo in
@@ -820,7 +910,9 @@ public struct ReaderView: View {
 
                         // Page Content
                         if pageBlocks.first?.isImage == true, let urlStr = pageBlocks.first?.imageUrl {
+                            let isFullImg = readerConfig.prefs.imageStyle == .full
                             ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
+                                .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
                             let lines = pageBlocks.map { $0.text }
                             let isParagraphEnd = pageBlocks.map { $0.imageUrl == "p_end" }
@@ -1057,15 +1149,19 @@ public struct ReaderView: View {
                         }
                     }
 
-                    Section("本章") {
+                    Section("缓存与离线") {
+                        Button("离线下载章节...") { showRangeDownload = true }
                         Button("刷新本章") { reloadCurrentChapter() }
                         Button("更新目录") { Task { await refreshTOC(force: true, notice: .always) } }
                         Button("清理本书缓存") { clearBookCache() }
+                        Button(isAutoPageTurning ? "停止自动翻页" : "开启自动翻页") {
+                            toggleAutoPageTurn()
+                        }
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 18))
-                }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 18))
+                    }
             }
             .foregroundColor(readerConfig.theme.textColor)
             .frame(width: 96, alignment: .trailing)
@@ -1154,7 +1250,12 @@ public struct ReaderView: View {
     }
 
     private var chapterNavigationRow: some View {
-        HStack(spacing: 14) {
+        let isPageSliderMode = (readerConfig.prefs.progressBarBehavior == 0)
+            && (readerConfig.pageMode == .pageByPage)
+            && ((currentLoadedChapter?.pages.count ?? 0) > 1)
+        let pageCount = max(1, currentLoadedChapter?.pages.count ?? 1)
+
+        return HStack(spacing: 14) {
             Button(action: {
                 previousChapter()
             }) {
@@ -1167,7 +1268,24 @@ public struct ReaderView: View {
             }
             .disabled(currentChapterIndex <= 0)
 
-            if chapters.count > 1 {
+            if isPageSliderMode {
+                Slider(
+                    value: Binding(
+                        get: { Double(min(currentPageIndex, pageCount - 1)) },
+                        set: { newValue in
+                            let target = Int(newValue.rounded())
+                            if target != currentPageIndex && target >= 0 && target < pageCount {
+                                currentPageIndex = target
+                                updateReadingBlockIdFromCurrentPage()
+                                saveCurrentProgress()
+                            }
+                        }
+                    ),
+                    in: 0...Double(max(1, pageCount - 1)),
+                    step: 1
+                )
+                .accentColor(.accentColor)
+            } else if chapters.count > 1 {
                 Slider(
                     value: Binding(
                         get: { Double(currentChapterIndex) },
@@ -1400,31 +1518,16 @@ public struct ReaderView: View {
 
     private var tocSheet: some View {
         NavigationView {
-            List(chapters) { ch in
-                Button(action: {
+            ChapterListView(
+                bookUrl: book.bookUrl,
+                chapters: chapters,
+                currentChapterIndex: currentChapterIndex,
+                showCloseButton: true,
+                onSelectChapter: { index in
                     showTOC = false
-                    jumpToChapter(ch.index)
-                }) {
-                    HStack {
-                        Text(ch.title)
-                            .foregroundColor(ch.index == currentChapterIndex ? .accentColor : .primary)
-                        Spacer()
-                        if ch.index == currentChapterIndex {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.accentColor)
-                        }
-                    }
+                    jumpToChapter(index)
                 }
-            }
-            .navigationTitle("目录 (\(chapters.count)章)")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("关闭") { showTOC = false }
-                }
-            }
+            )
         }
     }
 
@@ -1447,7 +1550,7 @@ public struct ReaderView: View {
     /// always cost a round trip, and the reason an offline book could not be opened at all
     /// even though its chapters were on disk.
     private func loadTOCAndStart() async {
-        if book.origin == "local" {
+        if book.isLocalBook {
             var localChapters = BookStore.shared.getChapters(for: book.bookUrl)
             if !localChapters.isEmpty {
                 for i in 0..<localChapters.count {
@@ -1903,8 +2006,10 @@ public struct ReaderView: View {
                         }
                         if match.numberOfRanges > 1 {
                             let imgUrl = nsLine.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
-                            blocks.append(ContentBlock(id: currentId, isImage: true, text: "", imageUrl: imgUrl))
-                            currentId += 1
+                            if readerConfig.prefs.imageStyle != .textOnly {
+                                blocks.append(ContentBlock(id: currentId, isImage: true, text: "", imageUrl: imgUrl))
+                                currentId += 1
+                            }
                         }
                         lastIndex = match.range.location + match.range.length
                     }
@@ -2103,6 +2208,51 @@ public struct ReaderView: View {
         return ReadAloudText.offset(of: paragraphs, at: index)
     }
 
+    // MARK: - Auto Page Turn Logic
+
+    private func toggleAutoPageTurn() {
+        if isAutoPageTurning {
+            stopAutoPageTurn()
+        } else {
+            startAutoPageTurn()
+        }
+    }
+
+    private func startAutoPageTurn() {
+        isAutoPageTurning = true
+        setControls(false)
+        restartAutoTurnTimer()
+    }
+
+    private func stopAutoPageTurn() {
+        autoTurnTask?.cancel()
+        autoTurnTask = nil
+        isAutoPageTurning = false
+    }
+
+    private func restartAutoTurnTimer() {
+        autoTurnTask?.cancel()
+        autoTurnTask = Task { @MainActor [weak readerConfig] in
+            while !Task.isCancelled {
+                let interval = UInt64(autoTurnIntervalSeconds * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard !Task.isCancelled else { break }
+                if readerConfig?.pageMode == .pageByPage {
+                    turnPage(forward: true)
+                } else {
+                    nextChapter()
+                }
+            }
+        }
+    }
+
+    // MARK: - Selected Text Action
+    private func openDictForSelected(text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        selectedWordForDict = trimmed
+    }
+
     private func configureAudioContext() {
         audioService.nowPlayingTitle = book.name
         audioService.nowPlayingSubtitle = currentChapterIndex < chapters.count
@@ -2257,7 +2407,7 @@ public struct ChapterImageView: View {
     @State private var imageData: Data? = nil
     @State private var isLoading: Bool = false
     @State private var loadFailed: Bool = false
-
+    @State private var showFullScreen: Bool = false
     private static let imageCache = NSCache<NSString, NSData>()
 
     public init(urlString: String, referer: String? = nil) {
@@ -2273,6 +2423,10 @@ public struct ChapterImageView: View {
                     .scaledToFit()
                     .cornerRadius(8)
                     .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        showFullScreen = true
+                    }
             } else if isLoading {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -2308,6 +2462,31 @@ public struct ChapterImageView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .task(id: urlString) {
             await loadImage()
+        }
+        .sheet(isPresented: $showFullScreen) {
+            NavigationView {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    if let data = imageData, let img = platformImage(from: data) {
+                        ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                            img
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                }
+                .navigationTitle("图片预览")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { showFullScreen = false }
+                            .foregroundColor(.white)
+                    }
+                }
+            }
         }
     }
 
@@ -2401,7 +2580,10 @@ public struct ReaderSearchSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText: String = ""
-    @State private var searchScope: Int = 0 // 0: 本章内容, 1: 目录章节
+    @State private var searchScope: Int = 0 // 0: 本章内容, 1: 目录章节, 2: 查字典
+    @State private var dictDefinition: String? = nil
+    @State private var isSearchingDict: Bool = false
+    @State private var selectedDictRuleName: String = ""
 
     public struct SearchItem: Identifiable {
         public let id = UUID()
@@ -2409,7 +2591,6 @@ public struct ReaderSearchSheet: View {
         public let title: String
         public let snippet: String
     }
-
     private var currentChapterMatches: [SearchItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
@@ -2444,23 +2625,28 @@ public struct ReaderSearchSheet: View {
             return nil
         }
     }
-
     private var activeResults: [SearchItem] {
         searchScope == 0 ? currentChapterMatches : tocMatches
+    }
+
+    private var enabledDictRules: [DictRule] {
+        DictRuleStore.load().filter { $0.enabled }
     }
 
     public var body: some View {
         NavigationView {
             VStack(spacing: 0) {
                 Picker("搜索范围", selection: $searchScope) {
-                    Text("当前章节正文").tag(0)
-                    Text("目录章节搜索").tag(1)
+                    Text("本章正文").tag(0)
+                    Text("目录搜索").tag(1)
+                    Text("查字典").tag(2)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-
-                if searchText.isEmpty {
+                if searchScope == 2 {
+                    dictLookupView
+                } else if searchText.isEmpty {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "magnifyingglass")
@@ -2516,6 +2702,113 @@ public struct ReaderSearchSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dictLookupView: some View {
+        VStack(spacing: 10) {
+            if enabledDictRules.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(enabledDictRules) { r in
+                            let isSel = (selectedDictRuleName.isEmpty ? enabledDictRules.first?.name == r.name : selectedDictRuleName == r.name)
+                            Button {
+                                selectedDictRuleName = r.name
+                                searchDict()
+                            } label: {
+                                Text(r.name)
+                                    .font(.caption.weight(isSel ? .bold : .regular))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(isSel ? Color.accentColor : Color.secondary.opacity(0.12))
+                                    .foregroundColor(isSel ? .white : .primary)
+                                    .cornerRadius(12)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+
+            if isSearchingDict {
+                Spacer()
+                ProgressView()
+                Text("正在查询字典...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            } else if let def = dictDefinition {
+                ScrollView {
+                    Text(def)
+                        .font(.subheadline)
+                        .lineSpacing(5)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "character.book.closed")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("输入字词后回车即可联网查词")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+        }
+        .onAppear {
+            if selectedDictRuleName.isEmpty {
+                selectedDictRuleName = enabledDictRules.first?.name ?? ""
+            }
+        }
+        .onSubmit(of: .search) {
+            searchDict()
+        }
+    }
+
+    private func searchDict() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        let rule = enabledDictRules.first { $0.name == selectedDictRuleName } ?? enabledDictRules.first
+        guard let r = rule else {
+            dictDefinition = "暂无可用的字典规则，请在设置中配置"
+            return
+        }
+        isSearchingDict = true
+        dictDefinition = nil
+        let renderedUrl = r.urlRule.replacingOccurrences(of: "{{key}}", with: query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)
+        Task {
+            do {
+                guard let parsed = NetworkClient.parseLegadoUrl(renderedUrl) else {
+                    await MainActor.run {
+                        isSearchingDict = false
+                        dictDefinition = "无效的字典 URL 规则"
+                    }
+                    return
+                }
+                let resp = try await NetworkClient.shared.request(parsed: parsed)
+                let body = resp.bodyString
+                let resultText: String
+                if !r.showRule.isEmpty {
+                    let analyzer = RuleAnalyzer(content: body, baseUrl: renderedUrl)
+                    resultText = analyzer.getString(r.showRule)
+                } else {
+                    resultText = BookContentService.cleanHtml(body)
+                }
+                await MainActor.run {
+                    isSearchingDict = false
+                    dictDefinition = resultText.isEmpty ? "未找到关于 “\(query)” 的释义" : resultText
+                }
+            } catch {
+                await MainActor.run {
+                    isSearchingDict = false
+                    dictDefinition = "查词失败: \(error.localizedDescription)"
                 }
             }
         }
@@ -2724,3 +3017,276 @@ public class CoreTextUIView: UIView {
 }
 #endif
 
+// MARK: - ChapterRangeDownloadSheet (Android menu_download / CacheBook Counterpart)
+
+public struct ChapterRangeDownloadSheet: View {
+    let book: Book
+    let chapters: [BookChapter]
+    let source: BookSource?
+    let currentChapterIndex: Int
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var startChapter: Int
+    @State private var endChapter: Int
+    @State private var isDownloading: Bool = false
+    @State private var progressText: String = ""
+    @State private var currentDownloaded: Int = 0
+    @State private var totalToDownload: Int = 0
+    @State private var resultSummary: String? = nil
+    @State private var downloadTask: Task<Void, Never>? = nil
+
+    public init(book: Book, chapters: [BookChapter], source: BookSource?, currentChapterIndex: Int) {
+        self.book = book
+        self.chapters = chapters
+        self.source = source
+        self.currentChapterIndex = currentChapterIndex
+        let start = min(currentChapterIndex, max(0, chapters.count - 1))
+        let end = min(start + 50, max(0, chapters.count - 1))
+        self._startChapter = State(initialValue: start)
+        self._endChapter = State(initialValue: end)
+    }
+
+    public var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("选择下载范围 (共 \(chapters.count) 章)")) {
+                    HStack {
+                        Text("起始章节")
+                        Spacer()
+                        Text("第 \(startChapter + 1) 章")
+                            .foregroundColor(.secondary)
+                    }
+                    if chapters.count > 1 {
+                        Slider(
+                            value: Binding(
+                                get: { Double(startChapter) },
+                                set: {
+                                    let val = Int($0.rounded())
+                                    startChapter = min(val, endChapter)
+                                }
+                            ),
+                            in: 0...Double(max(1, chapters.count - 1)),
+                            step: 1
+                        )
+                    }
+
+                    HStack {
+                        Text("结束章节")
+                        Spacer()
+                        Text("第 \(endChapter + 1) 章")
+                            .foregroundColor(.secondary)
+                    }
+                    if chapters.count > 1 {
+                        Slider(
+                            value: Binding(
+                                get: { Double(endChapter) },
+                                set: {
+                                    let val = Int($0.rounded())
+                                    endChapter = max(val, startChapter)
+                                }
+                            ),
+                            in: 0...Double(max(1, chapters.count - 1)),
+                            step: 1
+                        )
+                    }
+
+                    HStack(spacing: 8) {
+                        presetButton(title: "后续 50 章", delta: 50)
+                        presetButton(title: "后续 100 章", delta: 100)
+                        Button("全部下载") {
+                            startChapter = 0
+                            endChapter = max(0, chapters.count - 1)
+                        }
+                        .font(.caption)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if isDownloading {
+                    Section(header: Text("下载进度")) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ProgressView(value: Double(currentDownloaded), total: Double(max(1, totalToDownload)))
+                            Text(progressText)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                if let summary = resultSummary {
+                    Section(header: Text("下载结果")) {
+                        Text(summary)
+                            .font(.caption)
+                            .foregroundColor(.primary)
+                    }
+                }
+
+                Section {
+                    Button(isDownloading ? "停止下载" : "开始下载 (\(endChapter - startChapter + 1) 章)") {
+                        if isDownloading {
+                            stopDownload()
+                        } else {
+                            startDownload()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .foregroundColor(isDownloading ? .orange : .accentColor)
+                    .font(.headline)
+                }
+            }
+            .navigationTitle("离线缓存章节")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") {
+                        stopDownload()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func presetButton(title: String, delta: Int) -> some View {
+        Button(title) {
+            startChapter = currentChapterIndex
+            endChapter = min(currentChapterIndex + delta, max(0, chapters.count - 1))
+        }
+        .font(.caption)
+    }
+
+    private func stopDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        isDownloading = false
+    }
+
+    private func startDownload() {
+        guard !chapters.isEmpty else { return }
+        isDownloading = true
+        resultSummary = nil
+        currentDownloaded = 0
+        totalToDownload = endChapter - startChapter + 1
+        progressText = "准备开始下载..."
+
+        downloadTask = Task {
+            let res = await BookContentService.shared.downloadChaptersRange(
+                book: book,
+                chapters: chapters,
+                source: source,
+                startIndex: startChapter,
+                endIndex: endChapter,
+                onProgress: { cur, tot in
+                    Task { @MainActor in
+                        self.currentDownloaded = cur
+                        self.totalToDownload = tot
+                        self.progressText = "正在下载 (\(cur)/\(tot))..."
+                    }
+                }
+            )
+            await MainActor.run {
+                self.isDownloading = false
+                self.resultSummary = "下载完成：新增缓存 \(res.successCount) 章，已缓存跳过 \(res.skippedCount) 章" + (res.failedCount > 0 ? "，失败 \(res.failedCount) 章" : "")
+            }
+        }
+    }
+}
+
+// MARK: - DictResultPopupView (Word lookup Sheet)
+
+struct DictResultPopupView: View {
+    let word: String
+    @State private var definition: String? = nil
+    @State private var isLoading: Bool = true
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text(word)
+                    .font(.title2.bold())
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.top, 10)
+
+            Divider()
+
+            if isLoading {
+                Spacer()
+                ProgressView()
+                Text("正在查询字典...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            } else if let def = definition {
+                ScrollView {
+                    Text(def)
+                        .font(.subheadline)
+                        .lineSpacing(5)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Spacer()
+                Text("未查询到释义")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+        }
+        .navigationTitle("词典查词")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onAppear {
+            fetchDefinition()
+        }
+    }
+
+    private func fetchDefinition() {
+        let rules = DictRuleStore.load().filter { $0.enabled }
+        guard let r = rules.first else {
+            isLoading = false
+            definition = "未启用任何字典规则"
+            return
+        }
+        let rendered = r.urlRule.replacingOccurrences(of: "{{key}}", with: word.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? word)
+        Task {
+            do {
+                guard let parsed = NetworkClient.parseLegadoUrl(rendered) else {
+                    await MainActor.run {
+                        isLoading = false
+                        definition = "无效的字典请求"
+                    }
+                    return
+                }
+                let resp = try await NetworkClient.shared.request(parsed: parsed)
+                let body = resp.bodyString
+                let result: String
+                if !r.showRule.isEmpty {
+                    let a = RuleAnalyzer(content: body, baseUrl: rendered)
+                    result = a.getString(r.showRule)
+                } else {
+                    result = BookContentService.cleanHtml(body)
+                }
+                await MainActor.run {
+                    isLoading = false
+                    definition = result.isEmpty ? "未找到关于 “\(word)” 的释义" : result
+                }
+            } catch {
+                await MainActor.run {
+                    isLoading = false
+                    definition = "查询异常: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+}
+
+extension String: Identifiable {
+    public var id: String { self }
+}

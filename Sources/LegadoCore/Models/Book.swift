@@ -29,6 +29,22 @@ public struct Book: Codable, Identifiable, Equatable {
     /// (`Book.getUseReplaceRule`); a flat optional is equivalent for us, and GSON ignores
     /// an unknown top-level key when the book is restored on Android.
     public var useReplaceRule: Bool?
+    public var variable: String?
+    public var customCoverUrl: String?
+    /// Group ID bitmap or single group ID (matching Android `Book.group: Long`). Default 0 means ungrouped.
+    public var group: Int64 = 0
+
+    /// True when the book was imported from a local file (TXT/EPUB) rather than a network book source.
+    ///
+    /// Android tags these with `origin == BookType.localTag`; iOS local imports additionally carry a
+    /// scheme-prefixed `bookUrl` (`txt://`, `epub://`, `file://`), so both signals are accepted. Single
+    /// source of truth for the 「本地书籍」/「书源书籍」 bookshelf split.
+    public var isLocalBook: Bool {
+        origin == "local"
+            || bookUrl.hasPrefix("txt://")
+            || bookUrl.hasPrefix("epub://")
+            || bookUrl.hasPrefix("file://")
+    }
 
     public init(
         bookUrl: String,
@@ -48,7 +64,10 @@ public struct Book: Codable, Identifiable, Equatable {
         durChapterTime: Int64 = 0,
         totalChapterNum: Int = 0,
         lastCheckTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
-        useReplaceRule: Bool? = nil
+        useReplaceRule: Bool? = nil,
+        variable: String? = nil,
+        customCoverUrl: String? = nil,
+        group: Int64 = 0
     ) {
         self.bookUrl = bookUrl
         self.name = name
@@ -68,15 +87,17 @@ public struct Book: Codable, Identifiable, Equatable {
         self.totalChapterNum = totalChapterNum
         self.lastCheckTime = lastCheckTime
         self.useReplaceRule = useReplaceRule
+        self.variable = variable
+        self.customCoverUrl = customCoverUrl
+        self.group = group
     }
 
     enum CodingKeys: String, CodingKey {
         case bookUrl, name, author, kind, coverUrl, intro
         case origin, originName, tocUrl, wordCount, latestChapterTitle
         case durChapterTitle, durChapterIndex, durChapterPos, durChapterTime, totalChapterNum, lastCheckTime
-        case useReplaceRule
+        case useReplaceRule, variable, customCoverUrl, group
     }
-
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.bookUrl = (try? container.decode(String.self, forKey: .bookUrl)) ?? ""
@@ -97,6 +118,50 @@ public struct Book: Codable, Identifiable, Equatable {
         self.totalChapterNum = (try? container.decode(Int.self, forKey: .totalChapterNum)) ?? 0
         self.lastCheckTime = (try? container.decode(Int64.self, forKey: .lastCheckTime)) ?? Int64(Date().timeIntervalSince1970 * 1000)
         self.useReplaceRule = try? container.decodeIfPresent(Bool.self, forKey: .useReplaceRule)
+        self.variable = try? container.decodeIfPresent(String.self, forKey: .variable)
+        self.customCoverUrl = try? container.decodeIfPresent(String.self, forKey: .customCoverUrl)
+        self.group = (try? container.decode(Int64.self, forKey: .group)) ?? 0
+    }
+
+    /// Parses `variable` as a JSON key-value map (matching Android `Book.variableMap`).
+    public var variableMap: [String: String] {
+        guard let raw = variable?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        var result: [String: String] = [:]
+        for (k, v) in dict {
+            result[k] = "\(v)"
+        }
+        return result
+    }
+
+    public func getVariable(_ key: String? = nil) -> String {
+        guard let key = key, !key.isEmpty else {
+            return variable ?? ""
+        }
+        return variableMap[key] ?? ""
+    }
+
+    public mutating func putVariable(key: String? = nil, value: String?) {
+        guard let key = key, !key.isEmpty else {
+            variable = value
+            return
+        }
+        var map = variableMap
+        if let v = value, !v.isEmpty {
+            map[key] = v
+        } else {
+            map.removeValue(forKey: key)
+        }
+        if map.isEmpty {
+            variable = nil
+        } else if let data = try? JSONSerialization.data(withJSONObject: map),
+                  let str = String(data: data, encoding: .utf8) {
+            variable = str
+        }
     }
 }
 

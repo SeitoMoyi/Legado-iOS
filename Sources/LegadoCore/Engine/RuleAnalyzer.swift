@@ -293,12 +293,21 @@ public class RuleAnalyzer {
             }
 
             for step in steps {
-                if case .css(let selector) = step.type {
+                switch step.type {
+                case .css(let selector):
                     var next: [Element] = []
                     for el in currentElements {
                         next.append(contentsOf: selectElements(from: el, selector: selector))
                     }
                     currentElements = next
+                case .xpath(let expr):
+                    var next: [Element] = []
+                    for el in currentElements {
+                        next.append(contentsOf: evaluateXPathElements(expr, root: el))
+                    }
+                    currentElements = next
+                default:
+                    break
                 }
             }
             if !currentElements.isEmpty {
@@ -357,9 +366,11 @@ public class RuleAnalyzer {
 
     private func evaluateHtmlSteps(steps: [RuleStep], element: Element) -> [Any] {
         var elements: [Element] = [element]
+        var implicitAttribute: String? = nil
 
         for step in steps {
-            if case .css(let selector) = step.type {
+            switch step.type {
+            case .css(let selector):
                 var next: [Element] = []
                 for el in elements {
                     let found = selectElements(from: el, selector: selector)
@@ -372,33 +383,426 @@ public class RuleAnalyzer {
                     }
                 }
                 elements = next
+            case .xpath(let expr):
+                let (cleanExpr, extractedAttr) = stripXPathTerminalExtractor(expr)
+                if let attr = extractedAttr {
+                    implicitAttribute = attr
+                }
+                var next: [Element] = []
+                for el in elements {
+                    next.append(contentsOf: evaluateXPathElements(cleanExpr, root: el))
+                }
+                elements = next
+            default:
+                break
             }
         }
 
-        // Check if an attribute is requested
-        for step in steps {
-            if case .attribute(let attr) = step.type {
-                return elements.compactMap { el in
-                    switch attr {
-                    case "text", "textnodes":
-                        return (try? el.text()) ?? ""
-                    case "html":
-                        return (try? el.html()) ?? ""
-                    case "href":
-                        return (try? el.attr("href")) ?? ""
-                    case "src":
-                        return (try? el.attr("src")) ?? ""
-                    default:
-                        if attr.starts(with: "attr(") && attr.hasSuffix(")") {
-                            let attrName = String(attr.dropFirst(5).dropLast())
-                            return try? el.attr(attrName)
-                        }
-                        return try? el.attr(attr)
+        // Check if an explicit attribute step or XPath terminal extractor is requested
+        let explicitAttr: String? = steps.compactMap {
+            if case .attribute(let a) = $0.type { return a }
+            return nil
+        }.first ?? implicitAttribute
+
+        if let attr = explicitAttr {
+            return elements.compactMap { el in
+                switch attr {
+                case "text":
+                    return (try? el.text()) ?? ""
+                case "textnodes", "own_text":
+                    let nodes = el.textNodes()
+                    if !nodes.isEmpty {
+                        return nodes.map { $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
+                            .filter { !$0.isEmpty }
+                            .joined(separator: "\n")
                     }
+                    return (try? el.text()) ?? ""
+                case "html", "node":
+                    return (try? el.html()) ?? ""
+                case "outerhtml", "all":
+                    return (try? el.outerHtml()) ?? ""
+                case "href":
+                    return (try? el.attr("href")) ?? ""
+                case "src":
+                    return (try? el.attr("src")) ?? ""
+                default:
+                    if attr.starts(with: "attr(") && attr.hasSuffix(")") {
+                        let attrName = String(attr.dropFirst(5).dropLast())
+                        return try? el.attr(attrName)
+                    }
+                    return try? el.attr(attr)
                 }
             }
         }
 
         return elements.compactMap { try? $0.text() }
+    }
+    // MARK: - Lightweight XPath Evaluator over SwiftSoup
+
+    /// Strips trailing `/text()`, `/node()`, `/all()`, or `/@attr` from an XPath expression.
+    private func stripXPathTerminalExtractor(_ expr: String) -> (String, String?) {
+        let trimmed = expr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffixes: [(String, String)] = [
+            ("//text()", "text"),
+            ("/text()", "text"),
+            ("/node()", "html"),
+            ("/all()", "outerhtml")
+        ]
+        for (suf, mapped) in suffixes {
+            if trimmed.lowercased().hasSuffix(suf) {
+                let base = String(trimmed.dropLast(suf.count))
+                return (base.isEmpty ? "." : base, mapped)
+            }
+        }
+        // Check trailing `/@attrName` outside brackets
+        if let slashAtRange = trimmed.range(of: #"/@([a-zA-Z0-9_\-:]+)$"#, options: .regularExpression) {
+            let attrName = String(trimmed[slashAtRange].dropFirst(2))
+            let base = String(trimmed[..<slashAtRange.lowerBound])
+            return (base.isEmpty ? "." : base, attrName)
+        }
+        return (trimmed, nil)
+    }
+
+    /// Evaluates XPath expressions (supporting union `|`, `//`, `/`, predicates `[@id=...]`,
+    /// `[contains(@class,...)]`, `[N]`, `[last()]`, etc.) against a SwiftSoup `Element`.
+    private func evaluateXPathElements(_ rawXPath: String, root: Element) -> [Element] {
+        let (exprWithoutTerminal, _) = stripXPathTerminalExtractor(rawXPath)
+        let unionBranches = splitTopLevelXPath(exprWithoutTerminal, delimiter: "|")
+        if unionBranches.count > 1 {
+            var combined: [Element] = []
+            for branch in unionBranches {
+                combined.append(contentsOf: evaluateSingleXPath(branch, root: root))
+            }
+            return combined
+        }
+        return evaluateSingleXPath(exprWithoutTerminal, root: root)
+    }
+
+    private func evaluateSingleXPath(_ raw: String, root: Element) -> [Element] {
+        var expr = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if expr.isEmpty || expr == "." { return [root] }
+
+        // Handle grouped index like `(//div[@class='item'])[1]`
+        var outerPredicate: String? = nil
+        if expr.hasPrefix("("), let closeParen = findMatchingParen(in: expr) {
+            let afterParen = String(expr[expr.index(after: closeParen)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if afterParen.hasPrefix("[") && afterParen.hasSuffix("]") {
+                outerPredicate = String(afterParen.dropFirst().dropLast())
+                expr = String(expr[expr.index(after: expr.startIndex)..<closeParen])
+            }
+        }
+
+        let segments = parseXPathAxisSteps(expr)
+        var current: [Element] = [root]
+
+        for seg in segments {
+            var nextBatch: [Element] = []
+            for contextEl in current {
+                let candidates = collectXPathAxisCandidates(axis: seg.axis, tag: seg.tag, from: contextEl)
+                let filtered = applyXPathPredicates(seg.predicates, to: candidates)
+                nextBatch.append(contentsOf: filtered)
+            }
+            current = nextBatch
+            if current.isEmpty { break }
+        }
+
+        if let outer = outerPredicate {
+            current = applyXPathPredicates([outer], to: current)
+        }
+        return current
+    }
+
+    private struct XPathSegment {
+        let axis: String // "//", "/", "."
+        let tag: String
+        let predicates: [String]
+    }
+
+    private func parseXPathAxisSteps(_ expr: String) -> [XPathSegment] {
+        var s = expr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("./") {
+            s = String(s.dropFirst(1))
+        } else if !s.hasPrefix("/") {
+            s = "//" + s
+        }
+
+        var segments: [XPathSegment] = []
+        var idx = s.startIndex
+
+        while idx < s.endIndex {
+            var axis = "/"
+            if s[idx...].hasPrefix("//") {
+                axis = "//"
+                idx = s.index(idx, offsetBy: 2)
+            } else if s[idx] == "/" {
+                axis = "/"
+                idx = s.index(after: idx)
+            }
+
+            // Read step until next top-level `/`
+            let stepStart = idx
+            var bracketDepth = 0
+            var inSingle = false
+            var inDouble = false
+            while idx < s.endIndex {
+                let ch = s[idx]
+                if ch == "'" && !inDouble { inSingle.toggle() }
+                else if ch == "\"" && !inSingle { inDouble.toggle() }
+                else if !inSingle && !inDouble {
+                    if ch == "[" { bracketDepth += 1 }
+                    else if ch == "]" { bracketDepth = max(0, bracketDepth - 1) }
+                    else if ch == "/" && bracketDepth == 0 { break }
+                }
+                idx = s.index(after: idx)
+            }
+
+            let rawStep = String(s[stepStart..<idx]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if rawStep.isEmpty { continue }
+            let (tag, preds) = splitXPathStepTagAndPredicates(rawStep)
+            segments.append(XPathSegment(axis: axis, tag: tag, predicates: preds))
+        }
+        return segments
+    }
+
+    private func splitXPathStepTagAndPredicates(_ step: String) -> (String, [String]) {
+        guard let firstBracket = step.firstIndex(of: "[") else {
+            return (step, [])
+        }
+        let tag = String(step[..<firstBracket]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var preds: [String] = []
+        var idx = firstBracket
+        while idx < step.endIndex {
+            if step[idx] == "[" {
+                let contentStart = step.index(after: idx)
+                var depth = 1
+                var inSingle = false
+                var inDouble = false
+                var cur = contentStart
+                while cur < step.endIndex && depth > 0 {
+                    let c = step[cur]
+                    if c == "'" && !inDouble { inSingle.toggle() }
+                    else if c == "\"" && !inSingle { inDouble.toggle() }
+                    else if !inSingle && !inDouble {
+                        if c == "[" { depth += 1 }
+                        else if c == "]" { depth -= 1 }
+                    }
+                    if depth > 0 {
+                        cur = step.index(after: cur)
+                    }
+                }
+                let pred = String(step[contentStart..<cur]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !pred.isEmpty { preds.append(pred) }
+                idx = cur < step.endIndex ? step.index(after: cur) : step.endIndex
+            } else {
+                idx = step.index(after: idx)
+            }
+        }
+        return (tag.isEmpty ? "*" : tag, preds)
+    }
+
+    private func collectXPathAxisCandidates(axis: String, tag: String, from element: Element) -> [Element] {
+        if tag == "." { return [element] }
+        if tag == ".." {
+            if let parent = element.parent() { return [parent] }
+            return []
+        }
+        let cleanTag = tag.isEmpty ? "*" : tag
+        if axis == "//" {
+            if let all = try? element.getElementsByTag(cleanTag == "*" ? "*" : cleanTag) {
+                // Exclude `element` itself from descendant axis unless element is Document
+                return all.array().filter { $0 !== element }
+            }
+            if cleanTag == "*", let all = try? element.getAllElements() {
+                return all.array().filter { $0 !== element }
+            }
+            return []
+        } else {
+            // Direct children (`/`)
+            var children = element.children().array()
+            // When root is Document and path starts with `/html/...`, `Document`'s child is `<html>`
+            if cleanTag != "*" {
+                children = children.filter { $0.tagName().lowercased() == cleanTag.lowercased() }
+            }
+            return children
+        }
+    }
+
+    private func applyXPathPredicates(_ predicates: [String], to elements: [Element]) -> [Element] {
+        var current = elements
+        for rawPred in predicates {
+            let pred = rawPred.trimmingCharacters(in: .whitespacesAndNewlines)
+            if pred.isEmpty { continue }
+
+            // 1. Positional index: `1`, `2`, `position()=1`, `last()`, `last()-1`, `position()>1`
+            if let index = Int(pred) {
+                // XPath is 1-based
+                let zeroBased = index - 1
+                if zeroBased >= 0 && zeroBased < current.count {
+                    current = [current[zeroBased]]
+                } else {
+                    current = []
+                }
+                continue
+            }
+            if pred == "last()" {
+                current = current.last.map { [$0] } ?? []
+                continue
+            }
+            if pred.hasPrefix("last()-"), let offset = Int(pred.dropFirst(7).trimmingCharacters(in: .whitespaces)) {
+                let target = current.count - 1 - offset
+                current = (target >= 0 && target < current.count) ? [current[target]] : []
+                continue
+            }
+            if pred.hasPrefix("position()") {
+                let rest = pred.dropFirst(10).trimmingCharacters(in: .whitespaces)
+                if rest.hasPrefix("="), let idx = Int(rest.dropFirst().trimmingCharacters(in: .whitespaces)) {
+                    current = (idx >= 1 && idx <= current.count) ? [current[idx - 1]] : []
+                    continue
+                } else if rest.hasPrefix(">"), let idx = Int(rest.dropFirst().trimmingCharacters(in: .whitespaces)) {
+                    current = idx < current.count ? Array(current[idx...]) : []
+                    continue
+                } else if rest.hasPrefix("<"), let idx = Int(rest.dropFirst().trimmingCharacters(in: .whitespaces)) {
+                    current = idx > 1 ? Array(current.prefix(idx - 1)) : []
+                    continue
+                }
+            }
+
+            // 2. Boolean filter per element
+            current = current.filter { matchesXPathPredicate(pred, element: $0) }
+        }
+        return current
+    }
+
+    private func matchesXPathPredicate(_ pred: String, element: Element) -> Bool {
+        // Handle `and` / `or`
+        let orParts = splitTopLevelXPath(pred, delimiter: " or ")
+        if orParts.count > 1 {
+            return orParts.contains { matchesXPathPredicate($0, element: element) }
+        }
+        let andParts = splitTopLevelXPath(pred, delimiter: " and ")
+        if andParts.count > 1 {
+            return andParts.allSatisfy { matchesXPathPredicate($0, element: element) }
+        }
+
+        let trimmed = pred.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("not(") && trimmed.hasSuffix(")") {
+            let inner = String(trimmed.dropFirst(4).dropLast())
+            return !matchesXPathPredicate(inner, element: element)
+        }
+
+        // `contains(@attr, 'val')` or `contains(text(), 'val')` or `contains(., 'val')`
+        if trimmed.hasPrefix("contains(") && trimmed.hasSuffix(")") {
+            let inner = String(trimmed.dropFirst(9).dropLast())
+            let args = splitTopLevelXPath(inner, delimiter: ",")
+            if args.count == 2 {
+                let lhs = evaluateXPathStringValue(args[0], element: element)
+                let rhs = unquoteXPathLiteral(args[1])
+                return lhs.contains(rhs)
+            }
+        }
+
+        // `starts-with(@attr, 'val')`
+        if trimmed.hasPrefix("starts-with(") && trimmed.hasSuffix(")") {
+            let inner = String(trimmed.dropFirst(12).dropLast())
+            let args = splitTopLevelXPath(inner, delimiter: ",")
+            if args.count == 2 {
+                let lhs = evaluateXPathStringValue(args[0], element: element)
+                let rhs = unquoteXPathLiteral(args[1])
+                return lhs.hasPrefix(rhs)
+            }
+        }
+
+        // `@attr != 'val'` or `@attr = 'val'`
+        if let neqRange = trimmed.range(of: "!=") {
+            let lhs = evaluateXPathStringValue(String(trimmed[..<neqRange.lowerBound]), element: element)
+            let rhs = unquoteXPathLiteral(String(trimmed[neqRange.upperBound...]))
+            return lhs != rhs
+        }
+        if let eqRange = trimmed.range(of: "=") {
+            let lhs = evaluateXPathStringValue(String(trimmed[..<eqRange.lowerBound]), element: element)
+            let rhs = unquoteXPathLiteral(String(trimmed[eqRange.upperBound...]))
+            return lhs == rhs
+        }
+
+        // Bare `@attr` existence check: `[@href]`
+        if trimmed.hasPrefix("@") {
+            let attrName = String(trimmed.dropFirst())
+            return element.hasAttr(attrName)
+        }
+
+        // Bare child tag existence check: `[a]` or `[span[@class='x']]`
+        return !evaluateSingleXPath(trimmed, root: element).isEmpty
+    }
+
+    private func evaluateXPathStringValue(_ expr: String, element: Element) -> String {
+        let t = expr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("@") {
+            let attr = String(t.dropFirst())
+            return (try? element.attr(attr)) ?? ""
+        }
+        if t == "text()" || t == "." {
+            return (try? element.text()) ?? ""
+        }
+        return unquoteXPathLiteral(t)
+    }
+
+    private func unquoteXPathLiteral(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (t.hasPrefix("'") && t.hasSuffix("'")) || (t.hasPrefix("\"") && t.hasSuffix("\"")) {
+            return String(t.dropFirst().dropLast())
+        }
+        return t
+    }
+
+    private func findMatchingParen(in s: String) -> String.Index? {
+        var depth = 0
+        var inSingle = false
+        var inDouble = false
+        var idx = s.startIndex
+        while idx < s.endIndex {
+            let c = s[idx]
+            if c == "'" && !inDouble { inSingle.toggle() }
+            else if c == "\"" && !inSingle { inDouble.toggle() }
+            else if !inSingle && !inDouble {
+                if c == "(" { depth += 1 }
+                else if c == ")" {
+                    depth -= 1
+                    if depth == 0 { return idx }
+                }
+            }
+            idx = s.index(after: idx)
+        }
+        return nil
+    }
+
+    private func splitTopLevelXPath(_ s: String, delimiter: String) -> [String] {
+        var results: [String] = []
+        var bracketDepth = 0
+        var parenDepth = 0
+        var inSingle = false
+        var inDouble = false
+        var segmentStart = s.startIndex
+        var idx = s.startIndex
+
+        while idx < s.endIndex {
+            let c = s[idx]
+            if c == "'" && !inDouble { inSingle.toggle() }
+            else if c == "\"" && !inSingle { inDouble.toggle() }
+            else if !inSingle && !inDouble {
+                if c == "[" { bracketDepth += 1 }
+                else if c == "]" { bracketDepth = max(0, bracketDepth - 1) }
+                else if c == "(" { parenDepth += 1 }
+                else if c == ")" { parenDepth = max(0, parenDepth - 1) }
+                else if bracketDepth == 0 && parenDepth == 0 && s[idx...].hasPrefix(delimiter) {
+                    results.append(String(s[segmentStart..<idx]))
+                    idx = s.index(idx, offsetBy: delimiter.count)
+                    segmentStart = idx
+                    continue
+                }
+            }
+            idx = s.index(after: idx)
+        }
+        results.append(String(s[segmentStart..<s.endIndex]))
+        return results
     }
 }

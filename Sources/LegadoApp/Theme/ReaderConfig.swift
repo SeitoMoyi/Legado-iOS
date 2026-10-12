@@ -8,6 +8,8 @@ public enum ReaderTheme: String, CaseIterable, Identifiable {
     case parchment = "复古羊皮纸"
     case eyeCare = "护眼绿"
     case dark = "夜间暗黑"
+    case eink = "水墨屏"
+    case custom = "自定义"
 
     public var id: String { rawValue }
 
@@ -17,6 +19,8 @@ public enum ReaderTheme: String, CaseIterable, Identifiable {
         case .parchment: return "#F2E6D1"
         case .eyeCare: return "#E0F0E0"
         case .dark: return "#1F1F1F"
+        case .eink: return "#FFFFFF"
+        case .custom: return "#F5EAD8"
         }
     }
 
@@ -26,19 +30,18 @@ public enum ReaderTheme: String, CaseIterable, Identifiable {
         case .parchment: return "#382E26"
         case .eyeCare: return "#264026"
         case .dark: return "#CCCCCC"
+        case .eink: return "#000000"
+        case .custom: return "#332211"
         }
     }
-
     public var backgroundColor: Color { Color(hex: backgroundHex) }
     public var textColor: Color { Color(hex: textHex) }
 
     static func matching(backgroundHex: String) -> ReaderTheme? {
         let target = backgroundHex.uppercased()
-        return allCases.first { $0.backgroundHex.uppercased() == target }
+        return allCases.first { $0 != .custom && $0.backgroundHex.uppercased() == target }
     }
 
-    /// The four presets existed before the Android-compatible style model; used when
-    /// migrating a legacy (unpersisted) launch.
     static let defaultTheme: ReaderTheme = .parchment
 }
 
@@ -157,7 +160,8 @@ public final class ReaderConfig: ObservableObject {
     // MARK: Colors
 
     @Published public var theme: ReaderTheme = .defaultTheme { didSet { persistStyle() } }
-
+    @Published public var customBgHex: String = "#F5EAD8" { didSet { persistStyle() } }
+    @Published public var customTextHex: String = "#332211" { didSet { persistStyle() } }
     // MARK: Behaviour
 
     @Published public var prefs: ReaderPrefs = ReaderPrefs() { didSet { persistPrefs() } }
@@ -173,8 +177,12 @@ public final class ReaderConfig: ObservableObject {
 
     // MARK: Derived values used by the renderer
 
-    public var effectiveTextColor: Color { theme.textColor }
-    public var effectiveBackgroundColor: Color { theme.backgroundColor }
+    public var effectiveTextColor: Color {
+        theme == .custom ? Color(hex: customTextHex) : theme.textColor
+    }
+    public var effectiveBackgroundColor: Color {
+        theme == .custom ? Color(hex: customBgHex) : theme.backgroundColor
+    }
 
     /// The Android-shaped style snapshot, handed to `ContentProcessor` per chapter.
     public var styleConfig: ReadStyleConfig { makeStyleConfig() }
@@ -235,10 +243,9 @@ public final class ReaderConfig: ObservableObject {
     private func makeStyleConfig() -> ReadStyleConfig {
         var style = baseStyle
         style.name = theme.rawValue
-        style.bgStr = theme.backgroundHex
-        style.textColor = theme.textHex
+        style.bgStr = theme == .custom ? customBgHex : theme.backgroundHex
+        style.textColor = theme == .custom ? customTextHex : theme.textHex
         style.darkStatusIcon = theme != .dark
-        style.pageAnim = pageAnim.rawValue
         style.textFont = textFont
         style.textBold = textBold
         style.textSize = Double(fontSize)
@@ -278,8 +285,13 @@ public final class ReaderConfig: ObservableObject {
         paddingBottom = CGFloat(saved.paddingBottom)
         paddingLeading = CGFloat(saved.paddingLeft)
         paddingTrailing = CGFloat(saved.paddingRight)
-        theme = ReaderTheme.matching(backgroundHex: saved.bgStr) ?? .defaultTheme
-        pageAnim = PageAnim(rawValue: saved.pageAnim) ?? .scroll
+        if let matched = ReaderTheme.matching(backgroundHex: saved.bgStr) {
+            theme = matched
+        } else {
+            theme = .custom
+            customBgHex = saved.bgStr
+            customTextHex = saved.textColor
+        }
     }
 
     /// Before the style model existed only `reader_page_mode` was written. Honour it once

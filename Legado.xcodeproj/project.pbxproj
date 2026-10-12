@@ -124,6 +124,24 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>14ED9A9ACAC379AB77B376B1</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/AudioPlayView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>15692DF8CB74C0BAD8336DD3</key>
+		<dict>
+			<key>fileRef</key>
+			<string>E35CD718A81E7C0FD79E8E38</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>18F2053E418685EEAF8FF6A6</key>
 		<dict>
 			<key>isa</key>
@@ -385,7 +403,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.2</string>
+				<string>0.2.3</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -491,6 +509,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>4FF8D855AAA3FF3C1CFA0C75</key>
+		<dict>
+			<key>fileRef</key>
+			<string>14ED9A9ACAC379AB77B376B1</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>50114AAB35EF50A83E7E45B7</key>
 		<dict>
 			<key>fileRef</key>
@@ -579,6 +604,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Service/WebDAVService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>68327E34D4188645448DDA50</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/RssViews.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -780,6 +816,11 @@
 				<string>96674C3FF4C27A98F9B32CFA</string>
 				<string>4B53D4C86B7F8C2AAF2F9156</string>
 				<string>C463BFBF306E26368CBB1459</string>
+				<string>14ED9A9ACAC379AB77B376B1</string>
+				<string>ABD5EAE3BD3F91A2C5F66FA5</string>
+				<string>E35CD718A81E7C0FD79E8E38</string>
+				<string>68327E34D4188645448DDA50</string>
+				<string>E6A5696F85EF7F1815D5F780</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -806,6 +847,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>A475C73C0B3F38EC44FB86E3</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>81ABF06770933088C54FB22C</key>
+		<dict>
+			<key>fileRef</key>
+			<string>68327E34D4188645448DDA50</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1064,6 +1112,11 @@
 				<string>4F814A81A080F9E4BF009068</string>
 				<string>0ECC83DEB4EECDDDFEB17F94</string>
 				<string>E464E64AA30610B9849489AB</string>
+				<string>4FF8D855AAA3FF3C1CFA0C75</string>
+				<string>FC0761DA18A9277792430EF8</string>
+				<string>15692DF8CB74C0BAD8336DD3</string>
+				<string>81ABF06770933088C54FB22C</string>
+				<string>FEC4ACB5B9620EDE0E938738</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1146,6 +1199,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Engine/RuleTokenizer.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>ABD5EAE3BD3F91A2C5F66FA5</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/RssModels.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -1438,12 +1502,34 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>E35CD718A81E7C0FD79E8E38</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/RssService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>E464E64AA30610B9849489AB</key>
 		<dict>
 			<key>fileRef</key>
 			<string>C463BFBF306E26368CBB1459</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>E6A5696F85EF7F1815D5F780</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/LocalWebServer.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>E7CB117E09164CBF86B15102</key>
 		<dict>
@@ -1541,7 +1627,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.2</string>
+				<string>0.2.3</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -1595,6 +1681,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>FC0761DA18A9277792430EF8</key>
+		<dict>
+			<key>fileRef</key>
+			<string>ABD5EAE3BD3F91A2C5F66FA5</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>FD79CAFF75361C2DD5831AE4</key>
 		<dict>
 			<key>isa</key>
@@ -1605,6 +1698,13 @@
 			<string>Sources/LegadoApp/Views/BookshelfView.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>FEC4ACB5B9620EDE0E938738</key>
+		<dict>
+			<key>fileRef</key>
+			<string>E6A5696F85EF7F1815D5F780</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

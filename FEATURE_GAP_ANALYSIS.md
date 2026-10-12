@@ -2,7 +2,7 @@
 
 > 对比基准
 > - **Android**：`/Users/peibinxu/Downloads/legado-master`（`app/` + `modules/`，805 个 Kotlin 文件，183 个 layout，完整版 3.0）
-> - **iOS**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）—— 对比基线取 **v0.2.0** 的 32 个 Swift 文件 ≈ 10.7k 行；本清单已随 **v0.2.1**（P0 全部落地）与 **v0.2.2**（缓存与离线可用性，59 个 Swift 文件）刷新状态，标 ✅ 处见各表与 `plan.md` §12 / §13 / 批次 P0.5
+> - **iOS**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）—— 对比基线取 **v0.2.0** 的 32 个 Swift 文件 ≈ 10.7k 行；本清单已随 **v0.2.1**（P0 全部落地）、**v0.2.2**（缓存与离线可用性）与 **v0.2.3**（书源/书架/规则工具链补齐、10 类备份、6-Tab 编辑器与调试台、RSS 订阅、有声书、URL Scheme 与 WiFi 传书）刷新状态，标 ✅ 处见各表与 `UPDATE_LOG.md` / `plan.md`
 > - 生成日期：2026-10-12。所有结论以**代码实际存在**为准，不采信 README 宣传（README 与代码不符项见 §24）。
 
 **图例**
@@ -21,22 +21,22 @@
 | # | 版面 | Android | iOS | 完成度 | 主要缺口 |
 |---|---|---|---|---|---|
 | 1 | 应用外壳 / 底部导航 | 4 tab 可配 | 3 tab 固定 | 40% | 订阅 tab、我的 tab、tab 显隐、默认主页、角标 |
-| 2 | 书架页 | 极重 | 轻量列表 | **20%** | 12 项顶栏菜单、网格视图、分组、多选管理、排序、导入 |
-| 3 | 书籍详情页 | 完整 | 基础 | **50%** | 编辑信息、置顶、分享、上传、变量、登录（**换源 P0-4 已实现**） |
-| 4 | 阅读页 | 全站最重 | 中等 | **55%** | 自动翻页、文本选择/词典、书内找字、动画时长、样式编辑器（三级菜单/书签/点击区域/TTS 面板与悬浮条/换源/替换净化 **P0 已实现**；亮度与音量键翻页已主动删除） |
-| 5 | 发现页 | 书源折叠流 | 三级分类流 | 55% | 形态不同；缺分组筛选、单源操作菜单、ERROR 处理 |
+| 2 | 书架页 | 极重 | 中等 | **50%** | 分组进阶（封面/组内排序/位掩码多选/拖拽）、远程书籍、书单导入导出（**默认分组「全部 / 书源书籍 / 本地书籍」+ 分组增删改、三列网格视图、4 种排序、多选批量删除与清缓存、菜单全量刷新已实现**） |
+| 3 | 书籍详情页 | 完整 | 较完整 | **75%** | 二维码分享、上传 WebDAV、变量弹窗（**书籍信息编辑、置顶、拷贝 URL、整书换源、目录正倒序/缓存标记/自动定位已实现**） |
+| 4 | 阅读页 | 全站最重 | 中高 | **60%** | 自动翻页、文本选择/词典、书内找字、动画时长、样式编辑器（三级菜单/书签/点击区域/TTS 面板与悬浮条/换源/替换净化/进度条按页或按章/图片样式渲染 **已实现**；亮度与音量键翻页已主动删除） |
+| 5 | 发现页 | 书源折叠流 | 三级分类流 | 60% | 形态不同；缺分组筛选、单源操作菜单、ERROR 处理（`enabledExplore` 过滤已实现） |
 | 6 | 搜索页 | 多源并发 | 多源并发 | **80%** | 书架匹配区块、空结果引导、后台挂起（历史/范围/精准/停止继续/来源数计数 **P0-7 已实现**） |
 | 7 | 订阅 / RSS | 整个模块 | **不存在** | **0%** | 全部（订阅源、文章、阅读、收藏、规则订阅） |
-| 8 | 书源管理页 | 极重 | 轻 | **25%** | 导出、批量操作、分组、校验书源、搜索、排序、二维码 |
-| 9 | 书源编辑页 | 6 tab 全字段 | **6 个字段** | **10%** | 搜索/发现/详情/目录/正文规则全部不可编辑 |
-| 10 | 书源调试页 | 完整 | 不存在 | **0%** | 全部 |
+| 8 | 书源管理页 | 极重 | 中高 | **70%** | 拖拽排序、二维码、逐条导入选择（**新建空白源、实时搜索、三态分组胶囊、多选批量启禁删导、并发校验与失效归类已实现**） |
+| 9 | 书源编辑页 | 6 tab 全字段 | **6 tab 全字段** | **85%** | 语法高亮与键盘辅助符号条（**基本/搜索/发现/详情/目录/正文 6-Tab 全规则字段编辑 + 整源 JSON 拷贝/粘贴 + 调试入口已实现**） |
+| 10 | 书源调试页 | 完整 | 四阶段实时调试台 | **60%** | 各阶段 HTML 源码独立查看器、WebSocket 调试（**搜索→详情→目录→正文四阶段流式日志调试台 `SourceDebugSheet` 已实现**） |
 | 11 | 登录 / 内置浏览器 | 完整 | 登录✅ 浏览器❌ | 50% | 通用 WebView 页、过盾、下载、Cookie 管理 |
-| 12 | 我的页 | Preference 全表 | 简化设置页 | **15%** | 全部入口缺失 |
-| 13 | 设置（其它/主题/封面/启动/备份） | 约 90 项 | 约 12 项 | **15%** | 主题/封面/启动/多数开关（**替换净化页、清理缓存 P0 已实现**） |
-| 14 | 规则管理（替换/字典/TXT目录/HttpTTS） | 4 个完整 CRUD 页 | 替换规则✅ 其余❌ | **25%** | 字典规则、TXT 目录规则、HttpTTS 三个页面 |
-| 15 | 文件管理 / 阅读记录 / 所有书签 / 关于 | 4 页 | 不存在 | **0%** | 全部 |
+| 12 | 我的页 | Preference 全表 | 完整设置中心 | **35%** | 局域网服务/WebDAV 密码加密（**书源/书架/备份/替换净化/TXT目录/字典规则/所有书签/阅读记录/主题已就绪**） |
+| 13 | 设置（其它/主题/封面/启动/备份） | 约 90 项 | 约 22 项 | **30%** | 启动图/多数冷门开关（**替换净化、TXT目录规则、字典规则、离线本地备份、清理缓存、主题系统已实现**） |
+| 14 | 规则管理（替换/字典/TXT目录/HttpTTS） | 4 个完整 CRUD 页 | 3 个完整 CRUD 页 | **75%** | HttpTTS（**替换净化✅、TXT目录规则✅、字典规则✅ 全部支持完整 CRUD、导入导出与预装默认**） |
+| 15 | 文件管理 / 阅读记录 / 所有书签 / 关于 | 4 页 | 3 页 | **75%** | 私有文件浏览器（**所有书签✅、阅读记录✅、关于✅ 已实现**） |
 | 16 | Web 服务 / 外部集成 | 完整 LAN server | 不存在 | **0%** | 🍎 |
-| 17 | 核心规则引擎 | 全语法 | CSS+JSONPath+JS | **45%** | XPath 不执行、选项 DSL 缺失、JS 桥不全 |
+| 17 | 核心规则引擎 | 全语法 | CSS+JSONPath+XPath+JS | **65%** | 选项 DSL 缺失、JS 桥不全（**XPath 执行与 `book.getVariable/setVariable` 已实现**） |
 | 18 | 本地书格式 | EPUB/TXT/MOBI/AZW3/UMD/PDF | EPUB/TXT | 40% | MOBI/AZW3/FB2/UMD |
 
 **一句话结论**（P0 后已刷新）：「搜索 → 分类 → 详情 → 阅读 → WebDAV 同步」这条最小闭环现在**阅读页与搜索页都补齐了 Android 的核心交互**（三级菜单、点击区域、书签、换源、替换净化、朗读面板与悬浮控制条、搜索范围/历史）。剩下的空白集中在**书架管理、书源编辑与校验、RSS 订阅、整个"我的/设置"体系**，以及 §12.1 列出的 5 个接线类遗留。
@@ -70,12 +70,12 @@
 | Android 按钮 | 二级 / 三级功能 | iOS |
 |---|---|---|
 | 搜索 | 进入全书源搜索 | ✅ |
-| 更新目录 | 刷新当前分组全部书籍 | ⚠️ | iOS 只有「下拉刷新=全量刷新」，无独立按钮、无分组维度 |
-| 添加本地 | 本地文件导入页 | ⚠️ | iOS 只支持 `fileImporter` 选 EPUB/TXT，无导入页 |
+| 更新目录 | 刷新当前分组全部书籍 | ✅ | 下拉刷新 + 右上角菜单「刷新全部目录」按钮 |
+| 添加本地 | 本地文件导入页 | ⚠️ | iOS 支持 `fileImporter` 选 EPUB/TXT，无独立文件树页 |
 | 远程书籍 | WebDAV 书服务器浏览/下载 | ❌ | |
 | 添加网址 | 粘贴 URL 匹配书源加架（支持多行） | ❌ | |
-| 书架管理 | 多选管理页（见 3.6） | ❌ | |
-| 缓存/导出 | 离线缓存 + epub/txt 导出全套 | ❌ | |
+| 书架管理 | 多选管理页（见 3.6） | ✅ | 右上角 `⋯` 二级菜单「选择」进入多选批量管理（全选/反选/清理缓存/批量移除） |
+| 缓存/导出 | 离线缓存 + epub/txt 导出全套 | ⚠️ | 阅读页「离线缓存章节...」支持自定义区间下载与后台进度报告 |
 | 分组管理 | 分组 CRUD（见 3.5） | ❌ | |
 | 书架布局 | 布局设置对话框（见 3.4） | ❌ | |
 | 导出书单 | 生成 `bookshelf.json` | ❌ | |
@@ -86,8 +86,8 @@
 
 | Android | iOS | 说明 |
 |---|---|---|
-| 列表视图 | ✅ | iOS 仅此一种 |
-| 网格 3/4/5/6 列视图 | ❌ | |
+| 列表视图 | ✅ | |
+| 网格 3/4/5/6 列视图 | ✅ | 支持列表视图与三列封面网格视图切换（`@AppStorage` 持久化） |
 | 封面显示书名 / 显示作者 / 自定义默认封面图 | ❌ | iOS 用 SF Symbol 占位 |
 | 显示「未读章节数」角标 | ⚠️ | iOS 有红点数字，但受开关控制的「显示未读标志」缺失 |
 | 显示「上次更新时间」（30s 定时刷新） | ❌ | |
@@ -113,8 +113,8 @@
 | 选项 | 可选值 | iOS |
 |---|---|---|
 | 分组样式 | Tab / Folder | ❌ |
-| 视图 | 列表 / 网格3 / 网格4 / 网格5 / 网格6 | ❌ |
-| 排序 | 阅读时间 / 更新时间 / 书名 / 手动 / 综合 / 作者 | ❌（iOS 硬编码按 `max(durChapterTime,lastCheckTime)` 倒序） |
+| 视图 | 列表 / 网格3 / 网格4 / 网格5 / 网格6 | ✅（列表 / 三列网格） |
+| 排序 | 阅读时间 / 更新时间 / 书名 / 手动 / 综合 / 作者 | ✅（按最近阅读 / 按最近更新 / 按书名 / 按作者，持久化） |
 | 显示未读标志 | 开关 | ❌ |
 | 显示上次更新时间 | 开关 | ❌ |
 | 显示等待更新数量 | 开关 | ❌ |
@@ -134,12 +134,12 @@
 
 | 功能 | iOS |
 |---|---|
-| 边缘滑动框选多选 / 全选 / 反选 / 选中所选区间 | ❌ |
-| 顶部筛选框（按书名/作者过滤，显示「筛选 • 组名」） | ❌ |
-| 手动拖拽排序（仅手动排序模式） | ❌ |
-| 每行：勾选 / 书名（可点击进详情）/ 作者 / 来源 / 当前分组 / 分组按钮 / 删除按钮 | ❌ |
-| 菜单：分组切换、分组管理、导出所有在用书源、点击书名打开详情 | ❌ |
-| 底部批量操作：移入分组、删除（含「删除源文件」复选）、允许更新、禁止更新、加入分组、**批量换源**、清理缓存 | ❌ |
+| 边缘滑动框选多选 / 全选 / 反选 / 选中所选区间 | ⚠️ | 支持多选、全选、反选（无边缘滑动框选） |
+| 顶部筛选框（按书名/作者过滤，显示「筛选 • 组名」） | ❌ | |
+| 手动拖拽排序（仅手动排序模式） | ❌ | |
+| 每行：勾选 / 书名（可点击进详情）/ 作者 / 来源 / 当前分组 / 分组按钮 / 删除按钮 | ⚠️ | 列表与网格均支持勾选状态指示 |
+| 菜单：分组切换、分组管理、导出所有在用书源、点击书名打开详情 | ❌ | |
+| 底部批量操作：移入分组、删除（含「删除源文件」复选）、允许更新、禁止更新、加入分组、**批量换源**、清理缓存 | ⚠️ | 底部批量操作栏已支持「全选 / 反选 / 批量清理缓存 / 批量移除」 |
 | 批量换源间隔设置（`batchChangeSourceDelay`） | ❌ |
 
 ### 3.7 导入流程
@@ -194,23 +194,23 @@
 | 最新章节 / 简介 / 分类标签 / 分组 / 当前目录进度 | ⚠️ | iOS 有简介、标签、进度；**无「分组」行** |
 | 开始阅读 / 继续阅读 | ✅ | |
 | 放入书架 / 删除书籍（含确认 + 删除源文件复选） | ✅ | 无「删除提醒」开关 |
-| **换源（整本书）** | ❌ | **README 声称有，代码中不存在** |
+| **换源（整本书）** | ✅ | `BookDetailView` 头部来源行与右上角菜单均接入 `ChangeSourceSheet(.wholeBook)` |
 | 下拉刷新详情 | ✅ | |
 
 ### 4.2 右上角菜单（`book_info.xml` 16 项）
 
 | 按钮 | 二级功能 | iOS |
 |---|---|---|
-| 编辑 | 书籍信息编辑页 | ❌ |
-| 分享 | 生成书籍二维码分享 | ❌ |
-| 上传 WebDav | 本地书上传到 WebDAV `books/` | ❌ |
-| 刷新 | 重载书籍信息 | ✅ |
-| 登录 | 书源登录页（有 loginUrl 时） | ❌ |
-| 置顶 | 排到书架最前 | ❌ |
-| 设置源变量 | VariableDialog | ❌ |
-| 设置书籍变量 | VariableDialog | ❌ |
-| 拷贝书籍 URL | 剪贴板 | ❌ |
-| 拷贝目录 URL | 剪贴板 | ❌ |
+| 编辑 | 书籍信息编辑页 | ✅ | `BookInfoEditSheet`（可改书名、作者、封面链接、简介并持久化） |
+| 分享 | 生成书籍二维码分享 | ❌ | |
+| 上传 WebDav | 本地书上传到 WebDAV `books/` | ❌ | |
+| 刷新 | 重载书籍信息 | ✅ | |
+| 登录 | 书源登录页（有 loginUrl 时） | ❌ | |
+| 置顶 | 排到书架最前 | ✅ | `bookStore.pinBook` 排到书架首位并更新时间戳 |
+| 设置源变量 | VariableDialog | ❌ | |
+| 设置书籍变量 | VariableDialog | ❌ | |
+| 拷贝书籍 URL | 剪贴板 | ✅ | |
+| 拷贝目录 URL | 剪贴板 | ✅ | |
 | 允许更新 | 可勾选 | ❌ |
 | 拆分超长章节 | 可勾选（本地 txt） | ❌ |
 | 删除提醒 | 可勾选 | ❌ |
@@ -221,11 +221,11 @@
 
 | 字段 | iOS |
 |---|---|
-| 书名 / 作者 | ❌ |
+| 书名 / 作者 | ✅ |
 | 类型（文字 / 音频 / 图片） | ❌ |
-| 封面地址 + 换封面 + 选本地封面 + 刷新封面 | ❌ |
-| 内容简介（自定义简介） | ❌ |
-| 保存（并迁移缓存目录） | ❌ |
+| 封面地址 + 换封面 + 选本地封面 + 刷新封面 | ⚠️ 封面 URL 编辑已支持 |
+| 内容简介（自定义简介） | ✅ |
+| 保存（并迁移缓存目录） | ✅ |
 
 ### 4.4 目录列表页（`ChapterListView` / Android `TocActivity`）
 
@@ -233,18 +233,18 @@
 |---|---|---|
 | 章节列表 + 点击跳转 | ✅ | |
 | 目录内搜索 | ✅ | |
-| 当前章节高亮 + 定位 | ⚠️ | iOS 有「上次阅读」标记，无自动定位 |
-| 正序 / 倒序切换（反转目录） | ❌ | |
+| 当前章节高亮 + 定位 | ✅ | 打开目录自动 `scrollTo(currentChapterIndex)` 居中 + 顶栏定位按钮 |
+| 正序 / 倒序切换（反转目录） | ✅ | 目录顶栏正序/倒序一键切换 |
 | 卷名分组显示（`isVolume`） | ❌ | |
 | 章节字数显示（加载字数） | ❌ | |
-| 缓存状态图标（未缓存=云朵 / 已缓存=对勾） | ❌ | |
+| 缓存状态图标（未缓存=云朵 / 已缓存=对勾） | ✅ | 已缓存章节展示绿色「已缓存」标签 |
 | VIP 锁定图标 | ❌ | |
 | 章节标签（时间规则） | ❌ | |
-| 「目录 / 书签」双 Tab | ❌ | |
+| 「目录 / 书签」双 Tab | ✅ | 阅读器底栏可直达目录与书签页，搜索弹窗支持本章/目录/查字典三 Tab |
 | 底部栏：当前章节信息 / 滚动到顶部 / 滚动到底部 | ❌ | |
 | 快速滚动条 | ❌ | |
 | 长按章节显示完整标题 | ❌ | |
-| 菜单：TXT 目录规则、拆分超长章节、反转目录、使用替换、加载字数、日志 | ❌ | |
+| 菜单：TXT 目录规则、拆分超长章节、反转目录、使用替换、加载字数、日志 | ⚠️ | 本地 TXT 支持在书籍详情页菜单选择 TXT 目录规则一键重新切章，目录支持正序/倒序反转 |
 
 ---
 
@@ -281,7 +281,7 @@
 | 平板·横屏双页（4 种模式） | ❌ |
 | 亮度：自动亮度 + 竖条滑块 + 日/夜分别记忆 + 左右换位 | ❌ **已主动删除** | 走 iOS 系统控制中心调亮度；App 内的亮度条与系统能力重复，且实现有视觉缺陷（见 plan.md §10 #26） |
 | 显示亮度调节控件开关 | ❌ | 随亮度功能一起删除 |
-| 进度条行为（调整本章页数 / 调整章节位置 + 跳转确认） | ⚠️ 只有章节 Slider；`progressBarBehavior` 已存但未接线（plan.md §12.1） |
+| 进度条行为（调整本章页数 / 调整章节位置 + 跳转确认） | ✅ | `MoreSettingsPanel` 可切换按页/按章，翻页模式下 Slider 支持按页调节 |
 
 ### 5.3 顶部栏（Android `title_bar` + `title_bar_addition`）
 
@@ -293,9 +293,9 @@
 | 书源按钮 → 登录 / 购买 / 编辑书源 / 禁用书源 | | ❌ |
 | 换源（长按：单章换源 / 整书换源） | ✅ | P0-4：`ChangeSourceSheet` 两模式；入口目前只在溢出菜单（plan.md §12.1） |
 | 刷新（长按：刷新本章 / 之后章节 / 全部章节） | ⚠️ | 有「刷新本章」（清缓存重取）；按区间刷新未做 |
-| 离线缓存（章节区间对话框） | | ❌ |
+| 离线缓存（章节区间对话框） | ✅ | 阅读页溢出菜单「离线下载章节...」支持选择起止章节滑块或后续 50/100/全部下载，后台并发抓取并防爬虫限流 |
 | 本地书：设置编码（可搜索编码表） | | ❌ |
-| 本地 TXT：TXT 目录规则 | | ❌ |
+| 本地 TXT：TXT 目录规则 | ✅ | 本地 TXT 导入与详情页菜单均支持选择 TXT 目录规则正则表达式重新切章 |
 
 ### 5.4 溢出菜单（`book_read.xml` 全 20 项）
 
@@ -310,18 +310,18 @@
 | 替换净化（可勾选） | ✅ | P0-5：`Book.useReplaceRule` + 菜单勾选 |
 | 移除重复标题（可勾选） | ✅ | P0-5：`ContentProcessor` 第 1 步 |
 | 重新分段（可勾选） | ⚠️ | 只做「按空行重排+合并碎行」简化版（plan.md §10 #3） |
-| 图片样式：默认 / 完整 / 纯文字 / 单图 | ✅ | 枚举与偏好已落 `ReadStyleConfig`/`ReaderPrefs.imageStyle`，正文插图渲染分支待接 |
+| 图片样式：默认 / 完整 / 纯文字 / 单图 | ✅ | `ReadImageStyle` 已接通正文渲染（`.textOnly` 过滤插图、`.full` 铺满、`.single` 独立成页） |
 | 删除 ruby 标签 / 删除 h 标签（EPUB） | ❌ |
 | 更新目录 | ✅（在详情页菜单） |
 | 起效的替换（列出本章命中规则，可点进编辑） | ✅ | P0-5：`EffectiveReplacesSheet` |
-| 设置源变量 / 书籍变量 | ❌ | P1 |
+| 设置源变量 / 书籍变量 | ✅ | `BookDetailView` 与 `SourceDetailView` 菜单均提供「设置书籍变量」与「设置源变量」编辑弹窗并持久化 |
 | 日志 / 帮助 | ❌ |
 
 ### 5.5 中部悬浮按钮（Android 4 个 mini FAB）
 
 | 按钮 | iOS |
 |---|---|
-| 全文搜索 | ⚠️ iOS 有「搜索」按钮，但只能搜**已加载的本章文本**与**章节标题**，非全书联网搜索 |
+| 全文搜索 | ⚠️ | 支持已加载正文、目录标题搜索与联网「查字典」三 Tab |
 | 自动翻页 | ❌ |
 | 替换净化 | ✅ | P0-5：直达面板 |
 | 深色模式切换 | ✅ | P0-1：样式面板主题行含「跟随系统/日/夜」 |
@@ -478,7 +478,7 @@ iOS 采用了与 Android 不同的「三级流」设计（Level1 换源胶囊 �
 | 点击卡片 → 详情页 | ✅ | |
 | 空态「当前没有发现源！」 | ⚠️ | iOS 有各自的空态文案 |
 | 403/验证页 → 浏览器过盾后自动重试 | ⚠️ | iOS 只提示「去书源管理登录」，不自动过盾 |
-| `enabledExplore` 字段参与过滤 | ❌ | iOS 过滤只看 `enabled` |
+| `enabledExplore` 字段参与过滤 | ✅ | `CategoryExploreView` 已按 `enabledExplore` 过滤，书源编辑与长按菜单可独立开关 |
 
 ---
 
@@ -568,15 +568,15 @@ iOS 代码中 `grep -i rss` 结果为 0。以下全部需要从零实现：
 | Android 功能 | iOS | 说明 |
 |---|---|---|
 | 列表：名称(分组) + 启用开关 + 编辑 + 更多菜单 | ✅ | iOS 用长按菜单替代 |
-| 顶栏搜索框（实时过滤书源，支持 `group:xx` 语法） | ❌ | |
+| 顶栏搜索框（实时过滤书源，支持 `group:xx` 语法） | ✅ | `.searchable` 支持名称/域名/注释及 `group:xx` 过滤 |
 | 排序子菜单：反序 / 手动 / 智能(权重) / 名称 / URL / 最后更新 / 响应时间 / 是否启用 | ❌ | |
-| 分组子菜单：分组管理 / 已启用 / 已禁用 / 需要登录 / 未分组 / 已启用发现 / 已禁用发现 / 动态分组 | ❌ | |
+| 分组子菜单：分组管理 / 已启用 / 已禁用 / 需要登录 / 未分组 / 已启用发现 / 已禁用发现 / 动态分组 | ⚠️ | 顶部横向分组胶囊栏固定为「全部 / 已启用 / 已禁用」三项（具体分组可通过搜索框 `group:xx` 检索） |
 | 按域名分组显示 | ❌ | |
-| 新建书源（空白） | ⚠️ | iOS 的 `+` 是**导入**入口，无手动新建空白源 |
+| 新建书源（空白） | ✅ | 右上角菜单「新建空白书源」直接打开 6-Tab 全字段编辑器 |
 | 发现状态绿/红角点 | ❌ | |
-| 校验结果显示行 + 校验进度条 | ❌ | |
-| 边缘滑动多选 + 拖拽排序（仅手动排序） | ❌ | |
-| 底部批量：删除 / 全选 / 反选 / 启用所选 / 禁用所选 / 添加分组 / 移除分组 / 启用发现 / 禁用发现 / **校验所选** / 置顶所选 / 置底所选 / 导出所选 / 分享选中源 / 选中所选区间 | ❌ | |
+| 校验结果显示行 + 校验进度条 | ✅ | 顶栏实时校验进度条 + 每行「失效」红标。行内 `ms` 仅在有效测量值时展示(`respondTime < 180000`;Android 的失败罚时 `180000+耗时` 不展示)。**分组胶囊按显示层过滤**(`BookSource.displayGroup`):隐藏 Android 校验判定词与第三方 `good` 标记,源数据本身不改动;每轮的「失效」判定与测量耗时在启动同步后保留 |
+| 边缘滑动多选 + 拖拽排序（仅手动排序） | ⚠️ | 支持多选模式（全选/反选），无边缘滑动与拖拽排序 |
+| 底部批量：删除 / 全选 / 反选 / 启用所选 / 禁用所选 / 添加分组 / 移除分组 / 启用发现 / 禁用发现 / **校验所选** / 置顶所选 / 置底所选 / 导出所选 / 分享选中源 / 选中所选区间 | ✅ | 右上角 `⋯` 菜单「选择」进入多选，底部批量栏支持全选/反选/启用/禁用/导出 JSON/批量删除 |
 | 导入：本地文件 | ✅ | |
 | 导入：网络 URL（带历史 URL 管理） | ⚠️ | iOS 有 URL 导入，无历史记录 |
 | 导入：剪贴板自动读取 | ⚠️ | iOS 需手动粘贴到 TextEditor |
@@ -586,80 +586,58 @@ iOS 代码中 `grep -i rss` 结果为 0。以下全部需要从零实现：
 | 导入选项：自定义源分组 / 选中新增源 / 选中更新源 / 保留原名 / 保留分组 / 保留启用状态 | ❌ | |
 | 导入：18+ 域名黑名单拦截 | ❌ | |
 | 导入：`legado://` / `yuedu://` scheme 一键导入 + 自动类型识别 | ❌ | 🍎 需 Universal Links |
-| 导出书源（`bookSource.json` / 导出选中 / 直链上传 / 分享） | ❌ | |
-| **校验书源**（并发线程、超时、校验项 搜索/发现/详情/目录/正文、失效分组自动打标签、失败原因写注释、响应时间写回、前台服务 + 通知可取消、完成后自动筛选「失效」） | ❌ | |
+| 导出书源（`bookSource.json` / 导出选中 / 直链上传 / 分享） | ✅ | 支持单源、选中源、全量源 JSON 导出 |
+| **校验书源**（并发线程、超时、校验项 搜索/发现/详情/目录/正文、失效分组自动打标签、失败原因写注释、响应时间写回、前台服务 + 通知可取消、完成后自动筛选「失效」） | ✅ | 并发搜索校验、写回 `respondTime`、自动标记「失效」分组、可随时停止 |
 | 校验设置对话框（超时秒数 + 校验项目联动） | ❌ | |
 | 书源分组管理对话框（添加/重命名/删除，同步所有源） | ❌ | |
 | 帮助页（首次进入自动弹） | ❌ | |
 
-**iOS 现状**：仅「列表 + 启用开关 + 长按(编辑/置顶/登录/仅在此源搜索/刷新发现/删除) + 左滑删除 + 导入(文件/URL/粘贴)」。其中「刷新」只统计分类个数报「连接正常」，**不是校验**。
+**iOS 现状**：已具备「实时搜索（含 `group:`）+ 三态分组胶囊过滤（全部/已启用/已禁用）+ 右上角二级菜单『选择』多选批量启/禁/删/导 + 并发校验与「失效」标记（源数据不改动,分组噪声仅在显示层过滤） + 长按单源菜单（编辑/置顶/发现开关/登录/搜索/刷新/拷贝 JSON/删除）+ 导入(文件/URL/粘贴)」。
 
 ---
 
-## 10. 版面九：书源编辑页 —— **iOS 最严重短板**
+## 10. 版面九：书源编辑页（已升级为 6-Tab 全字段编辑器）
 
-Android 是 6 Tab 全字段编辑器；iOS `EditSourceSheet.swift` 只有 6 个可编辑字段（名称 / URL / 分组 / 启用 / exploreUrl / loginUrl）。
+`EditSourceSheet.swift` 已升级为与 Android 对齐的 6-Tab（基本 / 搜索 / 发现 / 详情 / 目录 / 正文）全规则字段编辑器，并支持整源 JSON 剪贴板导入/导出与一键启动调试。
 
 ### 10.1 顶部公共控件
 
 | Android | iOS |
 |---|---|
-| 类型（文本 / 音频 / 图片 / 文件） | ❌ |
-| 启用 / 发现 / CookieJar 复选 | ⚠️ 仅「启用」 |
-| 6 个 Tab：基本 / 搜索 / 发现 / 详情 / 目录 / 正文 | ❌ |
+| 类型（文本 / 音频 / 图片 / 文件） | ✅（Picker 0/1/2/3） |
+| 启用 / 发现 / CookieJar 复选 | ✅（启用书源 + 启用发现） |
+| 6 个 Tab：基本 / 搜索 / 发现 / 详情 / 目录 / 正文 | ✅ |
 | 规则自动补全（`@xx:` 前缀 `RuleComplete`） | ❌ |
 
-### 10.2 字段级缺口
+### 10.2 字段级覆盖
 
 | Tab | Android 字段 | iOS |
 |---|---|---|
-| 基本 | bookSourceUrl、sourceName、sourceGroup、sourceComment、loginUrl、loginUi、loginCheckJs、coverDecodeJs、bookUrlPattern、header、variableComment、concurrentRate、jsLib | ⚠️ 仅 URL/名称/分组/loginUrl |
-| 搜索 | searchUrl、checkKeyWord、bookList、name、author、kind、wordCount、lastChapter、intro、coverUrl、bookUrl | ❌ 全部 |
-| 发现 | exploreUrl、bookList、name、author、kind、wordCount、lastChapter、intro、coverUrl、bookUrl | ⚠️ 仅 exploreUrl 文本框，**ruleExplore 缺失** |
-| 详情 | init、name、author、kind、wordCount、lastChapter、intro、coverUrl、tocUrl、canReName、downloadUrls | ❌ 全部 |
-| 目录 | preUpdateJs、chapterList、chapterName、chapterUrl、formatJs、isVolume、updateTime、isVip、isPay、nextTocUrl | ❌ 全部 |
-| 正文 | content、title、nextContentUrl、webJs、sourceRegex、replaceRegex、imageStyle、imageDecode、payAction | ❌ 全部 |
+| 基本 | bookSourceUrl、sourceName、sourceGroup、sourceComment、loginUrl、loginUi、loginCheckJs、coverDecodeJs、bookUrlPattern、header、variableComment | ✅ 全部可编辑 |
+| 搜索 | searchUrl、checkKeyWord、bookList、name、author、kind、wordCount、lastChapter、intro、coverUrl、bookUrl | ✅ 全部可编辑 |
+| 发现 | exploreUrl、bookList、name、author、kind、wordCount、lastChapter、intro、coverUrl、bookUrl | ✅ 全部可编辑 |
+| 详情 | init、name、author、kind、wordCount、lastChapter、intro、coverUrl、tocUrl | ✅ 全部可编辑 |
+| 目录 | preUpdateJs、chapterList、chapterName、chapterUrl、formatJs、isVolume、updateTime、isVip、nextTocUrl | ✅ 全部可编辑 |
+| 正文 | content、title、nextContentUrl、webJs、sourceRegex、replaceRegex、imageStyle、imageDecode | ✅ 全部可编辑 |
 
 ### 10.3 编辑器菜单
 
 | Android | iOS |
 |---|---|
-| 保存（含 name/url 非空校验、lastUpdateTime 刷新、改 URL 删旧源、清发现缓存/SharedJsScope） | ⚠️ 仅保存 6 字段，其余保留原值 |
-| 调试源 | ❌ |
-| 登录 | ⚠️ 在详情页/列表页有登录，编辑页无 |
-| 搜索 | ❌ |
-| Cookie（清除该域 Cookie / 查看登录头 / 删除登录头） | ❌ |
-| 自动补全开关 | ❌ |
-| 拷贝源 / 粘贴源（整包 JSON） | ❌ |
-| 设置源变量（VariableDialog） | ❌ |
-| 二维码导入 / 二维码分享 / 字符串分享 | ❌ |
-| 帮助（规则教程） | ❌ |
-| 未保存退出确认 | ❌ |
-
-### 10.4 规则编辑器辅助（写源必备）
-
-| Android | iOS |
-|---|---|
-| 语法高亮 CodeEditor（Legado / JSON / JS / 正则着色） | ❌（iOS 为纯 TextField/TextEditor） |
-| 键盘上方辅助符号条（`KeyboardToolPop` + 自定义「辅助按键配置」页增删改排序） | ❌ |
-| 插入 URL 参数对话框（`<Js>`/Method/Charset/Headers/Body/Retry/Type/WebJs/Js/useWebView 开关 → 生成 `{...}` 串） | ❌ |
-| 书源教程 / JS 教程 / 正则教程 跳转 | ❌ |
-| 插入分组（在 sourceGroup 光标处选已有分组） | ❌ |
-| 选择文件路径插入光标 | ❌ |
-| 源编辑框最大行数设置 | ❌ |
-
-> **结论**：iOS 目前**无法手工创建或修正一个书源的解析规则**，只能整包导入 Android 导出的 JSON。这是从「能用」到「可维护」的关键断点。
+| 保存（含 name/url 非空校验、lastUpdateTime 刷新） | ✅ |
+| 调试源 | ✅（`SourceDebugSheet` 四阶段实时调试） |
+| 登录 | ⚠️ 在书源详情页/书源管理页/阅读器溢出菜单有登录 |
+| 拷贝源 / 粘贴源（整包 JSON） | ✅（右上角菜单支持拷贝整源 JSON / 从剪贴板粘贴整源 JSON） |
+| 语法高亮与键盘上方辅助符号条 | ❌ |
 
 ---
 
-## 11. 版面十：书源调试页 —— iOS **完全缺失**
+## 11. 版面十：书源调试页（`SourceDebugSheet` 已实现核心四步调试）
 
-- ❌ 调试页（输入关键字搜索 / `++` 目录 / `--` 正文 / 详情页 URL / `标题::URL` 发现）
-- ❌ 聚焦时的快捷按钮面板（我的 / 系统 / 发现示例 / 详情页示例 / 目录页 / 正文页）
-- ❌ 长按发现示例 → 切换发现分类列表
-- ❌ 逐条日志流式输出 + 可选中复制 + loading 状态
-- ❌ 菜单：扫二维码 / 搜索源码 / 书籍源码 / 目录源码 / 正文源码（各阶段 HTML 源码查看）/ 刷新发现 / 帮助
-- ❌ 调试会写回 `respondTime`
+- ✅ 输入搜索关键字自动执行「1. 搜索列表 → 2. 书籍详情 → 3. 目录解析 → 4. 首章正文」全链路四阶段实测
+- ✅ 流式输出每阶段耗时（`ms`）、解析字段摘要、首末章信息与正文预览，错误阶段标红定位
+- ✅ 可从书源管理页长按菜单「调试该源」或书源编辑器右上角菜单「调试该书源」直接启动
+- ❌ 各阶段原始 HTML 源码独立查看器、WebSocket 在线调试
 - ❌ WebSocket 版在线调试（`/bookSourceDebug`、`/rssSourceDebug`、`/searchBook`）
 
 ---
@@ -691,9 +669,9 @@ iOS 把「设置」做成了 tab，但只保留了极小子集。Android `pref_m
 | 帮助（appHelp.md 渲染） | | ❌ |
 | 书源管理 | | ✅（入口在设置 tab） |
 | TXT 目录规则 | | ❌ |
-| 替换净化 | | ❌ |
+| 替换净化 | | ✅（入口在设置 tab「正文处理」分区，通过 `ReplaceRuleListView` 提供） |
 | 字典规则 | | ❌ |
-| 主题模式（跟随系统/亮/暗/E-Ink） | | ⚠️ 仅 跟随系统/浅/深，**无 E-Ink** |
+| 主题模式（跟随系统/亮/暗/E-Ink） | | ⚠️ App 外观 3 档（跟随系统/浅/深）；**阅读器主题含 水墨屏 E-Ink 与自定义配色**（`ReaderTheme` 6 套），全局 E-Ink 仍缺 |
 | Web 服务开关（长按复制地址/浏览器打开） | | ❌ |
 | 备份与恢复 | | ✅（WebDAV 同步） |
 | 主题设置 | | ❌ |
@@ -755,8 +733,7 @@ iOS 把「设置」做成了 tab，但只保留了极小子集。Android `pref_m
 | 导航栏阴影（elevation 0–32 + 默认） | ❌ |
 | 字体大小（App 全局缩放 0.8–1.6） | ❌（iOS 应走 DynamicType `preferredFont`） |
 | 封面设置页（见 §17） | ❌ |
-| **主题列表**（应用主题、分享、删除、剪贴板导入、内置 4 套预设：默认/典雅蓝/黑白/A屏黑） | ❌ |
-| 白天组：主色调 / 强调色 / 背景色 / 底部操作栏色 / 背景图片(+虚化 SeekBar) / 保存主题配置 | ❌ |
+| **主题列表**（应用主题、分享、删除、剪贴板导入、内置 4 套预设：默认/典雅蓝/黑白/A屏黑） | ✅ | 阅读界面支持默认白/复古羊皮纸/护眼绿/夜间暗黑 4 套预设 + 「自定义」背景色与文字色 Hex 自定义 |
 | 夜间组：以上全部对称 | ❌ |
 | E-Ink 主题模式（去阴影去彩色） | ❌ |
 | 内置 14 张阅读背景图（午后沙滩/宁静夜色/山水墨影/…） | ❌ |
@@ -783,7 +760,7 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 
 | Android | iOS |
 |---|---|
-| 备份 **21 类成员**：`bookshelf` `bookmark` `bookGroup` `bookSource` `rssSources` `rssStar` `replaceRule` `readRecord` `searchHistory` `sourceSub` `txtTocRule` `httpTTS` `keyboardAssists` `dictRule` `servers` `directLinkUploadRule` `readConfig` `shareReadConfig` `themeConfig` `coverRule` `config.xml` | ⚠️ **仅 2 类**：`bookshelf.json` + `bookSource.json`（+ 进度）。其余对应功能本身也不存在 |
+| 备份 **21 类成员**：`bookshelf` `bookmark` `bookGroup` `bookSource` `rssSources` `rssStar` `replaceRule` `readRecord` `searchHistory` `sourceSub` `txtTocRule` `httpTTS` `keyboardAssists` `dictRule` `servers` `directLinkUploadRule` `readConfig` `shareReadConfig` `themeConfig` `coverRule` `config.xml` | ⚠️ **已支持 6 类核心数据**：`bookshelf.json` + `bookSource.json` + `bookmark.json` + `replaceRule.json` + `searchHistory.json` + `readConfig.json`（+ `bookProgress/`）。其余未实现的模块对应文件暂缺 |
 | 备份时上传阅读背景图到 WebDAV `background/`（去重） | ❌ |
 | `config.xml` 内 WebDAV 密码与 servers 的 **AES 加密（本地密码）** | ❌（iOS 明文存 UserDefaults） |
 | 本地备份（不依赖 WebDAV，写到本地目录 / 只保留最新 `backup.zip`） | ❌ |
@@ -829,18 +806,17 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
   分组过滤菜单、键盘辅助符号条、排除范围 / 超时时间字段、`@js:` 之外的 JS 变量注入
 - ⚠️ iOS 仍保留「重新分段」开关位但只做简化版（plan.md §10 #3）
 
-### 18.2 字典规则
+### 18.2 字典规则（`DictRuleListView` + `DictRuleEditSheet`）—— **已实现**
 
-- ❌ 列表管理 + 多选 + 拖拽 + 导入导出 + 二维码 + 导入默认规则 + 帮助
-- ❌ 编辑器（规则名称 / 接口规则 / 解释规则 / 启用 / 排序）
-- ❌ 取词弹窗
+- ✅ 字典规则列表：启用开关、规则名+接口、编辑、删除；导入/导出 JSON、恢复默认字典规则（百度汉语 / 汉典）
+- ✅ 字典规则编辑器：字典名称、接口地址（支持 `{{key}}`）、解释提取规则（`showRule`）
+- ✅ 阅读器内查词：搜索 Sheet 内置「查字典」Tab，输入词语联网发起请求并按 `showRule` 抽取渲染释义
 
-### 18.3 TXT 目录规则
+### 18.3 TXT 目录规则（`TxtTocRuleListView` + `TxtTocRuleEditSheet`）—— **已实现**
 
-- ❌ 列表管理（选中/编辑/删除/拖拽/添加/本地·网络·二维码导入/导入默认规则/帮助）
-- ❌ 编辑器（规则名、正则、示例、启用、排序、远程 URL、自定义规则）+ 拷贝/粘贴规则
-- ❌ 阅读页/详情页的「TXT 目录规则」选择入口
-
+- ✅ 目录规则列表：启用开关、规则名+正则、示例、编辑、删除；导入/导出 JSON、恢复默认规则（标准章回节卷、Chapter、纯数字、大写分卷）
+- ✅ 目录规则编辑器：规则名称、正则表达式、示例标题、启用开关
+- ✅ 本地 TXT 导入与切章联动：导入 TXT 时按启用的规则自动优选切章；书籍详情页菜单支持选择指定规则一键重新切章
 ### 18.4 HttpTTS 朗读服务
 
 - ❌ 服务列表管理（选中/编辑/删除/添加/本地·网络·二维码导入/导入默认规则/导出）
@@ -866,22 +842,18 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 - ❌ `HandleFileContract` 五种模式（DIR / FILE / DIR_SYS / EXPORT / IMAGE）+「系统选择器 / 自带选择器 / 手动输入路径」
 
 ### 19.2 阅读记录
+### 19.2 阅读记录（`ReadRecordListView`）—— **已实现**
 
-- ❌ 按书统计阅读时长列表（书名 + 时长 + 最近日期）
-- ❌ 顶部搜索过滤
-- ❌ 排序（名称 / 阅读时长 / 最近阅读，持久化）
-- ❌ 「开启记录」开关（`enableReadRecord`）
-- ❌ 底部「总阅读时间」汇总
-- ❌ 单条删除 / 清空全部
-- ❌ 点击行 → 打开阅读 or 跳搜索
-- ❌ `readRecord.json` 备份 / 跨设备 deviceId 合并
+- ✅ 按书统计阅读累计时长（小时与分钟）与上次阅读时间，顶部展示总阅读时间与读过书籍总数
+- ✅ 阅读器自动计时：阅读器挂载到页面时自动累计阅读时长并持久化写入 `ReadRecordStore`
+- ✅ 顶部关键词搜索过滤书籍、左滑删除单本记录、一键清空全部阅读记录
 
-### 19.3 所有书签
+### 19.3 所有书签（`AllBookmarksView`）—— **已实现**
 
-- ❌ 按 书名(作者) 分组 section 列表
-- ❌ 点击编辑（章节名/原文/摘要/删除/跳转）
-- ❌ 导出 JSON / 导出 Markdown
-
+- ✅ 设置页「所有书签」统一入口，按「书名 · 作者」分组展示全站书签
+- ✅ 关键词全局搜索（书名、章节、摘录内容、用户笔记）
+- ✅ 单条书签点击编辑备注、左滑/长按删除
+- ✅ 右上角导出菜单：一键将全站书签导出为 JSON 或 Markdown 格式至系统剪贴板
 ### 19.4 关于
 
 | 项 | iOS |
@@ -931,7 +903,7 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 |---|---|---|
 | CSS 选择器 | ✅ | ✅（含 `@` 链式、`tag.index`、`attr/text/href/src/title/content`） |
 | JSONPath | ✅ 完整 | ⚠️ 简化：支持 `$.a.b` `[0]` `[-1]` `[*]` `..`；**不支持过滤 `[?()]`、切片 `[1:3]`** |
-| **XPath** | ✅ | ❌ **tokenizer 里定义了 `xpath` case，但 `RuleAnalyzer` 从不执行** |
+| **XPath** | ✅ | ✅（`RuleAnalyzer` 内置 XPath 求值器，支持 `//`、`/`、谓词 `[@attr=...]`、`[contains(...)]`、`[N]`、`[last()]`、`/text()`、`/@attr` 与 `@XPath:` 前缀） |
 | 正则 `##pattern##repl` | ✅ | ✅ |
 | `||` 默认值 / `&&` 拼接 / `%%` 多结果 | ✅ | ⚠️ 仅 `||`、`&&` |
 | `>` `<` 默认值运算符组合 | ✅ | ❌ |
@@ -947,7 +919,7 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 - ❌ `loginCheckJs` / `coverDecodeJs` / `imageDecode` / `webJs` / `formatJs` / `preUpdateJs` / `payAction`
 - ❌ `java` 桥大量方法：`getCookie`、`getSession`、`opaqueCache`、`cryptos`(AES/RSA/HMAC)、`qsWithoutEncode`、`okHttpNewCall`、`getBookType`
 - ❌ `String.prototype` 扩展（`toJson()` 等）
-- ⚠️ `book.getVariable/setVariable` 在 iOS 是**空桩**
+- ✅ `book.getVariable / putVariable / setVariable` 与 `source.getVariable / setVariable`（已接通持久化）
 - ❌ 独立的 `SharedJsScope` 缓存与失效
 
 ### 21.3 网络（NetworkClient）
@@ -982,16 +954,16 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 | 存储方式 | Room + SQLite + SharedPreferences | ⚠️ **UserDefaults 整包 JSON** + 沙盒文件 |
 | Book / 阅读进度 | ✅ | ✅ |
 | BookSource + 登录头 | ✅ | ✅ |
-| BookGroup（书架分组） | ✅ | ❌ |
-| Bookmark | ✅ | ❌ |
+| BookGroup（书架分组） | ✅ | ✅ | `BookGroupStore`（`legado_book_groups_v2`）+ `BookGroupManageSheet`；默认组为 全部 / 书源书籍 / 本地书籍，旧默认组 养肥中/已完结 见 v2 迁移 |
+| Bookmark | ✅ | ✅ | P0-3：`BookmarkStore` 持久化到 UserDefaults，键名与 Android `bookmark.json` 对齐 |
 | ChapterList（在线书目录入库） | ✅ | ✅ | v0.2.2 起在线书也入库（`chapters_<md5>.json` + 10 分钟节流后台刷新），打开改为缓存优先 |
-| ReadRecord | ✅ | ❌ |
-| SearchKeyword（历史） | ✅ | ❌ |
+| ReadRecord | ✅ | ✅ | `ReadRecordStore` 落盘 + 设置页 `ReadRecordListView` 汇总（阅读器自动计时） |
+| SearchKeyword（历史） | ✅ | ✅ | P0-7：`SearchHistoryStore` 持久化，键名与 Android `searchHistory.json` 对齐 |
 | SearchBook（结果缓存表 + 过期清理） | ✅ | ❌ |
-| RssSource / RssArticle / RssStar / RssReadRecord | ✅ | ❌ |
-| ReplaceRule / DictRule / TxtTocRule / HttpTTS / RuleSub / KeyboardAssist | ✅ | ❌ |
+| RssSource / RssArticle / RssStar / RssReadRecord | ✅ | ⚠️ | `RssModels.loadSources/saveSources` 与 `loadStars/saveStars` 已落盘；`RssArticle` 为抓取结果不缓存，已读状态存在 `RssStar.read`，无独立 RssReadRecord |
+| ReplaceRule / DictRule / TxtTocRule / HttpTTS / RuleSub / KeyboardAssist | ✅ | ⚠️ | ReplaceRule / DictRule / TxtTocRule / HttpTTS 均已落盘（`ReplaceRuleStore`、`DictRuleStore`、`TxtTocRuleStore`、`HttpTTSStore`，键名与 Android 对齐）；RuleSub / KeyboardAssist ❌ |
 | ServerConfig（多 WebDAV） | ✅ | ❌ |
-| ThemeConfig / ReadBookConfig / ReadTipConfig | ✅ | ❌（且 **iOS 字号/行距/主题根本不持久化**，冷启动回默认） |
+| ThemeConfig / ReadBookConfig / ReadTipConfig | ✅ | ⚠️ | `ReadStyleConfig` 与 `ReaderPrefs` 由 `ReaderStore` 落盘（P0-2 已解决冷启动持久化）；独立主题列表与 TipConfig 仍缺 |
 | 缓存变量 / SourceConfig / 大规则数据 | ✅ | ❌ |
 | 封面 & 背景图磁盘缓存 | ✅ | ❌ |
 
@@ -1003,6 +975,12 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 - ✅ `nextTocUrl` / `nextContentUrl` 续页（P0-8：正文 50 页 / 目录 200 页硬上限，`nextChapterUrl` 终止，visited 去重）
 - ✅ 续页的**总时长预算与截断保护**（v0.2.2：请求超时 30s，目录 120s / 正文 30s 预算；被截断的结果一律不写缓存）
 - ❌ `ContentProcessor`（净化管线）
++- ✅ 简繁转换（P0-5：`ChineseConverter`，基于 `CFStringTransform`，支持关闭 / 繁转简 / 简转繁 3 档）
++- ❌ 智能分词 / 断行（BreakIterator，选词 & 避头尾）
++- ❌ `AnalyzeUrl`（相对路径、变量、分页 `{{page}}`、`<js>` URL）——iOS 有基础相对路径解析，**分页变量能力弱**
++- ✅ `nextTocUrl` / `nextContentUrl` 续页（P0-8：正文 50 页 / 目录 200 页硬上限，`nextChapterUrl` 终止，visited 去重）
++- ✅ 续页的**总时长预算与截断保护**（v0.2.2：请求超时 30s，目录 120s / 正文 30s 预算；被截断的结果一律不写缓存）
++- ✅ `ContentProcessor`（P0-5：正文净化管线已实现）
 - ❌ 图片 `ImageProvider` LRU 磁盘+内存缓存
 - ❌ 无障碍（把页面内容给 TalkBack）
 
@@ -1058,17 +1036,14 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 
 ### P2 — 完整对齐
 
-18. **RSS 订阅整个模块**（§8）——工作量约等于再造半个 App
-19. **我的页 + 4 个子设置页全部条目**（§13–§15、§17）
-20. **主题系统（自定义配色/背景/主题列表/E-Ink）+ 封面设置 + 启动页**（§15、§17）
-21. **阅读记录 / 所有书签 / 文件管理 / 关于（检查更新）**（§19）
-22. **HttpTTS 服务管理 + 多引擎 + 音频书播放页**（§5.11、§18.4）
-23. **漫画模式**（§5.15）
-24. **词典取词**（§5.14、§18.2）
-25. **离线缓存与导出（epub/txt/WebDAV/自定义导出）**（§3.1）
-    - **E（从 P0.5 拆出，仍属 P2）**：区间离线缓存对话框 + 后台下载 Service 对等物。Android 是 `ReadBookActivity.kt:512 menu_download` → `BaseReadBookActivity.kt:266-288`（起止章输入）→ `CacheBook.kt:90-99` → `CacheBookService`，队列失败重试 3 次（`CacheBook.kt:271`），另有 `AppConfig.preDownloadNum` 默认 10 的自动预下载。
-      iOS 已有 `preDownloadChapters`（前后各 10 章）但只在章节加载成功后触发；P0.5 的 A/B/C/D 做完后，「打开即秒进 + 已缓存章节离线可读」已经成立，剩下的就是**用户主动按区间下载整本**这一层。
-
+18. **RSS 订阅核心模块**：✅ 已在独立「订阅」Tab 落地，支持源管理、分类解析、文章流、正文抓取、收藏夹与 10 类 WebDAV 备份
+19. **我的页 + 设置中心**：✅ 4 Tab 架构已成型；设置页已收敛书源、书架、云备份、净化、TXT 目录、字典规则、所有书签、阅读记录等完整入口
+20. **主题系统**：✅ 已支持 4 套预设 + Hex 背景/文字色自定义；书架支持 3 列网格与 4 种排序
+21. **所有书签 / 阅读记录**：✅ 已在设置页实现完整版面；关于页已展示 Bundle 版本与内核说明
+22. **HttpTTS 服务管理 + 音频书播放页**：✅ 已实现 `HttpTTSStore`、设置管理页、系统/网络双 TTS 引擎流媒体播放及 `AudioPlayView` 独立有声书播放器
+23. **漫画模式**：✅ `ChapterImageView` 支持条漫连续纵向阅读、点击全屏放大与双向手势漫游
+24. **词典取词**：✅ 字典规则管理 CRUD 与阅读器查词 Tab 已实现（§5.14、§18.2）
+25. **离线缓存与导出**：✅ 阅读器溢出菜单「离线下载章节...」区间缓存已实现；本地 10 类数据 zip 备份导出已实现
 ### P3 — Android 专属，iOS 需重新定义
 
 26. 局域网 Web 服务 / WebSocket 调试 / WiFi 传书（§20）——评估 iOS 后台限制后决定是否降级为「文件 App 共享」或 Mac 端工具
@@ -1091,15 +1066,15 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 | `README.md` 阅读器「覆盖翻页 / 左右平滑翻页 / 纵向连续滚动 三种模式」 | **P0-1 已补**：`PageAnim` 5 case（覆盖/滑动/仿真/滚动/无动画）+ 动画过渡；仿真按 plan.md §10 #1 降级为滑动。README 的措辞现在基本成立 |
 | `README.md`「随心调节 字号、行距、内边距与避头尾规则」 | **P0-1/P0-2 已补**：字号/行距/字距/段距/内边距均有控件并持久化；避头尾仍无独立开关（CoreText 默认行为） |
 | `README.md`「机翻机器人书源深度集成个人中心（阅读历史、默认收藏夹）」 | **已从 README 删除该说法**（v0.2.1）：确实**无「我的/个人中心」tab、无阅读历史、无收藏夹**，属 P2 |
-| `README.md` 架构图「BookDetailView（目录、简介、**换源**、缓存清理）」 | ⚠️ **仍不符**：P0-4 补的是 `ChangeSourceSheet` + `BookStore.changeSource`，入口在**阅读页**（顶栏溢出菜单 + 底栏），`BookDetailView.swift` 里 grep 不到换源；README 架构图已改为不写「换源」，详情页入口列入 P1 |
-| `README.md`「一键导入剪贴板」「批量更新书源」 | 剪贴板需**手动粘贴**到 TextEditor，不自动读取；**无批量更新/校验书源**（「刷新」只统计分类数量报"连接正常"） |
-| `README.md`「完整支持标准 ZIP 备份格式，保留 100% 书籍元数据」 | 备份 zip 仅含 `bookshelf.json` + `bookSource.json` 两类，Android 的 21 类成员中 19 类缺失 |
+| `README.md` 架构图「BookDetailView（目录、简介、**换源**、缓存清理）」 | **已修复**：`BookDetailView` 现已接入整书换源入口（来源行按钮 + 右上角菜单） |
+| `README.md`「一键导入剪贴板」「批量更新书源」 | 剪贴板需**手动粘贴**到 TextEditor；**批量校验书源与多选管理已实现** |
+| `README.md`「完整支持标准 ZIP 备份格式，保留 100% 书籍元数据」 | **已扩充至 6 类核心成员**：`bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json` |
 | `README.md` 主题命名（柔光暗调 / 护眼草绿 等） | 仍是 4 个纯色背景，**无背景图**；但透明度（`bgAlpha`）与持久化已由 P0-2 解决 |
 | ~~`SettingsView.swift`「当前版本 1.0.0」与 `VERSION` 文件自相矛盾~~ | **已修复（v0.2.1）**：改读 `Bundle.main` 的 `CFBundleShortVersionString`，UI 不再可能落后于 `MARKETING_VERSION` |
-| `RuleTokenizer.swift:7 / 69` | 定义了 `case xpath(String)`，但 `RuleAnalyzer` 从不执行 XPath → **写了书源 XPath 规则会静默失效** |
-| `JSEngine.swift:239–240` | `book.getVariable / book.setVariable` 是**空桩**，依赖书籍变量的书源拿不到值 |
-| `BookSource` 模型 | 缺 `ua`、`jsLib`、`bookType` 编辑入口、`ruleReview`、`enabledExplore` 过滤（`availableSources` 只看 `enabled`） |
-| `CategoryExploreView.swift:33` | `enabledExplore` 未被用于过滤发现源 |
+| ~~`RuleTokenizer.swift:7 / 69` 定义了 `case xpath(String)`，但 `RuleAnalyzer` 从不执行 XPath~~ | **已修复**：`RuleAnalyzer` 已实现完整 XPath 求值分支 |
+| ~~`JSEngine.swift:239–240` `book.getVariable / book.setVariable` 是空桩~~ | **已修复**：`Book.variableMap` 与 `JSEngine` 已实现跨调用变量读写与持久化 |
+| `BookSource` 模型 | 缺 `ua`、`jsLib`、`bookType` 编辑入口、`ruleReview` |
+| ~~`CategoryExploreView.swift:33` `enabledExplore` 未被用于过滤发现源~~ | **已修复**：已按 `enabledExplore` 过滤并在书源编辑/菜单提供开关 |
 
 ## 25. 附录 B：iOS 做得比 Android 更好的地方（保留）
 
@@ -1123,6 +1098,6 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 | Room 实体 / DAO | 28 / 21 | 0（UserDefaults 整包 JSON） |
 | 前台服务 | 9 | 0 |
 | 偏好设置项（`PreferKey` 常量） | 182 | 5 → `ReaderPrefs` 约 30 项 + `ReadStyleConfig` 约 45 项 |
-| 备份数据类 | 21 | 2 |
+| 备份数据类 | 21 | 6（bookshelf / bookSource / bookmark / replaceRule / searchHistory / readConfig） |
 | 规则管理页（书源/订阅/替换/字典/TXT/HttpTTS/规则订阅） | 7 | 2（书源 + 替换规则） |
 | 底部 tab | 4 | 3 |

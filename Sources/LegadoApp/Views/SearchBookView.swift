@@ -7,9 +7,18 @@ public struct SearchBookView: View {
     @ObservedObject var viewModel = SearchViewModel.shared
     @ObservedObject var bookStore = BookStore.shared
     @State private var selectedDetailBook: SearchBook? = nil
+    @State private var selectedShelfBook: Book? = nil
     @State private var showScope = false
     @State private var confirmClearHistory = false
 
+    private var matchedBookshelfBooks: [Book] {
+        let needle = viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return [] }
+        return bookStore.bookshelf.filter {
+            $0.name.localizedCaseInsensitiveContains(needle) ||
+            $0.author.localizedCaseInsensitiveContains(needle)
+        }
+    }
     public init() {}
 
     public var body: some View {
@@ -105,17 +114,52 @@ public struct SearchBookView: View {
                 historyView
             } else {
                 List {
-                    ForEach(viewModel.searchResults) { item in
-                        SearchResultRow(item: item)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedDetailBook = item
-                            }
-                            .onAppear {
-                                if viewModel.shouldAutoLoadMore(for: item) {
-                                    viewModel.loadNextPage()
+                    if !matchedBookshelfBooks.isEmpty {
+                        Section(header: Text("书架已有 (\(matchedBookshelfBooks.count))")) {
+                            ForEach(matchedBookshelfBooks) { shelfBook in
+                                Button {
+                                    selectedShelfBook = shelfBook
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "book.closed.fill")
+                                            .foregroundColor(.accentColor)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(shelfBook.name)
+                                                .font(.subheadline.bold())
+                                                .foregroundColor(.primary)
+                                            Text("\(shelfBook.author) · \(shelfBook.durChapterTitle ?? "未读")")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Text("已在书架")
+                                            .font(.caption2)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.accentColor.opacity(0.15))
+                                            .foregroundColor(.accentColor)
+                                            .cornerRadius(4)
+                                    }
                                 }
+                                .buttonStyle(.plain)
                             }
+                        }
+                    }
+
+                    Section(header: Text("全网搜索结果 (\(viewModel.searchResults.count))")) {
+                        ForEach(viewModel.searchResults) { item in
+                            SearchResultRow(item: item)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedDetailBook = item
+                                }
+                                .onAppear {
+                                    if viewModel.shouldAutoLoadMore(for: item) {
+                                        viewModel.loadNextPage()
+                                    }
+                                }
+                        }
                     }
 
                     // List footer (loading / more / finished)
@@ -132,27 +176,43 @@ public struct SearchBookView: View {
         #endif
         .onAppear { viewModel.reconcileScope() }
         .background(
-            // Programmatic navigation link outside List to avoid any row insertion or navigation reset
-            NavigationLink(
-                isActive: Binding(
-                    get: { selectedDetailBook != nil },
-                    set: { if !$0 { selectedDetailBook = nil } }
-                ),
-                destination: {
-                    if let item = selectedDetailBook {
-                        let source = BookStore.shared.sources.first(where: {
-                            $0.bookSourceUrl == item.origin ||
-                            $0.bookSourceName == item.originName ||
-                            item.origin.contains($0.bookSourceUrl) ||
-                            $0.bookSourceUrl.contains(item.origin)
-                        })
-                        BookDetailView(searchBook: item, source: source)
-                    } else {
-                        EmptyView()
-                    }
-                },
-                label: { EmptyView() }
-            )
+            Group {
+                NavigationLink(
+                    isActive: Binding(
+                        get: { selectedDetailBook != nil },
+                        set: { if !$0 { selectedDetailBook = nil } }
+                    ),
+                    destination: {
+                        if let item = selectedDetailBook {
+                            let source = BookStore.shared.sources.first(where: {
+                                $0.bookSourceUrl == item.origin ||
+                                $0.bookSourceName == item.originName ||
+                                item.origin.contains($0.bookSourceUrl) ||
+                                $0.bookSourceUrl.contains(item.origin)
+                            })
+                            BookDetailView(searchBook: item, source: source)
+                        } else {
+                            EmptyView()
+                        }
+                    },
+                    label: { EmptyView() }
+                )
+
+                NavigationLink(
+                    isActive: Binding(
+                        get: { selectedShelfBook != nil },
+                        set: { if !$0 { selectedShelfBook = nil } }
+                    ),
+                    destination: {
+                        if let b = selectedShelfBook {
+                            BookDetailView(book: b, source: bookStore.findSource(for: b))
+                        } else {
+                            EmptyView()
+                        }
+                    },
+                    label: { EmptyView() }
+                )
+            }
             .hidden()
             .frame(width: 0, height: 0)
         )
@@ -250,6 +310,38 @@ public struct SearchBookView: View {
         let history = bookStore.searchHistory(matching: viewModel.searchQuery)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if !matchedBookshelfBooks.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("书架匹配 (\(matchedBookshelfBooks.count))")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        ForEach(matchedBookshelfBooks) { shelfBook in
+                            Button {
+                                selectedShelfBook = shelfBook
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "book.closed.fill")
+                                        .foregroundColor(.accentColor)
+                                    Text(shelfBook.name)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundColor(.primary)
+                                    Text(shelfBook.author)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(10)
+                                .background(Color.secondary.opacity(0.08))
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
                 if history.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "books.vertical")

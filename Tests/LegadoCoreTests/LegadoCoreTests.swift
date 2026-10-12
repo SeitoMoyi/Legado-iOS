@@ -605,6 +605,97 @@ final class LegadoCoreTests: XCTestCase {
         #endif
     }
 
+    // MARK: - XPath Rule Engine Tests
+
+    func testXPathElementListAndPredicates() throws {
+        let html = """
+        <html><body>
+            <div id="list">
+                <ul class="chapters">
+                    <li class="item vip"><a href="/ch/1.html">第一章 启程</a></li>
+                    <li class="item"><a href="/ch/2.html">第二章 风雪</a></li>
+                    <li class="item last"><a href="/ch/3.html">第三章 归途</a></li>
+                </ul>
+            </div>
+        </body></html>
+        """
+        let analyzer = RuleAnalyzer(content: html, baseUrl: "https://example.com")
+
+        // 1. getElements with XPath predicate
+        let items = analyzer.getElements("//div[@id='list']//li[contains(@class, 'item')]")
+        XCTAssertEqual(items.count, 3)
+
+        // 2. Relative XPath on element + `/@href` and `/text()`
+        let firstAnalyze = RuleAnalyzer(content: items[0], baseUrl: "https://example.com")
+        XCTAssertEqual(firstAnalyze.getString("//a/text()"), "第一章 启程")
+        XCTAssertEqual(firstAnalyze.getString("//a/@href", isUrl: true), "https://example.com/ch/1.html")
+
+        // 3. Positional predicates `[2]` and `[last()]` and `@XPath:` prefix
+        XCTAssertEqual(analyzer.getString("@XPath://ul[@class='chapters']/li[2]/a/text()"), "第二章 风雪")
+        XCTAssertEqual(analyzer.getString("//ul[@class='chapters']/li[last()]/a/text()"), "第三章 归途")
+        XCTAssertEqual(analyzer.getString("//ul[@class='chapters']/li[last()-1]/a/text()"), "第二章 风雪")
+
+        // 4. Legado trailing `@href` syntax on an XPath rule
+        XCTAssertEqual(analyzer.getString("//ul[@class='chapters']/li[1]/a@href", isUrl: true), "https://example.com/ch/1.html")
+    }
+
+    func testBackupZipTenMembersRoundTrip() throws {
+        let book = Book(bookUrl: "https://example.com/b1", name: "测试小说", author: "作者A", origin: "https://example.com", originName: "测试源")
+        let source = BookSource(bookSourceUrl: "https://example.com", bookSourceName: "测试源")
+        let bookmark = Bookmark(time: 1700000000, bookName: "测试小说", bookAuthor: "作者A", chapterIndex: 2, chapterPos: 10, chapterName: "第三章", bookText: "摘录", content: "笔记")
+        let rule = ReplaceRule(id: 99, name: "去广告", pattern: "广告", replacement: "", order: 1)
+        let keyword = SearchKeyword(word: "测试", usage: 3, lastUseTime: 1700000001)
+        var style = ReadStyleConfig()
+        style.textSize = 22
+        let txtRule = TxtTocRule(id: 55, name: "自定分卷", rule: "^(第[0-9]+卷.*)$", example: "第一卷")
+        let record = ReadRecord(bookName: "测试小说", readTime: 120000)
+        let rssSource = RssSource(sourceUrl: "https://rss.example.com", sourceName: "测试RSS")
+        let rssStar = RssStar(origin: "https://rss.example.com", title: "收藏文章", link: "https://rss.example.com/1")
+
+        let (zipData, _) = try WebDAVService.shared.createBackupZip(
+            books: [book],
+            sources: [source],
+            bookmarks: [bookmark],
+            replaceRules: [rule],
+            searchHistory: [keyword],
+            readConfig: style,
+            txtTocRules: [txtRule],
+            readRecords: [record],
+            rssSources: [rssSource],
+            rssStars: [rssStar],
+            deviceName: "UnitTestDevice"
+        )
+
+        let payload = try WebDAVService.shared.restorePayloadFromZip(data: zipData)
+        XCTAssertEqual(payload.books?.count, 1)
+        XCTAssertEqual(payload.sources?.count, 1)
+        XCTAssertEqual(payload.bookmarks?.first?.chapterName, "第三章")
+        XCTAssertEqual(payload.replaceRules?.first?.name, "去广告")
+        XCTAssertEqual(payload.searchHistory?.first?.word, "测试")
+        XCTAssertEqual(payload.readConfig?.textSize, 22)
+        XCTAssertEqual(payload.txtTocRules?.first?.name, "自定分卷")
+        XCTAssertEqual(payload.readRecords?.first?.readTime, 120000)
+        XCTAssertEqual(payload.rssSources?.first?.sourceName, "测试RSS")
+        XCTAssertEqual(payload.rssStars?.first?.title, "收藏文章")
+    }
+    func testJSEngineBookAndSourceVariablePersistence() throws {
+        let source = BookSource(bookSourceUrl: "https://var-test.example.com", bookSourceName: "变量测试源")
+        let book = Book(bookUrl: "https://var-test.example.com/book/42", name: "变量书", author: "作者B", origin: source.bookSourceUrl)
+
+        let engine1 = JSEngine(bookSource: source, book: book, baseUrl: book.bookUrl)
+        _ = engine1.eval(script: """
+            book.putVariable("token", "abc123");
+            source.setVariable("src_v1");
+        """)
+
+        // Second JSEngine instance on the same book/source should read back persisted variables
+        let engine2 = JSEngine(bookSource: source, book: book, baseUrl: book.bookUrl)
+        let tokenVal = engine2.eval(script: "book.getVariable('token')") as? String
+        let srcVal = engine2.eval(script: "source.getVariable()") as? String
+        XCTAssertEqual(tokenVal, "abc123")
+        XCTAssertEqual(srcVal, "src_v1")
+    }
+
 }
 
 class MockWebDAVURLProtocol: URLProtocol {

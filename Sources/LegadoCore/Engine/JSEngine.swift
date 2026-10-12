@@ -170,15 +170,20 @@ public class JSEngine {
     public let context: JSContext
     private let javaShim: JavaShim
     public var onLoginHeaderUpdated: ((String) -> Void)?
+    public var onBookVariableUpdated: ((String?) -> Void)?
 
-    public init(bookSource: BookSource? = nil, baseUrl: String? = nil) {
+    private static let variableLock = NSLock()
+    private static var bookVariableCache: [String: String] = [:]
+    private static var sourceVariableCache: [String: String] = [:]
+
+    public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil) {
         self.context = JSContext()
         self.javaShim = JavaShim(context: context)
 
-        setupEnvironment(bookSource: bookSource, baseUrl: baseUrl)
+        setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
     }
 
-    private func setupEnvironment(bookSource: BookSource?, baseUrl: String?) {
+    private func setupEnvironment(bookSource: BookSource?, book: Book?, baseUrl: String?) {
         // Exception handler
         context.exceptionHandler = { _, exception in
             #if DEBUG
@@ -193,7 +198,13 @@ public class JSEngine {
         let sourceObj = JSValue(newObjectIn: context)
         var loginHeader: String? = bookSource?.loginHeader ?? bookSource?.header
         var loginInfoStr: String? = bookSource?.loginInfo
-        var variableStr: String? = bookSource?.variable
+        let sourceKey = bookSource?.bookSourceUrl ?? ""
+        var variableStr: String? = bookSource?.variable ?? {
+            guard !sourceKey.isEmpty else { return nil }
+            Self.variableLock.lock()
+            defer { Self.variableLock.unlock() }
+            return Self.sourceVariableCache[sourceKey] ?? UserDefaults.standard.string(forKey: "legado_source_var_\(sourceKey)")
+        }()
 
         let getLoginHeaderBlock: @convention(block) () -> String? = { loginHeader }
         let putLoginHeaderBlock: @convention(block) (String) -> Void = { [weak self] newH in
@@ -203,8 +214,15 @@ public class JSEngine {
         let getLoginInfoBlock: @convention(block) () -> String? = { loginInfoStr }
         let putLoginInfoBlock: @convention(block) (String) -> Void = { newInfo in loginInfoStr = newInfo }
         let getVariableBlock: @convention(block) () -> String = { variableStr ?? "" }
-        let setVariableBlock: @convention(block) (String) -> Void = { newV in variableStr = newV }
-
+        let setVariableBlock: @convention(block) (String) -> Void = { newV in
+            variableStr = newV
+            if !sourceKey.isEmpty {
+                Self.variableLock.lock()
+                Self.sourceVariableCache[sourceKey] = newV
+                Self.variableLock.unlock()
+                UserDefaults.standard.set(newV, forKey: "legado_source_var_\(sourceKey)")
+            }
+        }
         let getLoginInfoMapBlock: @convention(block) () -> JSValue = { [weak self] in
             guard let ctx = self?.context else { return JSValue(nullIn: JSContext()) }
             let mapObj = JSValue(newObjectIn: ctx)
@@ -234,15 +252,61 @@ public class JSEngine {
 
         context.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
-        // Expose book object
+        // Expose book object with persistent variable map
         let bookObj = JSValue(newObjectIn: context)
-        let getBookVarBlock: @convention(block) (String) -> String = { _ in "" }
-        let setBookVarBlock: @convention(block) (String, String) -> Void = { _, _ in }
-        bookObj?.setValue(getBookVarBlock, forProperty: "getVariable")
-        bookObj?.setValue(setBookVarBlock, forProperty: "setVariable")
-        bookObj?.setValue(bookSource?.bookSourceUrl ?? "", forProperty: "origin")
-        context.setObject(bookObj, forKeyedSubscript: "book" as NSString)
+        let bookKey = book?.bookUrl ?? baseUrl ?? sourceKey
+        var currentBook = book ?? Book(bookUrl: bookKey, name: "", author: "", origin: sourceKey)
+        if currentBook.variable == nil, !bookKey.isEmpty {
+            Self.variableLock.lock()
+            let cached = Self.bookVariableCache[bookKey] ?? UserDefaults.standard.string(forKey: "legado_book_var_\(bookKey)")
+            Self.variableLock.unlock()
+            currentBook.variable = cached
+        }
 
+        let persistBookVar: (String?) -> Void = { [weak self] updated in
+            if !bookKey.isEmpty {
+                Self.variableLock.lock()
+                Self.bookVariableCache[bookKey] = updated
+                Self.variableLock.unlock()
+                if let updated = updated {
+                    UserDefaults.standard.set(updated, forKey: "legado_book_var_\(bookKey)")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "legado_book_var_\(bookKey)")
+                }
+            }
+            self?.onBookVariableUpdated?(updated)
+        }
+
+        let getBookVarBlock: @convention(block) (JSValue) -> String = { keyVal in
+            let key: String? = (keyVal.isUndefined || keyVal.isNull) ? nil : keyVal.toString()
+            return currentBook.getVariable(key)
+        }
+        let putBookVarBlock: @convention(block) (String, JSValue) -> Void = { key, val in
+            let strVal: String? = (val.isUndefined || val.isNull) ? nil : val.toString()
+            currentBook.putVariable(key: key, value: strVal)
+            persistBookVar(currentBook.variable)
+        }
+        let setBookVarBlock: @convention(block) (JSValue, JSValue) -> Void = { first, second in
+            if second.isUndefined {
+                let v: String? = (first.isUndefined || first.isNull) ? nil : first.toString()
+                currentBook.putVariable(key: nil, value: v)
+            } else {
+                let k = first.toString() ?? ""
+                let v: String? = second.isNull ? nil : second.toString()
+                currentBook.putVariable(key: k, value: v)
+            }
+            persistBookVar(currentBook.variable)
+        }
+
+        bookObj?.setValue(getBookVarBlock, forProperty: "getVariable")
+        bookObj?.setValue(putBookVarBlock, forProperty: "putVariable")
+        bookObj?.setValue(setBookVarBlock, forProperty: "setVariable")
+        bookObj?.setValue(currentBook.name, forProperty: "name")
+        bookObj?.setValue(currentBook.author, forProperty: "author")
+        bookObj?.setValue(currentBook.bookUrl, forProperty: "bookUrl")
+        bookObj?.setValue(currentBook.tocUrl, forProperty: "tocUrl")
+        bookObj?.setValue(bookSource?.bookSourceUrl ?? currentBook.origin, forProperty: "origin")
+        context.setObject(bookObj, forKeyedSubscript: "book" as NSString)
         if let baseUrl = baseUrl {
             context.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
         }

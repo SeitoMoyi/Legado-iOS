@@ -21,7 +21,9 @@ public struct WebDAVSyncView: View {
     @State private var remoteBackups: [RemoteBackupInfo] = []
     @State private var showBackupPickerSheet: Bool = false
     @State private var showFileImporter: Bool = false
-
+    @State private var showFileExporter: Bool = false
+    @State private var exportDocument: BackupZipFileDocument? = nil
+    @State private var exportFileName: String = "backup.zip"
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
     @State private var showAlert: Bool = false
@@ -79,6 +81,23 @@ public struct WebDAVSyncView: View {
             allowsMultipleSelection: false
         ) { result in
             handleLocalZipImport(result: result)
+        }
+        .fileExporter(
+            isPresented: $showFileExporter,
+            document: exportDocument,
+            contentType: .zip,
+            defaultFilename: exportFileName
+        ) { result in
+            switch result {
+            case .success(let savedUrl):
+                alertTitle = "本地备份成功"
+                alertMessage = "已将 6 类完整备份包导出至：\n\(savedUrl.lastPathComponent)"
+                showAlert = true
+            case .failure(let error):
+                alertTitle = "导出失败"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
 
@@ -272,19 +291,48 @@ public struct WebDAVSyncView: View {
 
     @ViewBuilder
     private var localBackupSection: some View {
-        Section(header: Text("本地备份导入 (兼容 Android Legado)")) {
+        Section(header: Text("本地离线备份与恢复 (兼容 Android Legado)")) {
+            Button {
+                exportLocalBackupZip()
+            } label: {
+                HStack {
+                    Image(systemName: "arrow.up.doc")
+                    Text("导出本地备份包 (.zip)")
+                }
+            }
+
             Button {
                 showFileImporter = true
             } label: {
                 HStack {
                     Image(systemName: "arrow.down.doc")
-                    Text("导入本地 Android 备份包 (.zip)")
+                    Text("导入本地备份包 (.zip)")
                 }
             }
 
-            Text("支持选取 Android 版 Legado 导出的 backup*.zip 备份包（可配合 bookProgress 进度目录），自动恢复 100% 书籍、书源与阅读进度，无需经过网络直接生效。")
+            Text("支持直接生成或导入 Android/iOS 通用的 backup*.zip 压缩包（含书架、书源、书签、替换规则、搜索历史、阅读样式 6 类完整数据），无需配置 WebDAV 也可跨设备迁移。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+        }
+    }
+
+    private func exportLocalBackupZip() {
+        do {
+            let (zipData, fileName) = try WebDAVService.shared.createBackupZip(
+                books: bookStore.bookshelf,
+                sources: bookStore.sources,
+                bookmarks: bookStore.bookmarks,
+                replaceRules: bookStore.replaceRules,
+                searchHistory: bookStore.searchHistory,
+                deviceName: currentConfig.deviceName
+            )
+            exportDocument = BackupZipFileDocument(data: zipData)
+            exportFileName = fileName
+            showFileExporter = true
+        } catch {
+            alertTitle = "生成备份失败"
+            alertMessage = error.localizedDescription
+            showAlert = true
         }
     }
 
@@ -353,11 +401,18 @@ public struct WebDAVSyncView: View {
                 if canAccess { selectedUrl.stopAccessingSecurityScopedResource() }
             }
 
-            let (books, sources) = try WebDAVService.shared.restoreFromZip(fileUrl: selectedUrl)
-            let (bCount, sCount) = bookStore.restoreFromWebDAV(books: books, sources: sources)
+            let payload = try WebDAVService.shared.restorePayloadFromZip(fileUrl: selectedUrl)
+            let res = bookStore.restoreBackupPayload(payload)
 
             alertTitle = "备份包导入成功"
-            alertMessage = "成功识别并合并 Android 备份数据：\n• 书架更新/新增: \(bCount) 本\n• 书源更新/新增: \(sCount) 个"
+            var lines = [
+                "成功识别并合并备份数据：",
+                "• 书架更新/新增: \(res.booksAdded) 本",
+                "• 书源更新/新增: \(res.sourcesAdded) 个"
+            ]
+            if let bms = payload.bookmarks { lines.append("• 书签同步: \(bms.count) 条") }
+            if let rules = payload.replaceRules { lines.append("• 替换规则: \(rules.count) 条") }
+            alertMessage = lines.joined(separator: "\n")
             showAlert = true
         } catch {
             alertTitle = "导入失败"
@@ -436,13 +491,16 @@ public struct WebDAVSyncView: View {
                 let result = try await WebDAVService.shared.backup(
                     books: bookStore.bookshelf,
                     sources: bookStore.sources,
+                    bookmarks: bookStore.bookmarks,
+                    replaceRules: bookStore.replaceRules,
+                    searchHistory: bookStore.searchHistory,
                     config: currentConfig
                 )
                 await MainActor.run {
                     isBackingUp = false
                     lastSyncTime = Date()
                     alertTitle = "备份成功"
-                    alertMessage = "已成功生成 Android 兼容压缩包并上传至 WebDAV 远程目录 [\(remotePath)]：\n• 备份文件：\(result.backupFileName)\n• 书架藏书：\(result.booksCount) 本\n• 书源配置：\(result.sourcesCount) 个"
+                    alertMessage = "已成功生成 Android 兼容压缩包并上传至 WebDAV 远程目录 [\(remotePath)]：\n• 备份文件：\(result.backupFileName)\n• 书架藏书：\(result.booksCount) 本\n• 书源配置：\(result.sourcesCount) 个\n• 书签/替换规则/搜索历史/阅读配置已一并打包"
                     showAlert = true
                 }
             } catch {
@@ -460,30 +518,32 @@ public struct WebDAVSyncView: View {
         isRestoring = true
         Task {
             do {
-                let (books, sources, backupName) = try await WebDAVService.shared.restore(
+                let payload = try await WebDAVService.shared.restorePayload(
                     config: currentConfig,
                     backupFileName: backupFileName
                 )
-                let result = bookStore.restoreFromWebDAV(books: books, sources: sources)
+                let result = bookStore.restoreBackupPayload(payload)
                 await MainActor.run {
                     isRestoring = false
                     lastSyncTime = Date()
                     alertTitle = "恢复成功"
                     var detail = "已完成从 WebDAV 数据合并：\n"
-                    if let name = backupName {
+                    if let name = payload.backupName {
                         detail += "• 备份包：\(name)\n"
                     }
-                    if let b = books {
+                    if let b = payload.books {
                         detail += "• 书架同步：\(b.count) 本 (新增 \(result.booksAdded) 本)\n"
-                    } else {
-                        detail += "• 未找到远程 bookshelf.json\n"
                     }
-                    if let s = sources {
-                        detail += "• 书源同步：\(s.count) 个 (新增 \(result.sourcesAdded) 个)"
-                    } else {
-                        detail += "• 未找到远程 bookSource.json"
+                    if let s = payload.sources {
+                        detail += "• 书源同步：\(s.count) 个 (新增 \(result.sourcesAdded) 个)\n"
                     }
-                    alertMessage = detail
+                    if let bm = payload.bookmarks {
+                        detail += "• 书签同步：\(bm.count) 条\n"
+                    }
+                    if let rr = payload.replaceRules {
+                        detail += "• 替换规则：\(rr.count) 条"
+                    }
+                    alertMessage = detail.trimmingCharacters(in: .whitespacesAndNewlines)
                     showAlert = true
                 }
             } catch {
@@ -510,5 +570,22 @@ public struct WebDAVSyncView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter.string(from: date)
+    }
+}
+
+struct BackupZipFileDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.zip, .archive] }
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        self.data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
     }
 }

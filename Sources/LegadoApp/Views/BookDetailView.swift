@@ -5,7 +5,9 @@ import LegadoCore
 #if canImport(UIKit)
 import UIKit
 #endif
-
+#if canImport(AppKit)
+import AppKit
+#endif
 public struct BookDetailView: View {
     @ObservedObject var bookStore = BookStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -24,7 +26,11 @@ public struct BookDetailView: View {
     @State private var selectedChapterIndex: Int = 0
     @State private var showActionAlert: Bool = false
     @State private var actionAlertMessage: String = ""
-
+    @State private var showChangeSource: Bool = false
+    @State private var showEditBookSheet: Bool = false
+    @State private var showBookVariableDialog: Bool = false
+    @State private var showSourceVariableDialog: Bool = false
+    @State private var showTxtRuleSheet: Bool = false
     public init(book: Book, source: BookSource? = nil) {
         self.initialBook = book
         self.source = source
@@ -112,6 +118,80 @@ public struct BookDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
+                        Button {
+                            showEditBookSheet = true
+                        } label: {
+                            Label("编辑书籍信息", systemImage: "pencil")
+                        }
+
+                        if isInBookshelf {
+                            Button {
+                                bookStore.pinBook(bookUrl: currentBook.bookUrl)
+                                actionAlertMessage = "已将「\(currentBook.name)」置顶到书架最前"
+                                showActionAlert = true
+                            } label: {
+                                Label("置顶本书", systemImage: "pin")
+                            }
+                        }
+
+                        if currentBook.origin != "local" {
+                            Button {
+                                showChangeSource = true
+                            } label: {
+                                Label("换源", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
+
+                        Button {
+                            Task {
+                                chapters = []
+                                await loadBookDetails()
+                                actionAlertMessage = "目录与详情已刷新"
+                                showActionAlert = true
+                            }
+                        } label: {
+                            Label("刷新目录与详情", systemImage: "arrow.clockwise")
+                        }
+
+                        Button {
+                            copyStringToClipboard(currentBook.bookUrl)
+                            actionAlertMessage = "已拷贝书籍 URL 至剪贴板"
+                            showActionAlert = true
+                        } label: {
+                            Label("拷贝书籍 URL", systemImage: "link")
+                        }
+
+                        if !currentBook.tocUrl.isEmpty {
+                            Button {
+                                copyStringToClipboard(currentBook.tocUrl)
+                                actionAlertMessage = "已拷贝目录 URL 至剪贴板"
+                                showActionAlert = true
+                            } label: {
+                                Label("拷贝目录 URL", systemImage: "list.bullet.rectangle")
+                            }
+                        }
+
+                        Button {
+                            showBookVariableDialog = true
+                        } label: {
+                            Label("设置书籍变量", systemImage: "text.badge.star")
+                        }
+
+                        if currentBook.origin != "local" {
+                            Button {
+                                showSourceVariableDialog = true
+                            } label: {
+                                Label("设置书源变量", systemImage: "gearshape")
+                            }
+                        }
+
+                        if currentBook.origin == "local" && currentBook.bookUrl.hasPrefix("txt://") {
+                            Button {
+                                showTxtRuleSheet = true
+                            } label: {
+                                Label("TXT 目录规则", systemImage: "text.book.closed")
+                            }
+                        }
                         Button(role: .destructive) {
                             let count = BookContentService.shared.getCacheCount(for: currentBook.bookUrl)
                             BookContentService.shared.clearCache(for: currentBook.bookUrl)
@@ -119,16 +199,6 @@ public struct BookDetailView: View {
                             showActionAlert = true
                         } label: {
                             Label("清除缓存", systemImage: "trash")
-                        }
-
-                        Button {
-                            Task {
-                                await loadBookDetails()
-                                actionAlertMessage = "目录与详情已刷新"
-                                showActionAlert = true
-                            }
-                        } label: {
-                            Label("刷新目录与详情", systemImage: "arrow.clockwise")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -145,6 +215,7 @@ public struct BookDetailView: View {
                     isActive: $navigateToTOC,
                     destination: {
                         ChapterListView(
+                            bookUrl: currentBook.bookUrl,
                             chapters: chapters,
                             currentChapterIndex: currentBookshelfBook.durChapterIndex,
                             onSelectChapter: { index in
@@ -174,6 +245,116 @@ public struct BookDetailView: View {
             readerCoverView
         }
         #endif
+        .sheet(isPresented: $showChangeSource) {
+            ChangeSourceSheet(
+                book: currentBookshelfBook,
+                mode: .wholeBook,
+                chapterTitle: currentBookshelfBook.durChapterTitle ?? "",
+                onApply: { candidate, toc in
+                    let active = currentBookshelfBook
+                    let mapped = ChapterMatcher.mapChapter(
+                        oldIndex: active.durChapterIndex,
+                        oldTitle: active.durChapterTitle ?? "",
+                        oldCount: max(active.totalChapterNum, max(chapters.count, 1)),
+                        newTitles: toc.map { $0.title }
+                    )
+                    let updated = bookStore.changeSource(
+                        oldBook: active,
+                        to: candidate.found,
+                        source: candidate.source,
+                        newChapters: toc,
+                        mappedChapterIndex: mapped
+                    )
+                    currentBook = updated
+                    chapters = toc
+                    selectedChapterIndex = updated.durChapterIndex
+                    showChangeSource = false
+                },
+                onApplyChapterText: { _ in }
+            )
+        }
+        .sheet(isPresented: $showEditBookSheet) {
+            BookInfoEditSheet(book: currentBookshelfBook) { name, author, coverUrl, intro in
+                if !isInBookshelf {
+                    _ = bookStore.saveOrUpdateBook(currentBook)
+                }
+                if let updated = bookStore.updateBookMetadata(
+                    bookUrl: currentBook.bookUrl,
+                    name: name,
+                    author: author,
+                    coverUrl: coverUrl,
+                    intro: intro
+                ) {
+                    currentBook = updated
+                }
+            }
+        }
+        .sheet(isPresented: $showBookVariableDialog) {
+            VariableEditorSheet(
+                title: "设置书籍变量",
+                comment: "为本书自定义存储变量参数（如动态 Cookie、Token、附加参数等）：",
+                initialValue: currentBookshelfBook.variable ?? ""
+            ) { savedValue in
+                if !isInBookshelf {
+                    _ = bookStore.saveOrUpdateBook(currentBook)
+                }
+                var b = currentBookshelfBook
+                b.variable = savedValue.isEmpty ? nil : savedValue
+                currentBook = bookStore.saveOrUpdateBook(b)
+                actionAlertMessage = "书籍变量已保存"
+                showActionAlert = true
+            }
+        }
+        .sheet(isPresented: $showSourceVariableDialog) {
+            let resolvedSource = source ?? bookStore.findSource(for: currentBook)
+            VariableEditorSheet(
+                title: "设置书源变量",
+                comment: resolvedSource?.variableComment ?? "为书源「\(resolvedSource?.bookSourceName ?? "")」设置全局持久化变量参数：",
+                initialValue: resolvedSource?.variable ?? (UserDefaults.standard.string(forKey: "legado_source_var_\(resolvedSource?.bookSourceUrl ?? "")") ?? "")
+            ) { savedValue in
+                guard let src = resolvedSource else { return }
+                var updated = src
+                updated.variable = savedValue.isEmpty ? nil : savedValue
+                bookStore.updateSource(originalSource: src, newSource: updated)
+                UserDefaults.standard.set(savedValue, forKey: "legado_source_var_\(src.bookSourceUrl)")
+                actionAlertMessage = "书源变量已保存"
+                showActionAlert = true
+            }
+        }
+        .sheet(isPresented: $showTxtRuleSheet) {
+            NavigationView {
+                List {
+                    Section(header: Text("选择用于重新拆分本 TXT 小说的目录规则")) {
+                        ForEach(TxtTocRuleStore.load().filter { $0.enable }) { r in
+                            Button {
+                                reSplitTxtChapters(with: r.rule)
+                                showTxtRuleSheet = false
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(r.name)
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.primary)
+                                    Text(r.rule)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .navigationTitle("选择 TXT 目录规则")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { showTxtRuleSheet = false }
+                    }
+                }
+            }
+        }
         .task {
             await loadBookDetails()
         }
@@ -183,10 +364,19 @@ public struct BookDetailView: View {
     private var readerCoverView: some View {
         let activeBook = isInBookshelf ? currentBookshelfBook : currentBook
         let resolvedSource = source ?? bookStore.findSource(for: activeBook)
-        NavigationView {
-            ReaderView(book: activeBook, source: resolvedSource, initialChapterIndex: selectedChapterIndex, onDismiss: {
-                isReading = false
-            })
+        if resolvedSource?.bookSourceType == 1 || (activeBook.kind?.contains("音频") ?? false) {
+            AudioPlayView(
+                book: activeBook,
+                source: resolvedSource,
+                initialChapterIndex: selectedChapterIndex,
+                onDismiss: { isReading = false }
+            )
+        } else {
+            NavigationView {
+                ReaderView(book: activeBook, source: resolvedSource, initialChapterIndex: selectedChapterIndex, onDismiss: {
+                    isReading = false
+                })
+            }
         }
     }
 
@@ -253,6 +443,24 @@ public struct BookDetailView: View {
                         .background(Color.accentColor.opacity(0.15))
                         .foregroundColor(.accentColor)
                         .cornerRadius(6)
+
+                    if currentBook.origin != "local" {
+                        Button {
+                            showChangeSource = true
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("换源")
+                            }
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.secondary.opacity(0.14))
+                            .foregroundColor(.primary)
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     if let wordCount = currentBook.wordCount, !wordCount.isEmpty {
                         Text(wordCount)
@@ -490,7 +698,7 @@ public struct BookDetailView: View {
         guard chapters.isEmpty else { return }
 
         // If local book, load local chapters from BookStore
-        if currentBook.origin == "local" || currentBook.bookUrl.hasPrefix("file://") {
+        if currentBook.isLocalBook {
             let localChapters = bookStore.getChapters(for: currentBook.bookUrl)
             if !localChapters.isEmpty {
                 await MainActor.run {
@@ -530,77 +738,333 @@ public struct BookDetailView: View {
             }
         }
     }
+
+    private func copyStringToClipboard(_ str: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = str
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(str, forType: .string)
+        #endif
+    }
+
+    private func reSplitTxtChapters(with pattern: String) {
+        let bookId = CryptoUtils.md5(currentBook.bookUrl)
+        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let txtBookDir = docsDir.appendingPathComponent("Books/TXT/\(bookId)")
+        var fullText = ""
+        let cachedChapters = bookStore.getChapters(for: currentBook.bookUrl)
+        for ch in cachedChapters {
+            if let fileUrl = URL(string: ch.url), let t = try? String(contentsOf: fileUrl) {
+                fullText += (ch.title + "\n\n" + t + "\n\n")
+            }
+        }
+        guard !fullText.isEmpty else { return }
+        let nsString = fullText as NSString
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return }
+        let matches = regex.matches(in: fullText, range: NSRange(location: 0, length: nsString.length))
+        guard matches.count > 1 else {
+            actionAlertMessage = "未能使用该规则匹配到多个章节"
+            showActionAlert = true
+            return
+        }
+
+        var newChapters: [BookChapter] = []
+        for i in 0..<matches.count {
+            let match = matches[i]
+            let title = nsString.substring(with: match.range).trimmingCharacters(in: .whitespacesAndNewlines)
+            let startPos = match.range.location
+            let endPos = (i + 1 < matches.count) ? matches[i + 1].range.location : nsString.length
+            let chapterText = nsString.substring(with: NSRange(location: startPos, length: endPos - startPos))
+
+            let chFile = txtBookDir.appendingPathComponent("chapter_\(i).txt")
+            try? chapterText.write(to: chFile, atomically: true, encoding: .utf8)
+
+            newChapters.append(BookChapter(
+                bookUrl: currentBook.bookUrl,
+                url: chFile.absoluteString,
+                title: title,
+                index: i
+            ))
+        }
+        chapters = newChapters
+        currentBook.totalChapterNum = newChapters.count
+        if let last = newChapters.last {
+            currentBook.latestChapterTitle = last.title
+        }
+        bookStore.saveChapters(newChapters, for: currentBook.bookUrl)
+        _ = bookStore.saveOrUpdateBook(currentBook)
+        actionAlertMessage = "重新切章完成，共得到 \(newChapters.count) 章！"
+        showActionAlert = true
+    }
 }
 
 // MARK: - ChapterListView
 
 struct ChapterListView: View {
     @Environment(\.dismiss) private var dismiss
+    var bookUrl: String = ""
     let chapters: [BookChapter]
     let currentChapterIndex: Int
+    var showCloseButton: Bool = false
     let onSelectChapter: (Int) -> Void
 
     @State private var searchKeyword: String = ""
+    @State private var isReversed: Bool = false
 
     private var filteredChapters: [(index: Int, chapter: BookChapter)] {
         let enumerated = chapters.enumerated().map { (index: $0.offset, chapter: $0.element) }
+        let base = isReversed ? Array(enumerated.reversed()) : enumerated
         if searchKeyword.trimmingCharacters(in: .whitespaces).isEmpty {
-            return enumerated
+            return base
         }
-        return enumerated.filter { $0.chapter.title.localizedCaseInsensitiveContains(searchKeyword) }
+        return base.filter { $0.chapter.title.localizedCaseInsensitiveContains(searchKeyword) }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Search filter
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("搜索章节标题...", text: $searchKeyword)
-                if !searchKeyword.isEmpty {
-                    Button(action: { searchKeyword = "" }) {
-                        Image(systemName: "xmark.circle.fill")
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                // Search filter + Reverse toggle
+                HStack(spacing: 10) {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("搜索章节标题...", text: $searchKeyword)
+                        if !searchKeyword.isEmpty {
+                            Button(action: { searchKeyword = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.secondary.opacity(0.12))
+                    .cornerRadius(8)
+
+                    Button {
+                        isReversed.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.arrow.down")
+                            Text(isReversed ? "倒序" : "正序")
+                        }
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 9)
+                        .background(Color.secondary.opacity(0.12))
+                        .foregroundColor(.primary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                List(filteredChapters, id: \.index) { item in
+                    let isCached = !bookUrl.isEmpty && BookContentService.shared.hasCachedChapter(bookUrl: bookUrl, chapterIndex: item.index)
+                    Button(action: {
+                        onSelectChapter(item.index)
+                    }) {
+                        HStack(spacing: 8) {
+                            Text(item.chapter.title)
+                                .font(.subheadline)
+                                .foregroundColor(item.index == currentChapterIndex ? .accentColor : .primary)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            if isCached {
+                                Text("已缓存")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.15))
+                                    .foregroundColor(.green)
+                                    .cornerRadius(4)
+                            }
+
+                            if item.index == currentChapterIndex {
+                                Text("当前")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.15))
+                                    .foregroundColor(.accentColor)
+                                    .cornerRadius(4)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                    .id(item.index)
+                }
+                .listStyle(.plain)
+                .onAppear {
+                    if currentChapterIndex >= 0 && currentChapterIndex < chapters.count {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo(currentChapterIndex, anchor: .center)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("目录 (\(chapters.count) 章)")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 12) {
+                        Button {
+                            if currentChapterIndex >= 0 && currentChapterIndex < chapters.count {
+                                withAnimation {
+                                    proxy.scrollTo(currentChapterIndex, anchor: .center)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "location")
+                        }
+                        if showCloseButton {
+                            Button("关闭") { dismiss() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - BookInfoEditSheet (Android BookInfoEditActivity Counterpart)
+
+struct BookInfoEditSheet: View {
+    let book: Book
+    let onSave: (String, String, String?, String?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var author: String
+    @State private var coverUrl: String
+    @State private var intro: String
+
+    init(book: Book, onSave: @escaping (String, String, String?, String?) -> Void) {
+        self.book = book
+        self.onSave = onSave
+        self._name = State(initialValue: book.name)
+        self._author = State(initialValue: book.author)
+        self._coverUrl = State(initialValue: book.customCoverUrl ?? book.coverUrl ?? "")
+        self._intro = State(initialValue: book.intro ?? "")
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("基本信息")) {
+                    HStack {
+                        Text("书名")
+                            .frame(width: 70, alignment: .leading)
+                        TextField("必填", text: $name)
+                    }
+                    HStack {
+                        Text("作者")
+                            .frame(width: 70, alignment: .leading)
+                        TextField("选填", text: $author)
+                    }
+                    HStack {
+                        Text("封面链接")
+                            .frame(width: 70, alignment: .leading)
+                        TextField("https://...", text: $coverUrl)
+                            #if os(iOS)
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+                            #endif
+                    }
+                }
+
+                Section(header: Text("内容简介")) {
+                    TextEditor(text: $intro)
+                        .frame(minHeight: 140)
+                        .font(.subheadline)
+                }
+            }
+            .navigationTitle("编辑书籍信息")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let cUrl = coverUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let iText = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSave(
+                            name,
+                            author,
+                            cUrl.isEmpty ? nil : cUrl,
+                            iText.isEmpty ? nil : iText
+                        )
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - VariableEditorSheet (Android VariableDialog Counterpart)
+
+public struct VariableEditorSheet: View {
+    let title: String
+    let comment: String
+    let onSave: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+
+    public init(title: String, comment: String = "", initialValue: String = "", onSave: @escaping (String) -> Void) {
+        self.title = title
+        self.comment = comment
+        self.onSave = onSave
+        self._text = State(initialValue: initialValue)
+    }
+
+    public var body: some View {
+        NavigationView {
+            Form {
+                if !comment.isEmpty {
+                    Section(header: Text("说明")) {
+                        Text(comment)
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
-            }
-            .padding(8)
-            .background(Color.secondary.opacity(0.12))
-            .cornerRadius(8)
-            .padding(.horizontal)
-            .padding(.top, 8)
 
-            List(filteredChapters, id: \.chapter.id) { item in
-                Button(action: {
-                    onSelectChapter(item.index)
-                }) {
-                    HStack {
-                        Text(item.chapter.title)
-                            .font(.subheadline)
-                            .foregroundColor(item.index == currentChapterIndex ? .accentColor : .primary)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        if item.index == currentChapterIndex {
-                            Text("上次阅读")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor.opacity(0.15))
-                                .foregroundColor(.accentColor)
-                                .cornerRadius(4)
-                        }
-                    }
-                    .padding(.vertical, 2)
+                Section(header: Text("变量内容 (文本或 JSON)")) {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 140)
+                        .font(.system(.subheadline, design: .monospaced))
+                        #if os(iOS)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        #endif
                 }
-                .buttonStyle(.plain)
             }
-            .listStyle(.plain)
+            .navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        onSave(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        dismiss()
+                    }
+                }
+            }
         }
-        .navigationTitle("目录 (\(chapters.count) 章)")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 }

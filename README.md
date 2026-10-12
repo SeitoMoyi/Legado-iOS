@@ -3,14 +3,30 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.2-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.3-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
 
 ---
 
-## ✨ v0.2.2 新增
+## ✨ v0.2.3 新增
+
+这一版把 Android 侧的**工具链**补齐：书源/书架/规则/订阅/音频五个模块全部打通，并让书源与书架的展示与 Android 数据保持**双向一致**（改 App，不改书源）。实施拆解见 [plan.md](plan.md) Part 1-18，逐项以 [FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md) 为准。
+
+- 🧩 **书源体系**：`EditSourceSheet` 升级为 **6-Tab 全字段编辑器**（基本/搜索/发现/详情/目录/正文 + 整源 JSON 粘贴导出），新增**四阶段实时调试台**（搜索→详情→目录→正文流式日志）；管理页支持名称/域名/`group:xx` 搜索、`全部/已启用/已禁用` 三态胶囊、多选批量启禁删导、5 并发**校验书源**。
+- 🗂 **书源分类噪声只在显示层过滤**：Android 的 `CheckSourceService` 会把校验判定词（`搜索目录失效` 等）和第三方合集的 `good` 标记写进 `bookSourceGroup`，此前会被当成分类显示。现在这些 token 只在**渲染分组胶囊时**隐藏，`bookSourceGroup` / `bookSourceComment` / `respondTime` **原样保存**，WebDAV 导回 Android 时数据一字不差。另修正两点：每轮校验的 `失效` 判定与实测耗时不再被启动同步覆盖；`respondTime ≥ 180000`（Android 的失败罚时，如内置 ESJ 的 `185203 = 180000 + 5203`）不再被当作速度显示。
+- 📚 **书架管理**：三列封面网格 / 列表切换、4 种排序（最近阅读/最近更新/书名/作者）、`⋯`→「选择」批量清缓存与移除；**分组体系**默认收敛为「全部 / 书源书籍 / 本地书籍」（旧默认组「养肥中 / 已完结」退役），支持自定义分组增删改与批量移入。
+- 📖 **书籍详情与目录**：书籍信息编辑（书名/作者/封面/简介）、整书换源、置顶、拷贝书籍与目录 URL；目录自动定位当前章、正倒序切换、已缓存标识。
+- ⚙️ **规则与互通**：`RuleAnalyzer` 支持 **XPath**（`//`、`[contains(@class,…)]`、`[last()]`、`/@href` 等）；WebDAV 备份扩到 **10 类**数据（新增 `txtTocRule`、`readRecord`、`rssSources`、`rssStar` 等）；`JSEngine` 接通 `book.getVariable / setVariable`；TXT 目录规则管理 + 一键重新切章。
+- 🔊 **朗读与音频**：HttpTTS 自定义引擎、在线有声书独立播放页（黑胶动效/倍速/定时/快进 15s）、条漫全屏预览、章节区间离线下载、阅读记录自动计时统计、字典规则与阅读器「查字典」。
+- 📰 **4-Tab 与订阅**：底部导航扩展为 书架 / 分类 / 订阅 / 设置，正式上线 **RSS 订阅**（订阅源管理、分类文章流、正文提取阅读、文章收藏）。
+- 🔗 **平台集成**：`legado://` 与 `yuedu://` URL Scheme 一键导入书源、主屏快捷操作（搜索书籍 / 继续阅读）、**局域网 WiFi 传书**（`Network.framework` 纯原生 HTTP 服务，网页上传 TXT/EPUB 直接入库）。
+- 🎨 **外观**：新增**水墨屏**主题（纯白底纯黑字，6 套主题）与阅读**字体选择器**（系统/楷体/宋体/圆体）。
+
+---
+
+## ✨ v0.2.2 新增（上一版）
 
 这一版按使用反馈做了三件事：**删掉两个有害功能**、**把打开书从"必联网"改成"缓存优先"**、**修掉离线卡死**。实施记录见 `plan.md` 的 §13 与「批次 P0.5」。
 

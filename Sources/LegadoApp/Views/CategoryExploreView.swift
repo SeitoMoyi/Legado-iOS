@@ -32,6 +32,7 @@ public struct CategoryExploreView: View {
     private var availableSources: [BookSource] {
         bookStore.sources.filter { source in
             (source.enabled ?? true) &&
+            (source.enabledExplore ?? true) &&
             source.exploreUrl != nil &&
             !(source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         }

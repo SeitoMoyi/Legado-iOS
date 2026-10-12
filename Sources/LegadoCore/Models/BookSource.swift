@@ -49,6 +49,52 @@ public struct BookSource: Codable, Identifiable, Equatable {
         return true
     }
 
+    /// `CheckSource.timeout` default. When a 校验 fails, Android stores
+    /// `respondTime = CheckSource.timeout + spendingTime`, so anything at or above this floor is a
+    /// failure marker rather than a latency (ESJ ships `185203` = `180000 + 5203`).
+    public static let androidFailureRespondTimeMs: Int64 = 180_000
+
+    /// True when `respondTime` looks like a measurement worth showing, rather than Android's
+    /// 校验失败 marker or a missing value. Display-side only — the stored field is never rewritten.
+    public static func isMeasuredRespondTime(_ ms: Int64) -> Bool {
+        ms > 0 && ms < androidFailureRespondTimeMs
+    }
+
+    /// Tokens that sit inside `bookSourceGroup` without being group names.
+    ///
+    /// Two sources of noise, both inherited from source JSON that circulates among Android users:
+    ///
+    /// 1. `CheckSourceService` treats the group column as scratch space while 校验书源 runs
+    ///    (`source.addGroup("搜索失效")`), so a JSON exported right after a check carries its
+    ///    verdicts as if they were groups — 11 literals, `${bookType}` being 搜索 / 发现.
+    /// 2. `good`, a curatorial marker used by hand-maintained third-party source collections. It is
+    ///    **not** a Legado construct: no Android or iOS code writes it, and Android's own bundled
+    ///    `assets/defaultData/bookSources.json` uses 听书 for its single default source.
+    ///
+    /// Only exact matches are hidden: a bare 「失效」 is what *this* app's 校验 writes, and genuine
+    /// categories such as 轻小说 are untouched.
+    public static let groupNoiseTags: Set<String> = [
+        // 1. Android 校验书源 verdicts
+        "校验超时", "js失效", "网站失效",
+        "搜索失效", "发现失效",
+        "搜索目录失效", "发现目录失效",
+        "搜索正文失效", "发现正文失效",
+        "搜索链接规则为空", "发现规则为空",
+        // 2. third-party curatorial marker
+        "good"
+    ]
+
+    /// The source's categories as they should be **shown**; `nil` when only noise is left.
+    ///
+    /// Display-only by design. `bookSourceGroup` is Android-compatible data that has to round-trip
+    /// verbatim through import/export, so the app filters at render time instead of rewriting the
+    /// source: 校验 verdicts and the third-party `good` marker are hidden, every real category —
+    /// including ones this app knows nothing about — is passed through untouched.
+    public var displayGroup: String? {
+        let kept = groups.filter { !Self.groupNoiseTags.contains($0) }
+        return kept.isEmpty ? nil : kept.joined(separator: ",")
+    }
+
     public enum CodingKeys: String, CodingKey {
         case bookSourceUrl
         case bookSourceName

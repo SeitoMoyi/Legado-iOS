@@ -127,6 +127,17 @@ public class BookStore: ObservableObject {
                 if let enabled = sources[idx].enabled {
                     updated.enabled = enabled
                 }
+                // 校验书源's verdict exists only on this device, so this sync used to erase the
+                // 「失效」 marker (and the measured time) on every launch — which is why the red
+                // marker could never stick. The bundled row still supplies the categories verbatim;
+                // only this app's own verdict is re-applied, the same way
+                // `markSourceValidationResult` writes it.
+                if sources[idx].respondTime != nil {
+                    updated.respondTime = sources[idx].respondTime
+                }
+                if sources[idx].groups.contains("失效"), !updated.groups.contains("失效") {
+                    updated.bookSourceGroup = (["失效"] + updated.groups).joined(separator: ",")
+                }
                 sources[idx] = updated
                 didChange = true
             } else if !sources.contains(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
@@ -250,10 +261,19 @@ public class BookStore: ObservableObject {
 
     /// Merges restored WebDAV books and sources into local storage
     public func restoreFromWebDAV(books: [Book]?, sources: [BookSource]?) -> (booksAdded: Int, sourcesAdded: Int) {
+        let res = restoreBackupPayload(WebDAVService.BackupRestorePayload(books: books, sources: sources))
+        return (res.booksAdded, res.sourcesAdded)
+    }
+
+    /// Merges a full `BackupRestorePayload` (books, sources, bookmarks, replaceRules, searchHistory, readConfig) into local storage.
+    @discardableResult
+    public func restoreBackupPayload(_ payload: WebDAVService.BackupRestorePayload) -> (booksAdded: Int, sourcesAdded: Int, bookmarksAdded: Int, rulesAdded: Int) {
         var booksCount = 0
         var sourcesCount = 0
+        var bookmarksCount = 0
+        var rulesCount = 0
 
-        if let newBooks = books {
+        if let newBooks = payload.books {
             for var b in newBooks {
                 // Normalize legacy xkvi URLs to novelia.cc directly at data level
                 if b.origin.contains("book.xkvi.top") {
@@ -267,7 +287,6 @@ public class BookStore: ObservableObject {
                 }
 
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
-                    // Update metadata and reading progress
                     bookshelf[idx] = b
                 } else {
                     bookshelf.append(b)
@@ -277,9 +296,8 @@ public class BookStore: ObservableObject {
             saveBookshelf()
         }
 
-        if let newSources = sources {
+        if let newSources = payload.sources {
             for s in newSources {
-                // Do not re-add old xkvi source
                 if s.bookSourceUrl.contains("book.xkvi.top") {
                     continue
                 }
@@ -293,7 +311,99 @@ public class BookStore: ObservableObject {
             saveSources()
         }
 
-        return (booksCount, sourcesCount)
+        if let newBookmarks = payload.bookmarks, !newBookmarks.isEmpty {
+            let before = bookmarks.count
+            var map = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.time, $0) })
+            for bm in newBookmarks {
+                map[bm.time] = bm
+            }
+            bookmarks = BookmarkStore.sorted(Array(map.values))
+            bookmarksCount = max(0, bookmarks.count - before)
+            saveBookmarks()
+        }
+
+        if let newRules = payload.replaceRules, !newRules.isEmpty {
+            let before = replaceRules.count
+            for r in newRules {
+                if let idx = replaceRules.firstIndex(where: { $0.id == r.id || ($0.name == r.name && $0.pattern == r.pattern) }) {
+                    replaceRules[idx] = r
+                } else {
+                    replaceRules.append(r)
+                }
+            }
+            rulesCount = max(0, replaceRules.count - before)
+            saveReplaceRules()
+        }
+
+        if let newHistory = payload.searchHistory, !newHistory.isEmpty {
+            var merged = searchHistory
+            for kw in newHistory {
+                if let idx = merged.firstIndex(where: { $0.word == kw.word }) {
+                    merged[idx].usage = max(merged[idx].usage, kw.usage)
+                    merged[idx].lastUseTime = max(merged[idx].lastUseTime, kw.lastUseTime)
+                } else {
+                    merged.append(kw)
+                }
+            }
+            searchHistory = merged
+            saveSearchHistory()
+        }
+        if let style = payload.readConfig {
+            ReaderStore.save(style)
+        }
+
+        if let newTxtRules = payload.txtTocRules, !newTxtRules.isEmpty {
+            let currentRules = TxtTocRuleStore.load()
+            var merged = currentRules
+            for r in newTxtRules {
+                if let idx = merged.firstIndex(where: { $0.id == r.id || $0.name == r.name }) {
+                    merged[idx] = r
+                } else {
+                    merged.append(r)
+                }
+            }
+            TxtTocRuleStore.save(merged)
+        }
+
+        if let newRecords = payload.readRecords, !newRecords.isEmpty {
+            let currentRecords = ReadRecordStore.load()
+            var merged = currentRecords
+            for rec in newRecords {
+                if let idx = merged.firstIndex(where: { $0.bookName == rec.bookName }) {
+                    merged[idx].readTime = max(merged[idx].readTime, rec.readTime)
+                    merged[idx].lastRead = max(merged[idx].lastRead, rec.lastRead)
+                } else {
+                    merged.append(rec)
+                }
+            }
+            ReadRecordStore.save(merged)
+        }
+
+        if let newRssSources = payload.rssSources, !newRssSources.isEmpty {
+            let current = RssStore.loadSources()
+            var merged = current
+            for s in newRssSources {
+                if let idx = merged.firstIndex(where: { $0.sourceUrl == s.sourceUrl }) {
+                    merged[idx] = s
+                } else {
+                    merged.append(s)
+                }
+            }
+            RssStore.saveSources(merged)
+        }
+
+        if let newRssStars = payload.rssStars, !newRssStars.isEmpty {
+            let current = RssStore.loadStars()
+            var merged = current
+            for star in newRssStars {
+                if !merged.contains(where: { $0.link == star.link }) {
+                    merged.append(star)
+                }
+            }
+            RssStore.saveStars(merged)
+        }
+
+        return (booksCount, sourcesCount, bookmarksCount, rulesCount)
     }
 
     // MARK: - Book Management
@@ -341,6 +451,51 @@ public class BookStore: ObservableObject {
     public func removeBook(bookUrl: String) {
         bookshelf.removeAll { $0.bookUrl == bookUrl }
         saveBookshelf()
+    }
+
+    public func removeBooks(bookUrls: Set<String>) {
+        guard !bookUrls.isEmpty else { return }
+        for url in bookUrls {
+            BookContentService.shared.clearCache(for: url)
+        }
+        bookshelf.removeAll { bookUrls.contains($0.bookUrl) }
+        saveBookshelf()
+    }
+
+    public func pinBook(bookUrl: String) {
+        guard let index = bookshelf.firstIndex(where: { $0.bookUrl == bookUrl }) else { return }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        var item = bookshelf.remove(at: index)
+        item.durChapterTime = now
+        item.lastCheckTime = now
+        bookshelf.insert(item, at: 0)
+        saveBookshelf()
+    }
+
+    public func moveBooks(bookUrls: Set<String>, toGroupId groupId: Int64) {
+        guard !bookUrls.isEmpty else { return }
+        for i in 0..<bookshelf.count where bookUrls.contains(bookshelf[i].bookUrl) {
+            bookshelf[i].group = groupId
+        }
+        saveBookshelf()
+    }
+
+    @discardableResult
+    public func updateBookMetadata(bookUrl: String, name: String, author: String, coverUrl: String?, intro: String?) -> Book? {
+        guard let index = bookshelf.firstIndex(where: { $0.bookUrl == bookUrl }) else { return nil }
+        var updated = bookshelf[index]
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty { updated.name = trimmedName }
+        if !trimmedAuthor.isEmpty { updated.author = trimmedAuthor }
+        updated.customCoverUrl = coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let custom = updated.customCoverUrl, !custom.isEmpty {
+            updated.coverUrl = custom
+        }
+        updated.intro = intro?.trimmingCharacters(in: .whitespacesAndNewlines)
+        bookshelf[index] = updated
+        saveBookshelf()
+        return updated
     }
 
     // MARK: - 换源
@@ -485,14 +640,65 @@ public class BookStore: ObservableObject {
         }
     }
 
+    public func toggleSourceExplore(sourceUrl: String) {
+        if let idx = sources.firstIndex(where: { $0.bookSourceUrl == sourceUrl }) {
+            var s = sources[idx]
+            s.enabledExplore = !(s.enabledExplore ?? true)
+            sources[idx] = s
+            saveSources()
+        }
+    }
+
     public func deleteSource(sourceUrl: String) {
         sources.removeAll { $0.bookSourceUrl == sourceUrl }
         saveSources()
     }
 
+    public func setSourcesEnabled(urls: Set<String>, enabled: Bool) {
+        guard !urls.isEmpty else { return }
+        for i in 0..<sources.count where urls.contains(sources[i].bookSourceUrl) {
+            sources[i].enabled = enabled
+        }
+        saveSources()
+    }
+
+    public func deleteSources(urls: Set<String>) {
+        guard !urls.isEmpty else { return }
+        sources.removeAll { urls.contains($0.bookSourceUrl) }
+        saveSources()
+    }
+
+    public func exportSourcesJSON(urls: Set<String>? = nil) -> String? {
+        let target: [BookSource]
+        if let urls = urls, !urls.isEmpty {
+            target = sources.filter { urls.contains($0.bookSourceUrl) }
+        } else {
+            target = sources
+        }
+        guard !target.isEmpty else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted]
+        guard let data = try? encoder.encode(target) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Updates a source's validation outcome: records `respondTime` and adds/removes the 「失效」 group tag.
+    public func markSourceValidationResult(sourceUrl: String, passed: Bool, respondTimeMs: Int64) {
+        guard let idx = sources.firstIndex(where: { $0.bookSourceUrl == sourceUrl }) else { return }
+        var s = sources[idx]
+        s.respondTime = respondTimeMs
+        var currentGroups = s.groups.filter { $0 != "失效" }
+        if !passed {
+            currentGroups.insert("失效", at: 0)
+        }
+        s.bookSourceGroup = currentGroups.isEmpty ? nil : currentGroups.joined(separator: ",")
+        sources[idx] = s
+        saveSources()
+    }
+
     /// Robustly resolves the BookSource corresponding to a Book using URL, Name, Domain, or Aliases
     public func findSource(for book: Book) -> BookSource? {
-        if book.origin == "local" || book.bookUrl.hasPrefix("file://") || book.bookUrl.hasPrefix("epub://") || book.bookUrl.hasPrefix("txt://") {
+        if book.isLocalBook {
             return nil
         }
 
@@ -734,7 +940,7 @@ public class BookStore: ObservableObject {
         return parsed.book
     }
 
-    public func importTxt(from fileUrl: URL) throws -> Book {
+    public func importTxt(from fileUrl: URL, customRulePattern: String? = nil) throws -> Book {
         guard let data = try? Data(contentsOf: fileUrl) else {
             throw NSError(domain: "BookStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法读取TXT文件内容"])
         }
@@ -748,11 +954,36 @@ public class BookStore: ObservableObject {
         let txtBookDir = docsDir.appendingPathComponent("Books/TXT/\(bookId)")
         try? FileManager.default.createDirectory(at: txtBookDir, withIntermediateDirectories: true)
 
-        let pattern = "(?m)^\\s*(第[0-9一二三四五六七八九十百千]+[章回节卷].*)$"
-        let regex = try? NSRegularExpression(pattern: pattern)
         let nsString = content as NSString
-        let matches = regex?.matches(in: content, range: NSRange(location: 0, length: nsString.length)) ?? []
+        var matches: [NSTextCheckingResult] = []
 
+        if let custom = customRulePattern, !custom.isEmpty {
+            if let regex = try? NSRegularExpression(pattern: custom, options: [.anchorsMatchLines]) {
+                matches = regex.matches(in: content, range: NSRange(location: 0, length: nsString.length))
+            }
+        }
+
+        if matches.isEmpty {
+            // Try all enabled rules in TxtTocRuleStore in order
+            let enabledRules = TxtTocRuleStore.load().filter { $0.enable }
+            for r in enabledRules {
+                if let regex = try? NSRegularExpression(pattern: r.rule, options: [.anchorsMatchLines]) {
+                    let candidateMatches = regex.matches(in: content, range: NSRange(location: 0, length: nsString.length))
+                    if candidateMatches.count > 1 {
+                        matches = candidateMatches
+                        break
+                    }
+                }
+            }
+        }
+
+        if matches.isEmpty {
+            // Fallback default
+            let defaultPattern = "^[\\s\\t]*(第[0-9一二三四五六七八九十百千]+[章回节卷].*)$"
+            if let regex = try? NSRegularExpression(pattern: defaultPattern, options: [.anchorsMatchLines]) {
+                matches = regex.matches(in: content, range: NSRange(location: 0, length: nsString.length))
+            }
+        }
         var chapters: [BookChapter] = []
 
         if matches.isEmpty {

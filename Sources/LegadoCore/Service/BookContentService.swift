@@ -583,6 +583,48 @@ public class BookContentService {
         return files.filter { $0.hasSuffix(".txt") }.count
     }
 
+    /// Downloads chapter text for a specified range [startIndex...endIndex] with cancellation and progress reporting.
+    /// Matches Android Legado `CacheBook.kt` / `CacheBookService.kt`.
+    public func downloadChaptersRange(
+        book: Book,
+        chapters: [BookChapter],
+        source: BookSource?,
+        startIndex: Int,
+        endIndex: Int,
+        onProgress: @escaping (Int, Int) -> Void
+    ) async -> (successCount: Int, skippedCount: Int, failedCount: Int) {
+        guard !chapters.isEmpty, startIndex <= endIndex else { return (0, 0, 0) }
+        let start = max(0, min(startIndex, chapters.count - 1))
+        let end = max(start, min(endIndex, chapters.count - 1))
+        let total = end - start + 1
+
+        var success = 0
+        var skipped = 0
+        var failed = 0
+
+        for (offset, i) in (start...end).enumerated() {
+            if Task.isCancelled { break }
+            let ch = chapters[i]
+            if hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
+                skipped += 1
+                onProgress(offset + 1, total)
+                continue
+            }
+
+            do {
+                let nextUrl = nextChapterUrl(after: i, in: chapters)
+                _ = try await fetchChapterContent(chapter: ch, source: source, nextChapterUrl: nextUrl)
+                success += 1
+            } catch {
+                failed += 1
+            }
+            onProgress(offset + 1, total)
+            try? await Task.sleep(nanoseconds: 60_000_000) // 60ms friendly cadence
+        }
+
+        return (success, skipped, failed)
+    }
+
     /// Sanitizes HTML text, converting <img> to [image:url], <p> and <br> to paragraphs, and stripping other tags
     public static func cleanHtml(_ raw: String, baseUrl: String? = nil) -> String {
         var text = raw

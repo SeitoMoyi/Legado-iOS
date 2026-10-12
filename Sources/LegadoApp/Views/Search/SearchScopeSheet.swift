@@ -78,7 +78,7 @@ struct SearchScopeSheet: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(source.bookSourceName)
                                             .foregroundColor(.primary)
-                                        if let group = source.bookSourceGroup, !group.isEmpty {
+                                        if let group = source.displayGroup, !group.isEmpty {
                                             Text(group)
                                                 .font(.caption)
                                                 .foregroundColor(.secondary)

@@ -38,6 +38,8 @@ struct ReadAloudPanel: View {
 
                 rateRow
 
+                engineRow
+
                 HStack(spacing: 10) {
                     chip("目录", systemImage: "list.bullet", action: onOpenToc)
                     chip("主菜单", systemImage: "book", action: onMainMenu)
@@ -121,6 +123,20 @@ struct ReadAloudPanel: View {
                                   ? Color.accentColor.opacity(0.18)
                                   : config.theme.textColor.opacity(0.06))
                     )
+                }
+            }
+        }
+    }
+
+    private var engineRow: some View {
+        let engines = HttpTTSStore.load().filter { $0.enabled }
+        return ReaderPanelMenuRow(title: "引擎", config: config, current: audio.selectedEngineName) {
+            ForEach(engines) { e in
+                Button(e.name) {
+                    audio.selectedEngineName = e.name
+                    if audio.isPlaying {
+                        audio.speakParagraph(at: audio.currentIndex)
+                    }
                 }
             }
         }

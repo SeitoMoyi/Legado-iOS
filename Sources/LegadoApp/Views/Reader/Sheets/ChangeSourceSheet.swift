@@ -116,7 +116,7 @@ struct ChangeSourceSheet: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                if let group = candidate.source.bookSourceGroup, !group.isEmpty {
+                if let group = candidate.source.displayGroup, !group.isEmpty {
                     Text(group)
                         .font(.caption2)
                         .foregroundColor(.secondary)

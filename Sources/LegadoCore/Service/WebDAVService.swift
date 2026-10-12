@@ -291,10 +291,60 @@ public class WebDAVService {
         }
     }
 
-    /// Creates an Android-compatible backup ZIP archive containing bookshelf.json and bookSource.json
+    /// Full payload restored from an Android/iOS Legado backup archive.
+    public struct BackupRestorePayload {
+        public var books: [Book]?
+        public var sources: [BookSource]?
+        public var bookmarks: [Bookmark]?
+        public var replaceRules: [ReplaceRule]?
+        public var searchHistory: [SearchKeyword]?
+        public var readConfig: ReadStyleConfig?
+        public var txtTocRules: [TxtTocRule]?
+        public var readRecords: [ReadRecord]?
+        public var rssSources: [RssSource]?
+        public var rssStars: [RssStar]?
+        public var backupName: String?
+
+        public init(
+            books: [Book]? = nil,
+            sources: [BookSource]? = nil,
+            bookmarks: [Bookmark]? = nil,
+            replaceRules: [ReplaceRule]? = nil,
+            searchHistory: [SearchKeyword]? = nil,
+            readConfig: ReadStyleConfig? = nil,
+            txtTocRules: [TxtTocRule]? = nil,
+            readRecords: [ReadRecord]? = nil,
+            rssSources: [RssSource]? = nil,
+            rssStars: [RssStar]? = nil,
+            backupName: String? = nil
+        ) {
+            self.books = books
+            self.sources = sources
+            self.bookmarks = bookmarks
+            self.replaceRules = replaceRules
+            self.searchHistory = searchHistory
+            self.readConfig = readConfig
+            self.txtTocRules = txtTocRules
+            self.readRecords = readRecords
+            self.rssSources = rssSources
+            self.rssStars = rssStars
+            self.backupName = backupName
+        }
+    }
+
+    /// Creates an Android-compatible backup ZIP archive containing bookshelf.json, bookSource.json,
+    /// bookmark.json, replaceRule.json, searchHistory.json, and readConfig.json.
     public func createBackupZip(
         books: [Book],
         sources: [BookSource],
+        bookmarks: [Bookmark]? = nil,
+        replaceRules: [ReplaceRule]? = nil,
+        searchHistory: [SearchKeyword]? = nil,
+        readConfig: ReadStyleConfig? = nil,
+        txtTocRules: [TxtTocRule]? = nil,
+        readRecords: [ReadRecord]? = nil,
+        rssSources: [RssSource]? = nil,
+        rssStars: [RssStar]? = nil,
         deviceName: String = WebDAVConfig.defaultDeviceName,
         date: Date = Date()
     ) throws -> (data: Data, fileName: String) {
@@ -308,28 +358,78 @@ public class WebDAVService {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
 
-        let booksData = try encoder.encode(books)
-        let sourcesData = try encoder.encode(sources)
+        var entryNames: [String] = []
 
-        let booksFile = tempDir.appendingPathComponent("bookshelf.json")
-        let sourcesFile = tempDir.appendingPathComponent("bookSource.json")
+        func writeEntry<T: Encodable>(_ value: T, name: String) throws {
+            let data = try encoder.encode(value)
+            let fileURL = tempDir.appendingPathComponent(name)
+            try data.write(to: fileURL)
+            entryNames.append(name)
+        }
 
-        try booksData.write(to: booksFile)
-        try sourcesData.write(to: sourcesFile)
+        try writeEntry(books, name: "bookshelf.json")
+        try writeEntry(sources, name: "bookSource.json")
+
+        let resolvedBookmarks = bookmarks ?? BookmarkStore.load()
+        if !resolvedBookmarks.isEmpty {
+            try writeEntry(resolvedBookmarks, name: "bookmark.json")
+        }
+
+        let resolvedRules = replaceRules ?? ReplaceRuleStore.load()
+        if !resolvedRules.isEmpty {
+            try writeEntry(resolvedRules, name: "replaceRule.json")
+        }
+
+        let resolvedHistory = searchHistory ?? SearchHistoryStore.load()
+        if !resolvedHistory.isEmpty {
+            try writeEntry(resolvedHistory, name: "searchHistory.json")
+        }
+        if let style = readConfig ?? ReaderStore.loadStyle() {
+            try writeEntry(style, name: "readConfig.json")
+        }
+
+        let resolvedTxtRules = txtTocRules ?? TxtTocRuleStore.load()
+        if !resolvedTxtRules.isEmpty {
+            try writeEntry(resolvedTxtRules, name: "txtTocRule.json")
+        }
+
+        let resolvedRecords = readRecords ?? ReadRecordStore.load()
+        if !resolvedRecords.isEmpty {
+            try writeEntry(resolvedRecords, name: "readRecord.json")
+        }
+
+        let resolvedRssSources = rssSources ?? RssStore.loadSources()
+        if !resolvedRssSources.isEmpty {
+            try writeEntry(resolvedRssSources, name: "rssSources.json")
+        }
+
+        let resolvedRssStars = rssStars ?? RssStore.loadStars()
+        if !resolvedRssStars.isEmpty {
+            try writeEntry(resolvedRssStars, name: "rssStar.json")
+        }
 
         let zipFile = tempDir.appendingPathComponent(fileName)
         try {
             let archive = try Archive(url: zipFile, accessMode: .create)
-            try archive.addEntry(with: "bookshelf.json", relativeTo: tempDir, compressionMethod: .deflate)
-            try archive.addEntry(with: "bookSource.json", relativeTo: tempDir, compressionMethod: .deflate)
+            for name in entryNames {
+                try archive.addEntry(with: name, relativeTo: tempDir, compressionMethod: .deflate)
+            }
         }()
 
         let zipData = try Data(contentsOf: zipFile)
         return (zipData, fileName)
     }
 
-    /// Backs up bookshelf and sources to WebDAV server in Android Legado format (backupYYYY-MM-DD-deviceName.zip)
-    public func backup(books: [Book], sources: [BookSource], config: WebDAVConfig) async throws -> (booksCount: Int, sourcesCount: Int, backupFileName: String) {
+    /// Backs up bookshelf, sources, bookmarks, replace rules, search history, and read config to WebDAV server
+    public func backup(
+        books: [Book],
+        sources: [BookSource],
+        bookmarks: [Bookmark]? = nil,
+        replaceRules: [ReplaceRule]? = nil,
+        searchHistory: [SearchKeyword]? = nil,
+        readConfig: ReadStyleConfig? = nil,
+        config: WebDAVConfig
+    ) async throws -> (booksCount: Int, sourcesCount: Int, backupFileName: String) {
         guard let dirUrl = config.directoryURL else {
             throw WebDAVError.invalidURL
         }
@@ -341,7 +441,15 @@ public class WebDAVService {
         encoder.outputFormatting = [.prettyPrinted]
 
         // 1. Create and upload Android Legado compatible ZIP archive: backupYYYY-MM-DD-deviceName.zip
-        let (zipData, zipFileName) = try createBackupZip(books: books, sources: sources, deviceName: config.deviceName)
+        let (zipData, zipFileName) = try createBackupZip(
+            books: books,
+            sources: sources,
+            bookmarks: bookmarks,
+            replaceRules: replaceRules,
+            searchHistory: searchHistory,
+            readConfig: readConfig,
+            deviceName: config.deviceName
+        )
         let zipUrl = dirUrl.appendingPathComponent(zipFileName)
         let zipReq = makeRequest(url: zipUrl, method: "PUT", config: config, body: zipData, contentType: "application/zip")
         let (_, zipResponse) = try await session.data(for: zipReq)
@@ -365,10 +473,6 @@ public class WebDAVService {
         let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
         let sourcesReq = makeRequest(url: sourcesUrl, method: "PUT", config: config, body: sourcesData, contentType: "application/json; charset=utf-8")
         _ = try? await session.data(for: sourcesReq)
-
-        // Note: We do NOT perform 40+ sequential blocking HTTP PUT requests to bookProgress/ here!
-        // All books' durChapterIndex & durChapterPos are already completely preserved inside bookshelf.json in the zip archive.
-        // Individual bookProgress/ files are automatically synced on demand when reading.
 
         // Update last sync time
         var updatedConfig = config
@@ -477,13 +581,17 @@ public class WebDAVService {
 
     /// Restores bookshelf and sources from WebDAV server (supports both Android backup*.zip and direct JSON files)
     public func restore(config: WebDAVConfig, backupFileName: String? = nil) async throws -> (books: [Book]?, sources: [BookSource]?, backupName: String?) {
+        let payload = try await restorePayload(config: config, backupFileName: backupFileName)
+        return (payload.books, payload.sources, payload.backupName)
+    }
+
+    /// Restores the full `BackupRestorePayload` (books, sources, bookmarks, replaceRules, searchHistory, readConfig) from WebDAV.
+    public func restorePayload(config: WebDAVConfig, backupFileName: String? = nil) async throws -> BackupRestorePayload {
         guard let dirUrl = config.directoryURL else {
             throw WebDAVError.invalidURL
         }
 
-        var restoredBooks: [Book]? = nil
-        var restoredSources: [BookSource]? = nil
-        var usedBackupName: String? = nil
+        var payload = BackupRestorePayload()
 
         // 1. Try finding and downloading Android-compatible backup*.zip files first
         if let remoteBackups = try? await listRemoteBackups(config: config), !remoteBackups.isEmpty {
@@ -496,16 +604,15 @@ public class WebDAVService {
 
             let zipReq = makeRequest(url: targetBackup.url, method: "GET", config: config)
             if let (zipData, zipResp) = try? await session.data(for: zipReq),
-               let httpZip = zipResp as? HTTPURLResponse, (200...299).contains(httpZip.statusCode) {
-                let zipResult = try? restoreFromZip(data: zipData)
-                restoredBooks = zipResult?.books
-                restoredSources = zipResult?.sources
-                usedBackupName = targetBackup.fileName
+               let httpZip = zipResp as? HTTPURLResponse, (200...299).contains(httpZip.statusCode),
+               let zipPayload = try? restorePayloadFromZip(data: zipData) {
+                payload = zipPayload
+                payload.backupName = targetBackup.fileName
             }
         }
 
         // 2. If no zip was restored, try loose bookshelf.json and bookSource.json
-        if restoredBooks == nil {
+        if payload.books == nil {
             let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
             let booksReq = makeRequest(url: booksUrl, method: "GET", config: config)
             if let (booksData, booksResponse) = try? await session.data(for: booksReq),
@@ -515,14 +622,14 @@ public class WebDAVService {
                 }
                 if (200...299).contains(httpBooks.statusCode) {
                     if let decodedBooks = try? JSONDecoder().decode([Book].self, from: booksData) {
-                        restoredBooks = decodedBooks
-                        if usedBackupName == nil { usedBackupName = "bookshelf.json" }
+                        payload.books = decodedBooks
+                        if payload.backupName == nil { payload.backupName = "bookshelf.json" }
                     }
                 }
             }
         }
 
-        if restoredSources == nil {
+        if payload.sources == nil {
             let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
             let sourcesReq = makeRequest(url: sourcesUrl, method: "GET", config: config)
             if let (sourcesData, sourcesResponse) = try? await session.data(for: sourcesReq),
@@ -532,14 +639,14 @@ public class WebDAVService {
                 }
                 if (200...299).contains(httpSources.statusCode) {
                     if let decodedSources = try? JSONDecoder().decode([BookSource].self, from: sourcesData) {
-                        restoredSources = decodedSources
+                        payload.sources = decodedSources
                     }
                 }
             }
         }
 
         // 3. Sync any latest progress from remote bookProgress/ folder using single PROPFIND + concurrent batch fetch
-        if var books = restoredBooks {
+        if var books = payload.books {
             let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
             var propReq = makeRequest(url: progressDirUrl, method: "PROPFIND", config: config)
             propReq.setValue("1", forHTTPHeaderField: "Depth")
@@ -603,14 +710,14 @@ public class WebDAVService {
                                     }
                                 }
                             }
-                            restoredBooks = books
+                            payload.books = books
                         }
                     }
                 }
             }
         }
 
-        if restoredBooks == nil && restoredSources == nil {
+        if payload.books == nil && payload.sources == nil && payload.bookmarks == nil && payload.replaceRules == nil {
             throw WebDAVError.backupNotFound
         }
 
@@ -619,25 +726,37 @@ public class WebDAVService {
         updatedConfig.lastSyncTime = Date()
         saveConfig(updatedConfig)
 
-        return (restoredBooks, restoredSources, usedBackupName)
+        return payload
     }
 
     // MARK: - Zip Archive Restoration (Android Legado Compatible)
 
     /// Restores books and sources from a ZIP archive data (e.g. backup*.zip)
     public func restoreFromZip(data: Data) throws -> (books: [Book]?, sources: [BookSource]?) {
+        let p = try restorePayloadFromZip(data: data)
+        return (p.books, p.sources)
+    }
+
+    /// Restores full payload from a ZIP archive data (e.g. backup*.zip)
+    public func restorePayloadFromZip(data: Data) throws -> BackupRestorePayload {
         guard let archive = try? Archive(data: data, accessMode: .read, pathEncoding: nil) else {
             throw WebDAVError.decodingFailed("无法解析 Zip 压缩包数据")
         }
-        return try parseArchive(archive)
+        return try parseArchivePayload(archive)
     }
 
     /// Restores books and sources from a local ZIP file URL, and merges adjacent bookProgress if found
     public func restoreFromZip(fileUrl: URL) throws -> (books: [Book]?, sources: [BookSource]?) {
+        let p = try restorePayloadFromZip(fileUrl: fileUrl)
+        return (p.books, p.sources)
+    }
+
+    /// Restores full payload from a local ZIP file URL, and merges adjacent bookProgress if found
+    public func restorePayloadFromZip(fileUrl: URL) throws -> BackupRestorePayload {
         guard let archive = try? Archive(url: fileUrl, accessMode: .read, pathEncoding: nil) else {
             throw WebDAVError.decodingFailed("无法读取 Zip 备份文件: \(fileUrl.lastPathComponent)")
         }
-        var result = try parseArchive(archive)
+        var result = try parseArchivePayload(archive)
 
         // Also check if an adjacent bookProgress directory exists (e.g. in user's Downloads directory)
         let parentDir = fileUrl.deletingLastPathComponent()
@@ -655,32 +774,90 @@ public class WebDAVService {
 
     /// Parses bookshelf.json, bookSource.json, and internal bookProgress from a ZIP archive
     public func parseArchive(_ archive: Archive) throws -> (books: [Book]?, sources: [BookSource]?) {
-        var restoredBooks: [Book]? = nil
-        var restoredSources: [BookSource]? = nil
+        let p = try parseArchivePayload(archive)
+        return (p.books, p.sources)
+    }
 
-        // 1. Locate and extract bookshelf.json
-        if let entry = archive["bookshelf.json"] ?? archive.first(where: { $0.path.hasSuffix("bookshelf.json") }) {
+    /// Parses all supported Legado JSON members (bookshelf, bookSource, bookmark, replaceRule, searchHistory, readConfig, bookProgress) from a ZIP archive
+    public func parseArchivePayload(_ archive: Archive) throws -> BackupRestorePayload {
+        var payload = BackupRestorePayload()
+
+        func extractData(named fileName: String) -> Data? {
+            guard let entry = archive[fileName] ?? archive.first(where: { $0.path.hasSuffix("/\(fileName)") || $0.path == fileName }) else {
+                return nil
+            }
             var data = Data()
-            _ = try archive.extract(entry) { chunk in
+            _ = try? archive.extract(entry) { chunk in
                 data.append(chunk)
             }
-            if let decoded = try? JSONDecoder().decode([Book].self, from: data) {
-                restoredBooks = decoded
+            return data.isEmpty ? nil : data
+        }
+
+        // 1. bookshelf.json
+        if let data = extractData(named: "bookshelf.json"),
+           let decoded = try? JSONDecoder().decode([Book].self, from: data) {
+            payload.books = decoded
+        }
+
+        // 2. bookSource.json
+        if let data = extractData(named: "bookSource.json"),
+           let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
+            payload.sources = decoded
+        }
+
+        // 3. bookmark.json
+        if let data = extractData(named: "bookmark.json"),
+           let decoded = TolerantJSON.decodeList(Bookmark.self, from: data, fallback: Bookmark(bookName: "")) {
+            payload.bookmarks = decoded
+        }
+
+        // 4. replaceRule.json
+        if let data = extractData(named: "replaceRule.json"),
+           let decoded = TolerantJSON.decodeList(ReplaceRule.self, from: data, fallback: ReplaceRule()) {
+            payload.replaceRules = decoded
+        }
+
+        // 5. searchHistory.json
+        if let data = extractData(named: "searchHistory.json"),
+           let decoded = TolerantJSON.decodeList(SearchKeyword.self, from: data, fallback: SearchKeyword(word: "")) {
+            payload.searchHistory = decoded
+        }
+
+        // 6. readConfig.json
+        if let data = extractData(named: "readConfig.json") {
+            if let single = TolerantJSON.decode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()) {
+                payload.readConfig = single
+            } else if let list = TolerantJSON.decodeList(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()),
+                      let first = list.first {
+                payload.readConfig = first
             }
         }
 
-        // 2. Locate and extract bookSource.json
-        if let entry = archive["bookSource.json"] ?? archive.first(where: { $0.path.hasSuffix("bookSource.json") }) {
-            var data = Data()
-            _ = try archive.extract(entry) { chunk in
-                data.append(chunk)
-            }
-            if let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
-                restoredSources = decoded
-            }
+        // 7. txtTocRule.json
+        if let data = extractData(named: "txtTocRule.json"),
+           let decoded = TolerantJSON.decodeList(TxtTocRule.self, from: data, fallback: TxtTocRule()) {
+            payload.txtTocRules = decoded
         }
 
-        // 3. Extract any internal bookProgress/*.json
+        // 8. readRecord.json
+        if let data = extractData(named: "readRecord.json"),
+           let decoded = TolerantJSON.decodeList(ReadRecord.self, from: data, fallback: ReadRecord()) {
+            payload.readRecords = decoded
+        }
+
+        // 9. rssSources.json
+        if let data = extractData(named: "rssSources.json"),
+           let decoded = TolerantJSON.decodeList(RssSource.self, from: data, fallback: RssSource()) {
+            payload.rssSources = decoded
+        }
+
+        // 10. rssStar.json
+        if let data = extractData(named: "rssStar.json"),
+           let decoded = TolerantJSON.decodeList(RssStar.self, from: data, fallback: RssStar()) {
+            payload.rssStars = decoded
+        }
+
+        // 11. Extract any internal bookProgress/*.json
         var progressMap: [String: BookProgress] = [:]
         for entry in archive {
             let path = entry.path
@@ -697,7 +874,7 @@ public class WebDAVService {
         }
 
         // Apply progress updates to books
-        if var books = restoredBooks, !progressMap.isEmpty {
+        if var books = payload.books, !progressMap.isEmpty {
             for i in 0..<books.count {
                 let key = "\(books[i].name)_\(books[i].author)"
                 if let prog = progressMap[key] {
@@ -714,14 +891,14 @@ public class WebDAVService {
                     }
                 }
             }
-            restoredBooks = books
+            payload.books = books
         }
 
-        if restoredBooks == nil && restoredSources == nil {
+        if payload.books == nil && payload.sources == nil && payload.bookmarks == nil && payload.replaceRules == nil && payload.searchHistory == nil && payload.readConfig == nil && payload.txtTocRules == nil && payload.readRecords == nil {
             throw WebDAVError.backupNotFound
         }
 
-        return (restoredBooks, restoredSources)
+        return payload
     }
 
     /// Reads an external bookProgress directory and updates reading progress for matching books

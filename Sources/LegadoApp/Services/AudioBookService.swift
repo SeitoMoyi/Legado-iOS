@@ -21,18 +21,18 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
     public static let shared = AudioBookService()
 
     private let synthesizer = AVSpeechSynthesizer()
+    private var audioPlayer: AVPlayer?
+    private var playerItemObserver: Any?
 
     @Published public private(set) var paragraphs: [String] = []
     @Published public private(set) var currentIndex: Int = 0
     @Published public private(set) var isPlaying: Bool = false
     @Published public private(set) var isPaused: Bool = false
+    /// Selected engine name (defaults to System)
+    @Published public var selectedEngineName: String = "系统原生 TTS (本地离线)"
     /// Chapter-relative character offset of the paragraph being spoken.
     @Published public private(set) var currentCharPos: Int = 0
     @Published public private(set) var currentParagraph: String = ""
-
-    /// Android's `ttsSpeechRate`: 0…45, where 5 renders as 1.0x.
-    ///
-    /// The `oldValue` comparisons matter: rate and pitch only apply to the *next* utterance, so
     /// a change restarts the current paragraph — and the panel writes all three values on
     /// appear, which without these guards would restart speech three times over.
     @Published public var speechRatePref: Int = 5 { didSet { if oldValue != speechRatePref { respeakCurrentParagraph() } } }
@@ -110,7 +110,17 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         paragraphStartOffset = ReadAloudText.offset(of: paragraphs, at: index)
         currentCharPos = paragraphStartOffset
 
-        let utterance = AVSpeechUtterance(string: currentParagraph)
+        let activeEngine = HttpTTSStore.load().first { $0.name == selectedEngineName && $0.enabled }
+
+        if let engine = activeEngine, !engine.url.isEmpty {
+            speakWithHttpTTS(engine: engine, text: currentParagraph)
+        } else {
+            speakWithSystemTTS(text: currentParagraph)
+        }
+    }
+
+    private func speakWithSystemTTS(text: String) {
+        let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: language)
         utterance.rate = effectiveRate
         utterance.pitchMultiplier = Float(pitch)
@@ -125,6 +135,33 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         #endif
     }
 
+    private func speakWithHttpTTS(engine: HttpTTS, text: String) {
+        let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+        let renderedUrl = engine.url.replacingOccurrences(of: "{{speakText}}", with: encodedText)
+        guard let parsed = NetworkClient.parseLegadoUrl(renderedUrl, defaultHeader: engine.header) else {
+            speakWithSystemTTS(text: text)
+            return
+        }
+
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+
+        let playerItem = AVPlayerItem(url: parsed.url)
+        audioPlayer = AVPlayer(playerItem: playerItem)
+
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: .main) { [weak self] _ in
+            guard let self = self, self.state == .speaking else { return }
+            self.step(to: self.currentIndex + 1)
+        }
+
+        audioPlayer?.play()
+        state = .speaking
+        #if os(iOS)
+        updateNowPlaying(elapsed: 0)
+        #endif
+    }
     /// Rate in `AVSpeechUtterance` terms. Android computes `(pref + 5) / 10`, and the value
     /// is clamped because 45 would otherwise ask for 5x on a system that tops out lower.
     public var effectiveRate: Float {
@@ -162,19 +199,17 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
 
     public func pause() {
         guard state == .speaking else { return }
-        if synthesizer.isSpeaking && !synthesizer.isPaused {
+        if let player = audioPlayer {
+            player.pause()
+        } else if synthesizer.isSpeaking && !synthesizer.isPaused {
             synthesizer.pauseSpeaking(at: .word)
         } else {
-            // The engine already moved past this utterance, so there is nothing to pause.
-            // Silence it and stay `.paused`: the paragraph queue survives, so 「继续」 re-reads
-            // the same paragraph from the top instead of skipping ahead.
             if synthesizer.isPaused { synthesizer.continueSpeaking() }
             if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
         }
         state = .paused
         verifyPauseLands()
     }
-
     /// `pauseSpeaking` is not guaranteed to take: a request that lands between two utterances
     /// is dropped, and if it is dropped the user hears audio with the UI claiming 「已暂停」 —
     /// which reads as a dead button. Short-circuit that by hard-stopping if the engine is still
@@ -194,14 +229,16 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         guard state == .paused else { return }
         pauseVerifyTask?.cancel()
         pauseVerifyTask = nil
-        if synthesizer.isPaused {
+        if let player = audioPlayer {
+            player.play()
+            state = .speaking
+        } else if synthesizer.isPaused {
             synthesizer.continueSpeaking()
             state = .speaking
         } else {
             speakParagraph(at: currentIndex)
         }
     }
-
     public func togglePlayPause() {
         switch state {
         case .speaking: pause()
@@ -221,11 +258,13 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         #endif
     }
 
-    /// `stopSpeaking` while paused can wedge mediaserverd, so resume first. The existing
-    /// implementation had this workaround and it still applies.
     private func stopSpeakingOnly() {
         pauseVerifyTask?.cancel()
         pauseVerifyTask = nil
+        if let player = audioPlayer {
+            player.pause()
+            audioPlayer = nil
+        }
         if synthesizer.isPaused {
             synthesizer.continueSpeaking()
         }
@@ -234,7 +273,6 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         }
         state = .stopped
     }
-
     // MARK: - Stepping
 
     public func nextParagraph() {
