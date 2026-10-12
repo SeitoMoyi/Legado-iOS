@@ -6,9 +6,31 @@ public class BookContentService {
     public init() {}
 
     /// Fetches detailed book information (author, intro, tags, word count) and TOC chapters in a unified request
+    /// A fetched table of contents plus whether it is the whole thing.
+    ///
+    /// `complete == false` means the crawl stopped at the page cap or the time budget. Callers
+    /// must not cache such a list: a half-book TOC would later be compared against as if the
+    /// book had shrunk, and 追更 would silently lose chapters.
+    public struct TocResult {
+        public let book: Book
+        public let chapters: [BookChapter]
+        public let complete: Bool
+
+        public init(book: Book, chapters: [BookChapter], complete: Bool) {
+            self.book = book
+            self.chapters = chapters
+            self.complete = complete
+        }
+    }
+
     public func fetchBookDetail(book: Book, source: BookSource) async throws -> (book: Book, chapters: [BookChapter]) {
+        let result = try await fetchBookDetailResult(book: book, source: source)
+        return (result.book, result.chapters)
+    }
+
+    public func fetchBookDetailResult(book: Book, source: BookSource) async throws -> TocResult {
         guard let tocRule = source.ruleToc else {
-            return (book, [])
+            return TocResult(book: book, chapters: [], complete: false)
         }
 
         let targetUrl = !book.tocUrl.isEmpty ? book.tocUrl : book.bookUrl
@@ -24,7 +46,7 @@ public class BookContentService {
         print("[BookDetail] 🚀 [\(source.bookSourceName)] Fetching details and TOC from: \(targetUrl)")
         guard let parsedReq = NetworkClient.parseLegadoUrl(targetUrl, defaultHeader: headerToUse, baseUrl: source.bookSourceUrl) else {
             print("[BookDetail] ❌ [\(source.bookSourceName)] Failed to parse URL: \(targetUrl)")
-            return (book, [])
+            return TocResult(book: book, chapters: [], complete: false)
         }
 
         let analyzer = try await makeAnalyzer(for: parsedReq, source: source)
@@ -33,12 +55,14 @@ public class BookContentService {
         // 1. Parse Chapters, following `nextTocUrl` when the source paginates its TOC
         var chapters = BookContentService.parseChapters(from: analyzer, tocRule: tocRule,
                                                         bookUrl: book.bookUrl, jsEngine: jsEngine)
+        var complete = true
 
         if let nextTocRule = tocRule.nextTocUrl, !nextTocRule.isEmpty {
             let extra = try await collectTocPages(
                 firstAnalyzer: analyzer, nextTocRule: nextTocRule, tocRule: tocRule,
                 bookUrl: book.bookUrl, source: source, header: headerToUse)
-            chapters.append(contentsOf: extra)
+            chapters.append(contentsOf: extra.chapters)
+            complete = extra.complete
         }
 
         chapters = BookContentService.normalizeToc(chapters, listRule: tocRule.chapterList)
@@ -119,7 +143,7 @@ public class BookContentService {
         }
 
         print("[BookDetail] ✅ [\(source.bookSourceName)] Parsed book '\(updatedBook.name)' by '\(updatedBook.author)', intro length: \(updatedBook.intro?.count ?? 0), chapters: \(chapters.count)")
-        return (updatedBook, chapters)
+        return TocResult(book: updatedBook, chapters: chapters, complete: complete)
     }
 
     /// Fetches and parses the chapter list (Table of Contents)
@@ -214,7 +238,9 @@ public class BookContentService {
         // Clean up common web garbage and sanitize HTML tags
         contentText = BookContentService.cleanHtml(contentText, baseUrl: firstPageUrl)
 
-        if !contentText.isEmpty {
+        // A truncated chapter must not be cached: the reader would keep showing the cut-off
+        // version forever, because the cache is consulted before the network.
+        if !contentText.isEmpty, collected.complete {
             saveCachedChapterContent(bookUrl: chapter.bookUrl, chapterIndex: chapter.index, content: contentText)
         }
 
@@ -238,6 +264,11 @@ public class BookContentService {
     /// the reader with no way out.
     static let maxTocPages = 200
     static let maxContentPages = 50
+    /// Wall-clock budgets that sit alongside the page caps. A page cap alone still allows 200
+    /// sequential requests on a slow source; the budget bounds the wait the reader actually
+    /// sees. Truncation is reported to the caller so nothing partial gets cached.
+    static let tocTimeBudget: TimeInterval = 120
+    static let contentTimeBudget: TimeInterval = 30
     /// Bounded fan-out for the multi-URL branch, mirroring Android's `threadCount`.
     static let maxConcurrentPages = 8
 
@@ -273,22 +304,26 @@ public class BookContentService {
     /// bounded concurrency and not recursed into — same split as Android.
     private func collectTocPages(firstAnalyzer: RuleAnalyzer, nextTocRule: String, tocRule: TocRule,
                                  bookUrl: String, source: BookSource,
-                                 header: String?) async throws -> [BookChapter] {
+                                 header: String?) async throws -> (chapters: [BookChapter], complete: Bool) {
         var collected: [BookChapter] = []
         var visited: Set<String> = [firstAnalyzer.baseUrl ?? ""]
         var pages = 0
+        let deadline = Date().addingTimeInterval(Self.tocTimeBudget)
 
         let candidates = firstAnalyzer.getStringList(nextTocRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
-        guard let first = candidates.first else { return [] }
+        guard let first = candidates.first else { return (collected, true) }
 
         if candidates.count > 1 {
             collected.append(contentsOf: await fetchChaptersConcurrently(
                 urls: candidates, tocRule: tocRule, bookUrl: bookUrl, source: source, header: header))
-            return collected
+            return (collected, true)
         }
         var pageUrl = first
 
-        while !pageUrl.isEmpty, pages < Self.maxTocPages {
+        while !pageUrl.isEmpty {
+            // Hitting a cap is a truncation; a `break` further down means the source simply
+            // had no next page, which is a complete answer.
+            if pages >= Self.maxTocPages || Date() >= deadline { return (collected, false) }
             guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
                                                             baseUrl: source.bookSourceUrl) else { break }
             let absolute = parsed.url.absoluteString
@@ -308,7 +343,7 @@ public class BookContentService {
             }
             pageUrl = nexts.first ?? ""
         }
-        return collected
+        return (collected, true)
     }
 
     private func fetchChaptersConcurrently(urls: [String], tocRule: TocRule, bookUrl: String,
@@ -363,13 +398,17 @@ public class BookContentService {
     /// Follows `nextContentUrl` to assemble a chapter split over several pages.
     private func collectContentFragments(startUrl: String, source: BookSource, contentRule: ContentRule,
                                          header: String?, nextChapterUrl: String?) async throws
-        -> (fragments: [String], firstPageUrl: String?) {
+        -> (fragments: [String], firstPageUrl: String?, complete: Bool) {
         var fragments: [String] = []
         var visited: Set<String> = []
         var pageUrl = startUrl
         var firstPageUrl: String? = nil
+        let deadline = Date().addingTimeInterval(Self.contentTimeBudget)
 
-        while !pageUrl.isEmpty, fragments.count < Self.maxContentPages {
+        while !pageUrl.isEmpty {
+            if fragments.count >= Self.maxContentPages || Date() >= deadline {
+                return (fragments, firstPageUrl, false)
+            }
             guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
                                                              baseUrl: source.bookSourceUrl) else { break }
             let absolute = parsed.url.absoluteString
@@ -395,7 +434,7 @@ public class BookContentService {
             if let stop = nextChapterUrl, stop == first { break }
             pageUrl = first
         }
-        return (fragments, firstPageUrl)
+        return (fragments, firstPageUrl, true)
     }
 
     private func fetchContentsConcurrently(urls: [String], contentRule: ContentRule,

@@ -271,9 +271,6 @@ public struct ReaderPrefs: Codable, Equatable {
     public var textBottomJustify: Bool = false
     public var noAnimScrollPage: Bool = false
 
-    public var volumeKeyPage: Bool = true
-    public var volumeKeyPageOnPlay: Bool = false
-    public var keyPageOnLongPress: Bool = false
     public var mouseWheelPage: Bool = true
     public var pageTouchSlop: Int = 0
 

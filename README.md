@@ -3,21 +3,37 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.1-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.2-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
 
 ---
 
-## ✨ v0.2.1 新增
+## ✨ v0.2.2 新增
+
+这一版按使用反馈做了三件事：**删掉两个有害功能**、**把打开书从"必联网"改成"缓存优先"**、**修掉离线卡死**。实施记录见 `plan.md` 的 §13 与「批次 P0.5」。
+
+- 🗑 **删除音量键翻页**：iOS 拦音量键只能借隐藏的 `MPVolumeView`，而它的 slider 一旦写入就**真的改系统音量** —— 实测每按一次音量被往下压一截直到 0。功能与 `volumeKeyPage` 等三个开关整体移除，改用系统手势与控制中心。
+- 🔊 **朗读悬浮控制条**：朗读期间常驻屏幕底部的 播放 / 暂停 / 结束 三键，**不随菜单与面板收起而消失**（可见性绑播放状态）。
+- 🔊 **从当前页首个字开始朗读**，不再从章节开头重读；跨章衔接时新章节从其首页开始。插图占位标记 `[image:…]` 不再被念出来。
+- 📚 **打开书籍改为缓存优先（对齐 Android）**：目录（TOC）此前**每次进阅读器都强制联网抓取**，是"打开要加载一会"的主因，也是离线打不开的原因。现在先读本地目录缓存、立即渲染，超过 10 分钟才在后台静默重爬；抓到新目录才回写缓存。抓到目录后章节正文原本就有磁盘缓存，两者合起来使**已缓存的书可以离线打开**。
+- 🧵 **追更**：读到倒数 3 章内自动后台刷新目录（Android `upToc` 的等价物）；目录有变化时用章节名相似度重定位，不会把读者甩回第一章；只有「纯追加」才保留按 index 存储的正文缓存，结构变化则清除，避免错位串章。
+- ⏱ **超时与截断保护**：请求超时从无限制的 60s 收紧到 30s；目录续页增加总时长预算（120s）与页数上限双闸。**被截断的目录或正文一律不写缓存**，避免"半本书"被当成完整缓存长期复用。
+- 🚪 **离线不再困住阅读器**：加载失败页新增「返回书架」；「重试」原来调用了一个在目录为空时直接 return 的函数（死按钮），现在会真正重走抓目录流程；失败视图也能点出菜单；错误提示补上了可操作的下一步。
+- 🛟 **章节失败不再盖住整页**：屏幕上已有可读内容时，某一章获取失败只在底部提示一次并保留当前页（Android 是当页文本渲染，不阻断阅读）。
+- ⚙️ **设置页**：删除「阅读器显示设置」块（阅读设置的唯一入口收敛到阅读页的「界面」/「更多设置」面板，避免两处各写一份而漂移）；板块顺序改为 书源管理 → 书架与存储 → 外观模式 → 数据与云备份 → 正文处理 → 关于。
+- 🧪 **测试分层**：5 个访问真实书源的用例移到 `LiveSourceTests`，主机不可达时**自动 skip 而非 fail**；CI 发布门槛改为 `swift test --skip LiveSourceTests`（196 例，确定性 191 例）。
+
+---
+
+## ✨ v0.2.1 新增（上一版）
 
 本版把阅读页与搜索页补齐到 Android 的核心交互，详见 [FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md) 与实施记录 [plan.md](plan.md)。
 
 - 🧭 **阅读页三级菜单**
   - 底部六键工具栏（目录 / 搜索 / 听书 / 净化 / 界面 / 更多）+ 顶栏溢出菜单。
   - **3×3 可自定义点击区域**，14 种动作，与 Android 同一张表；保存时强制保留一个「菜单」区，防止把自己锁死。
-  - **音量键翻页**（含「朗读时音量键翻页」「按键长按翻页」）。
   - 翻页动画 4 档：覆盖 / 滑动 / 滚动 / 无动画（仿真暂降级为滑动）。
   - 屏幕常亮档位、隐藏状态栏、文字两端对齐、首行缩进 0–4 字符、正文与页眉页脚边距。
   - 「界面」与「更多设置」统一为同一张底部卡片（屏幕下半部，条目超出可滚动），全部跟随阅读主题配色。
@@ -132,8 +148,10 @@ Legado-iOS/
    ```
 2. 运行单元测试（使用 Swift Package Manager）：
    ```bash
-   swift test
+   swift test --skip LiveSourceTests   # 只跑确定性单测，不依赖外网
+   swift test                          # 再加上打真实书源的冒烟用例
    ```
+   `LiveSourceTests` 会访问 `m.suixkan.com`、机翻机器人、`n.novelia.cc` 等真实站点，用来验证规则引擎对活站点的解析；目标站点不可达时它们**自动 skip 而不是 fail**，CI 发布门槛也不把它们算在内。
 3. 打开并运行 Xcode 工程：
    ```bash
    open Legado.xcodeproj

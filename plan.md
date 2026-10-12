@@ -75,7 +75,7 @@
 | `Views/Reader/Sheets/EffectiveReplacesSheet.swift` | 「起效的替换」 |
 | `Views/Settings/ReplaceRuleListView.swift` | 替换规则列表（含编辑 sheet） |
 | `Views/Search/SearchScopeSheet.swift` | 搜索范围选择 |
-| `Services/VolumeKeyObserver.swift` | `MPVolumeView` 音量键拦截 |
+| ~~`Services/VolumeKeyObserver.swift`~~ | 已删除：`MPVolumeView` 拦截音量键会把系统音量压到 0（见 §13） |
 
 **修改**
 
@@ -1165,7 +1165,7 @@ xcodebuild -project Legado.xcodeproj -scheme Legado \
 | 28 | 语速/音调/跟随系统语速/定时四个 `didSet` 加 `oldValue != newValue` 守卫 | 朗读面板 `onAppear` 会把四个偏好原值回写一遍，无守卫时每次都触发「重读当前段落」，一开面板就从头读，且会把刚按下的暂停顶掉 |
 | 29 | 三个底部面板（「界面」/「更多设置」/「朗读」）统一走 `ReaderPanelChrome`：`ReaderPanelCard` 一份卡片定义（沿用最初版「界面」的写法：主题底色 + 阴影 + **四角圆角** + 发丝描边 + 10/6pt 外边距）+ `ReaderPanelRow/SwitchRow/MenuRow/SliderRow/StepperRow/NavRow/Value/Header/Section` 一组行原语；统一占屏幕下 1/2（`ReaderPanelMetrics.heightFraction`）、统一可滚动 | 根因不是某处颜色写错，而是同一个卡片被抄了三遍：「更多设置」原先用 `List`（系统底色 + 系统分区头，羊皮纸/护眼主题下变成深色块），行标签一份写 0.7 透明度一份写满透明度，高度一份自适应一份 0.34/0.75。「朗读」更严重：几行标签根本没写颜色，继承系统 primary，系统深色模式 + 浅色阅读主题时是白字印在米色底上。收成一份定义后「一模一样」是结构保证 |
 | 30 | 净化按钮图标 `eraser.pen` → `wand.and.stars`，并补上「点了到底发生什么」的说明 | `eraser.pen` 不是 SF Symbol（连 `eraser` 都要 iOS 16 才有），iOS 15 上渲染为空白 —— 这就是「净化没有图标」的原因。同类无效符号一并修掉：`chevron.up.down`、`doc.badge.arrow.up`、`photo.badge.exclamationmark`。另外「净化」是 Android 内部术语，现在点按会在底栏上方浮出一句说明（含「没有任何规则」这种看起来像死按钮的情况），长按进入「净化与替换规则」面板 |
-| 16 | 音量键翻页用隐藏 `MPVolumeView` 拦截，不用 iOS 17 的 `AVAudioApplication.addInputVolumeButtonHandler` | 工程 SDK 是 Xcode 14.2 / iOS 16.2，编译期看不到 iOS 17 API，而最低部署目标锁定 iOS 15 不能抬高。副作用：物理音量键会**同时**触发系统音量 HUD（MPVolumeView 只能接管不能压制 HUD）；长按连翻靠 600 ms 前沿去抖模拟，手感与 Android 不完全一致 |
+| 16 | ~~音量键翻页用隐藏 `MPVolumeView` 拦截~~ **功能已于 v0.2.1 后整体删除** | 原方案：iOS 17 的 `AVAudioApplication.addInputVolumeButtonHandler` 在 iOS 16.2 SDK 上编不过，只能退到隐藏 `MPVolumeView` + 监听其 slider。实测致命副作用：slider 写入即**真改系统音量**，恢复基准值错位导致每按一次音量键系统音量被一路压到 0。连同 `volumeKeyPage` / `volumeKeyPageOnPlay` / `keyPageOnLongPress` 三个开关一起移除 |
 | 17 | 滚动模式的自定义点击区域只有「中央=菜单」生效，左右/上下 6 区的翻页动作被忽略 | 滚动模式没有「页」的概念，`nextPage/prevPage` 只能落到章节级；Android 在同一模式下也是把点击翻译成章节跳转，P0 先不让用户误以为九宫格全部生效 |
 | 18 | 单章换源直接按 `ChapterMatcher` 自动映射目标章节，不弹 Android 的「选择对应章节」列表 | 自动映射（比例估计 → ±10 窗口 → Jaccard 0.96 → 章节号）在单测里已达 14/14，弹列表等于把置信度问题转嫁给用户；映射错时用户仍可用目录浮窗手动跳 |
 | 19 | `readConfig.json` 用**单个** `ReadStyleConfig` 对象落盘，不还原 Android 的 `Config(name, value)` 数组 | Android 那个数组是 SharedPreferences 的镜像（一行一个 key），iOS 侧再摊平成数组只会增加一层无收益的编解码 |
@@ -1248,3 +1248,99 @@ xcodebuild -project Legado.xcodeproj -scheme Legado \
 # 第三部分：P2（待补写）
 
 范围见 `FEATURE_GAP_ANALYSIS.md` §23 P2/P3：RSS 订阅整模块、我的页 + 4 个子设置页、主题系统、阅读记录/所有书签/文件管理/关于、HttpTTS + 音频书播放页、漫画模式、词典取词、离线缓存与导出、局域网 Web 服务与外部集成（App Intents / Share Extension / URL Scheme / Widget）。
+
+
+---
+
+## 13. v0.2.2 的改动清单（v0.2.1 之后）
+
+发布后按实际使用反馈做的改动，逐条对应上面表格里的偏离号：
+
+| 改动 | 内容 | 原因 |
+|---|---|---|
+| 删除亮度调节 | `BrightnessOverlay`、顶栏亮度按钮、`.brightness` 面板态、`savedBrightnessValue`、`brightness`/`nightBrightness`/`brightnessAuto`/`brightnessVwPos`/`showBrightnessView` 五个 pref 全部移除（§10 #26） | 与系统控制中心重复；旋转 `Slider` 实现还留下一个空矩形观感像 bug |
+| 删除音量键翻页 | `VolumeKeyObserver.swift` 删除，`volumeKeyPage`/`volumeKeyPageOnPlay`/`keyPageOnLongPress` 三个 pref 与面板三行移除（§10 #16） | **实测把系统音量一路压到 0** |
+| 三个面板统一 | 新增 `ReaderPanelChrome`，「界面」/「更多设置」/「朗读」共用同一张卡片与同一组行原语，占屏幕下 1/2 且可滚动（§10 #29） | 同一卡片被抄了三遍导致大小/位置/字色三处漂移 |
+| 面板贴底修复 | `bottomAnchored` 的高度上限从整个 `VStack` 收到内容自身 | `.frame(maxHeight:)` 会居中包裹的视图，有限值的面板因此悬在屏幕中段 |
+| 朗读悬浮控制条 | `ReadAloudFloatingBar`（播放 / 暂停 / 结束），可见性绑 `audioService.isActive` 而非 `showControls`；新增 `isSwitchingChapter`，跨章取正文期间不算停止 | 朗读中不能因为菜单收起就失去停止手段，也不能在翻页瞬间闪掉 |
+| 朗读起点 | `currentAloudStartPos()`：从**当前页首个字**开始，跨章时新章从首页开始 | 原实现总是从章节开头重读 |
+| 朗读跳过图片标记 | `ReadAloudText.isSpeakable` 拒绝 `[image:…]` 整行 | 以插图开头的页会把 URL 念出来 |
+| 无效 SF Symbol 修正 | `eraser.pen`→`wand.and.stars`，另修 `chevron.up.down`、`doc.badge.arrow.up`、`photo.badge.exclamationmark`（§10 #30） | iOS 15 上渲染为空白，即「净化没有图标」 |
+| 听书暂停修复 | 播放状态改由 `AudioBookService.state` 自持，delegate 只对齐不决定，并在 pause 后 150 ms 硬停兜底（§10 #27） | `didPause` 不保证送达，按钮卡在「暂停」 |
+| 测试分层 | 5 个打真实书源的用例（`testSearchWithLiveSources` / `testJifanRobotFullFlow` / `testPaginationSearchJifanRobot` / `testFetchBookDetailAuthorAndIntro` / `testBookWithVolumeDividersChapterContiguity`）从 `LegadoCoreTests` 移到新的 `LiveSourceTests`，并在每个用例首个网络调用前插入 `requireReachable(...)`：主机不应答就 `throw XCTSkip`；CI 门槛改为 `swift test --skip LiveSourceTests` | 这些站点只是本地验证规则引擎用的，不该成为发布绊脚石；实测本机与 xcodebuild 并发时它们会超时抖动。搬迁后用 `git show HEAD` 逐字比对，除探针行外完全一致 |
+设置页调整 | 删除「阅读器显示设置」整块（正文字号 / 段落行距 / 阅读背景主题 / 排版预览）；板块顺序改为 **书源管理 → 书架与存储 → 外观模式 → 数据与云备份 → 正文处理 → 关于 Legado iOS** | 阅读类设置的唯一入口收敛到阅读页的「界面」/「更多设置」面板 —— 同一批设置在两处各写一份，正是之前「设置页改了不生效」漂移的源头 |
+版本号 | `VERSION`/`MARKETING_VERSION` → 0.2.1；设置页改读 `Bundle`；`release.yml` 的手动触发默认值置空以让位 VERSION | 设置页曾硬编码 1.0.0 |
+| 目录缓存优先（批次 P0.5 A/B/C/D）| 见本文件「批次 P0.5」章节：TOC 缓存优先 + 后台刷新 + 超时预算 + 失败非阻断 + 离线可退出 | 打开必联网、离线困死在失败页 |
+
+工具侧：`tools/xcode_add_sources.py` 增加 `--remove`，删除功能时可以把文件从工程里摘干净（本轮删 `VolumeKeyObserver.swift` 用的就是它）。
+
+---
+
+# 批次 P0.5：缓存与离线可用性（v0.2.1 之后新增）
+
+起因是实测两个问题：打开书必须联网等一会；不挂梯子时从书架进阅读器会停在「加载失败」且四周没有退出入口。调查结论（现状 + Android 对照 + 我原本方案的遗漏）：
+
+| 对象 | iOS 现状 | Android 做法 |
+|---|---|---|
+| 章节正文 | `Caches/ChapterCache/<md5(bookUrl)>/<index>.txt`，**缓存优先**，无 TTL / 无上限 | `externalFiles/book_cache/…`，同样先缓存后网络（`ReadBook.kt:566-590`） |
+| **目录 TOC** | **网络书完全不落盘**：`ReaderView.loadTOCAndStart:1432` 每次联网 `fetchChapterList`；`BookStore.getChapters/saveChapters`（`chapters_<md5>.json`，含内存层与 index 自愈）已存在，但只有 `origin == "local"` 分支读它，阅读器抓到目录后从不写 | `chapters` 表按 `bookUrl + index` 落库；`BookInfoViewModel.kt:105-113` 库里非空直接用、空才联网；`ReadBookViewModel.kt:125` 仅 `chapterSize == 0` 才抓；刷新靠手动「更新目录」+ `upToc()`（距末尾 <3 章、距上次 >10 分钟、新目录章数更多才入库） |
+| 失败呈现 | 整块画布被 `loadFailureView` 替换 → 3×3 点击区与滑动手势一起消失，只剩一个死按钮 | **没有全屏失败页**，错误经 `ReadBook.upMsg()` 当作当前页文本渲染（`TextPageFactory.kt:84-96`），书照常可翻可退 |
+| 超时 | `performOnce` 未设 `timeoutInterval` → `URLSession.shared` 默认 **60s**；目录续页最多 200 页**串行**，总时长无上限 | `HttpHelper.kt:58-61` connect 15s / read 60s / **callTimeout 60s**（单次调用封顶） |
+| 预下载 | 有 `preDownloadChapters`（前后各 10 章），但只在章节加载成功后触发，且**不缓存目录** | `preDownloadNum` 默认 10，另有区间缓存对话框 + `CacheBookService` |
+
+**我原本方案的遗漏（如实记录）**：目录持久化这件事既没写进 P0，也没写进 P1/P2 —— 只记了「缓存存净化前文本」这一条；「失败页无法退出」也没进 §24 bug 清单。区间离线缓存原本排在 P2，仍然合理（拆成 E，见 `FEATURE_GAP_ANALYSIS.md` §23 P2）。
+
+## A 止血：失败态必须能退出
+
+`ReaderView.loadFailureView`（:444-463）与它所在的 `readingCanvas`（:409-431）。
+
+1. 加「返回书架」按钮：`onDismiss?() ?? dismiss()`，与顶栏退出同一动作。
+2. `重试` 改调 **`loadTOCAndStart()`** —— 现在它调 `loadInitialChapter(at:)`，而后者首行 `guard !chapters.isEmpty` 在目录失败时直接 return，是个死按钮（:1562）。
+3. 失败视图本身铺 `.contentShape(Rectangle()).onTapGesture { toggleControls() }`，让菜单在画布被替换后仍能呼出（目前只有 26pt 高的 `fixedBottomStatusBar` 带这个手势，等于没有可发现性）。
+4. 「未找到书源」「目录为空」两类文案补上可操作提示（去书源管理 / 换源），不再只是陈述。
+
+验收：飞行模式下从书架点开任意在线书 → 能退出、重试按钮真的会重新走一遍流程。
+
+## B 目录缓存接线（根因修复，对齐 Android #1）
+
+1. `loadTOCAndStart` 改为**缓存优先**：`BookStore.shared.getChapters(for: book.bookUrl)` 非空 → 直接赋值 `chapters` 并 `loadInitialChapter`，**不再阻塞等网络**。
+2. 抓到目录后 `BookStore.shared.saveChapters(fetched, for: book.bookUrl)` 回写（复用已有的 index 自愈与内存层）。
+3. 后台静默刷新：命中缓存后立即起一个 `Task` 重新 `fetchChapterList`；成功且与缓存不同才落盘替换。节流靠新增的取回时间戳 —— 用 `UserDefaults` 里 `legado_toc_time_<md5(bookUrl)>` 存 Int64 毫秒，**不改 `chapters_*.json` 的结构**（避免老数据迁移）。阈值照抄 Android：距上次 >10 分钟。
+4. 读到末尾附近时刷新：`currentChapterIndex >= chapters.count - 3` 且时间戳过期 → 触发同一路后台刷新（Android `upToc` 的等价物）。
+5. 刷新后章数变化时**不能把用户甩回第一章**：用现成的 `ChapterMatcher.mapChapter(oldTitle → newToc)` 重定位当前章（P0-4 已实现，直接复用），并同步 `durChapterIndex`。
+6. 手动「更新目录」（顶栏溢出菜单已有）走强制刷新分支，忽略时间戳。
+7. 书架批量刷新 / 换源路径已经在调 `saveChapters`，本项不动它。
+
+测试：缓存写入/读回往返、时间戳过期判定、章数变化后按标题重定位、离线时有缓存 → 直接进阅读器不报错。
+
+## C 超时与总预算
+
+1. `NetworkClient.performOnce` 显式 `req.timeoutInterval = 30`（对齐 Android 的 connect 15s 量级并留出正文解析时间；`requestSync` 已经是 15s 的先例）。
+2. **给续页循环加总时长预算**：`collectTocPages` 与 `collectContentFragments` 目前只有页数上限（200 / 50），串行 30 页的慢源最坏可以拖 30×60s。改为「页数上限 **且** 累计耗时预算」双闸：目录 60s、正文 20s，超预算就带着已取到的部分继续（目录拿到多少用多少）。
+3. 不改 `URLSession.shared`，只在 `URLRequest` 上设超时 —— 测试是靠注入 `URLSession` 工作的，换 session 会让 `MockURLProtocol` 失效。
+
+## D 失败不再盖住整页
+
+1. **章节级**失败与**目录级**失败分开处理：目录不可用才允许出现 A 里的失败页；已有可渲染内容时，章节失败只在顶部显示提示条 + 保留当前页。
+2. 提示条复用 P0-5 那轮加的 `controlHint` 机制（`hintBubble`），文案区分「离线，显示缓存」/「本章获取失败，可下拉重试」。
+3. 正文缓存命中路径天然不联网，所以「已缓存章节离线可读」在 B 完成后自动成立；本项补的是**未缓存章节**离线时的体验。
+4. 目录来自缓存（未联网刷新）时，进入阅读器显示一次「离线 · 目录为缓存」提示，避免用户以为章节数就是最新的。
+
+## 实施时补上的两个安全阀（原方案没写，写完才想到会出事）
+
+1. **截断的目录可用但不落盘**。`collectTocPages` / `collectContentFragments` 现在返回 `complete`。
+   抓不全时（撞页数或时间上限）这一本当次照读，只是**不写缓存**；正文被截断的那一章也不写章节缓存 ——
+   否则缓存优先的策略会让用户永远看到半章，且下次「追更」会拿半本书的目录去比对。
+2. **只有「纯追加」才允许保留旧的章节缓存**。章节正文缓存的 key 是 `index`，所以目录一旦在中间插入或改名，
+   后面的 index 全部错位，缓存会把 A 章的内容当成 B 章端出来。新增 `TocCache.isAppendOnly(previous, next)`：
+   前缀逐章 `title + url` 都一致才算纯追加，否则 `chapterCache.removeAll()` + `clearCache(for:)` 并重读。
+   这是引入「后台刷新目录」之后才出现的风险，之前目录每次现抓，不存在这个错位窗口。
+
+判定与节流逻辑都抽到了 `Sources/LegadoCore/Service/TocCache.swift`（`refreshInterval` / `defaultsKey` /
+`isStale` / `isSameList` / `isAppendOnly`），因为它们是纯函数，能测 —— 时间戳存在
+`UserDefaults` 的 `legado_toc_time_<md5(bookUrl)>`，不改 `chapters_<md5>.json` 的结构，避免老数据迁移。
+`BookStore.changeSource` 写目录时同时 `markTocFetched`。
+
+## E 拆出去的部分
+
+区间离线缓存 + 后台下载（Android `menu_download` / `CacheBookService`）体量大，仍按原计划留在 P2，已在 `FEATURE_GAP_ANALYSIS.md` §23 标注。

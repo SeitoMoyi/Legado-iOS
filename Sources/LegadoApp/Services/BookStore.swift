@@ -390,6 +390,7 @@ public class BookStore: ObservableObject {
         }
         if !newChapters.isEmpty {
             saveChapters(newChapters, for: updated.bookUrl)
+            markTocFetched(bookUrl: updated.bookUrl)   // it came off the network just now
         }
         saveBookshelf()
         return updated
@@ -665,6 +666,26 @@ public class BookStore: ObservableObject {
 
     // MARK: - EPUB & Chapter Storage
     private var chaptersCache: [String: [BookChapter]] = [:]
+    /// How long a cached TOC may be trusted before something should re-crawl it. The rules live
+    /// in `TocCache` so they can be unit-tested without a reader on screen.
+    public static let tocRefreshInterval = TocCache.refreshInterval
+
+    /// When this book's TOC was last successfully crawled. Kept in `UserDefaults` rather than
+    /// inside `chapters_<md5>.json` so that file keeps the shape it always had.
+    public func tocFetchedAt(bookUrl: String) -> Date? {
+        let seconds = UserDefaults.standard.double(forKey: TocCache.defaultsKey(bookUrl: bookUrl))
+        guard seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    public func markTocFetched(bookUrl: String, at date: Date = Date()) {
+        UserDefaults.standard.set(date.timeIntervalSince1970,
+                                  forKey: TocCache.defaultsKey(bookUrl: bookUrl))
+    }
+
+    public func tocIsStale(bookUrl: String, now: Date = Date()) -> Bool {
+        TocCache.isStale(fetchedAt: tocFetchedAt(bookUrl: bookUrl), now: now)
+    }
 
     public func saveChapters(_ chapters: [BookChapter], for bookUrl: String) {
         chaptersCache[bookUrl] = chapters

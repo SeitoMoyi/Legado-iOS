@@ -26,118 +26,6 @@ public struct SettingsView: View {
     public var body: some View {
         NavigationView {
             Form {
-                // Section 0: App Appearance (Dark Mode)
-                Section(header: Text("外观模式")) {
-                    Picker("外观模式", selection: $appTheme) {
-                        Text("跟随系统").tag("system")
-                        Text("浅色模式").tag("light")
-                        Text("深色模式").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                // Section 1: Reading Display Settings
-                Section(header: Text("阅读器显示设置")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("正文字号")
-                            Spacer()
-                            Text("\(Int(readerConfig.fontSize)) pt")
-                                .foregroundColor(.secondary)
-                        }
-
-                        HStack {
-                            Text("A-")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Slider(value: $readerConfig.fontSize, in: 12...32, step: 1)
-                            Text("A+")
-                                .font(.body.bold())
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("段落行距")
-                            Spacer()
-                            Text("\(Int(readerConfig.lineSpacing)) pt")
-                                .foregroundColor(.secondary)
-                        }
-
-                        Slider(value: $readerConfig.lineSpacing, in: 4...24, step: 1)
-                    }
-                    .padding(.vertical, 4)
-
-                    Picker("阅读背景主题", selection: $readerConfig.theme) {
-                        ForEach(ReaderTheme.allCases) { theme in
-                            Text(theme.rawValue).tag(theme)
-                        }
-                    }
-
-                    // Live theme preview box
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("排版预览")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Text("这是示例文本，天地玄黄，宇宙洪荒。日月盈昃，辰宿列张。")
-                            .font(.system(size: readerConfig.fontSize))
-                            .lineSpacing(readerConfig.lineSpacing)
-                            .foregroundColor(readerConfig.theme.textColor)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(readerConfig.theme.backgroundColor)
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                            )
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                // Section 2: Bookshelf & Storage
-                Section(header: Text("书架与存储")) {
-                    HStack {
-                        Text("书架藏书")
-                        Spacer()
-                        Text("\(bookStore.bookshelf.count) 本")
-                            .foregroundColor(.secondary)
-                    }
-
-                    Button(role: .destructive) {
-                        showClearCacheAlert = true
-                    } label: {
-                        HStack {
-                            Text("清理阅读缓存")
-                            Spacer()
-                            Image(systemName: "trash")
-                                .foregroundColor(.red)
-                        }
-                    }
-                }
-
-                // Section 3: Data & Cloud Sync (WebDAV)
-                Section(header: Text("数据与云备份")) {
-                    NavigationLink(destination: WebDAVSyncView()) {
-                        HStack {
-                            Label("WebDAV 云同步", systemImage: "icloud.and.arrow.up")
-                            Spacer()
-                            if WebDAVService.shared.loadConfig().lastSyncTime != nil {
-                                Text("已同步")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("未配置")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                // Section 4: Book Sources
                 Section(header: Text("书源管理")) {
                     NavigationLink(destination: SourceManagerView()) {
                         HStack {
@@ -161,7 +49,53 @@ public struct SettingsView: View {
                     }
                 }
 
-                // Section 5: 替换净化
+                Section(header: Text("书架与存储")) {
+                    HStack {
+                        Text("书架藏书")
+                        Spacer()
+                        Text("\(bookStore.bookshelf.count) 本")
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(role: .destructive) {
+                        showClearCacheAlert = true
+                    } label: {
+                        HStack {
+                            Text("清理阅读缓存")
+                            Spacer()
+                            Image(systemName: "trash")
+                                .foregroundColor(.red)
+                        }
+                    }
+                }
+
+                Section(header: Text("外观模式")) {
+                    Picker("外观模式", selection: $appTheme) {
+                        Text("跟随系统").tag("system")
+                        Text("浅色模式").tag("light")
+                        Text("深色模式").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section(header: Text("数据与云备份")) {
+                    NavigationLink(destination: WebDAVSyncView()) {
+                        HStack {
+                            Label("WebDAV 云同步", systemImage: "icloud.and.arrow.up")
+                            Spacer()
+                            if WebDAVService.shared.loadConfig().lastSyncTime != nil {
+                                Text("已同步")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("未配置")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 Section(header: Text("正文处理")) {
                     NavigationLink(destination: ReplaceRuleListView()) {
                         HStack {
@@ -197,7 +131,6 @@ public struct SettingsView: View {
                     }
                 }
 
-                // Section 4: About
                 Section(header: Text("关于 Legado iOS")) {
                     HStack {
                         Text("应用名称")

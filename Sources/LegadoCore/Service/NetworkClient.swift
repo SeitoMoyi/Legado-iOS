@@ -48,6 +48,12 @@ public class NetworkClient {
     /// Source authors routinely mistype `retry`; cap it so a bad rule cannot hammer a site.
     static let maxRetry = 3
 
+    /// Per-request ceiling. Without it `URLSession.shared` waits 60s, so a dead source turned
+    /// "open a book" into a two-minute spinner (TOC call + body call). Android bounds one call
+    /// with `HttpHelper.kt:58-61` `callTimeout(60)`; 30s is the same order of magnitude while
+    /// keeping the wait survivable. Only the async path needs it — `requestSync` sets its own.
+    static let requestTimeout: TimeInterval = 30
+
     /// Parses Legado's custom URL syntax:
     /// e.g. "https://domain.com/search,{\"method\":\"POST\",\"body\":{\"key\":\"val\"},\"headers\":{\"X\":\"Y\"}}"
     public static func parseLegadoUrl(_ rawUrl: String, defaultHeader: String? = nil, baseUrl: String? = nil) -> ParsedRequest? {
@@ -163,6 +169,7 @@ public class NetworkClient {
         var req = URLRequest(url: parsed.url)
         req.httpMethod = parsed.method
         req.httpBody = parsed.body
+        req.timeoutInterval = Self.requestTimeout
         for (k, v) in parsed.headers {
             req.setValue(v, forHTTPHeaderField: k)
         }

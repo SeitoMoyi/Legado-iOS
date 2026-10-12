@@ -83,4 +83,30 @@ final class ReadAloudTextTests: XCTestCase {
         XCTAssertNil(ReadAloudText.nextSpeakableIndex(paragraphs, from: 0, forward: false))
         XCTAssertEqual(ReadAloudText.nextSpeakableIndex(paragraphs, from: 0, forward: true), 1)
     }
+
+    // MARK: - Starting speech from the current page
+
+    /// The reader resolves the page anchor to a paragraph through exactly this pair of calls,
+    /// so the anchor has to land on the paragraph the eye is on — not the chapter head.
+    func testPageAnchorResolvesToItsOwnParagraph() {
+        let content = "　　第一段内容。\n　　第二段内容。\n　　第三段内容。\n　　第四段内容。"
+        let paragraphs = ReadAloudText.paragraphs(in: content)
+        let anchor = "　　第三段内容。".trimmingCharacters(in: .whitespaces)
+
+        guard let index = paragraphs.firstIndex(of: anchor) else {
+            return XCTFail("anchor paragraph must be findable after trimming")
+        }
+        XCTAssertEqual(index, 2)
+        let position = ReadAloudText.offset(of: paragraphs, at: index)
+        XCTAssertEqual(ReadAloudText.paragraphIndex(containing: position, in: paragraphs), 2)
+    }
+
+    /// `ContentProcessor` leaves `[image:…]` inline; speaking it would read the URL aloud.
+    func testImagePlaceholderIsNeverSpoken() {
+        XCTAssertFalse(ReadAloudText.isSpeakable("[image:https://a.test/1.png]"))
+        let paragraphs = ReadAloudText.paragraphs(in: "正文一\n[image:https://a.test/1.png]\n正文二")
+        XCTAssertEqual(paragraphs.count, 3)
+        XCTAssertEqual(ReadAloudText.nextSpeakableIndex(paragraphs, from: 1, forward: true), 2)
+        XCTAssertEqual(ReadAloudText.nextSpeakableIndex(paragraphs, from: 1, forward: false), 0)
+    }
 }

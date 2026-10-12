@@ -72,12 +72,18 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         #endif
     }
 
-    public var isActive: Bool { state != .stopped }
+    /// True while speech has run off either end of the paragraph list and the reader is
+    /// fetching the neighbouring chapter. Without it `state` dips to `.stopped` for the whole
+    /// fetch, which makes the floating control bar blink out mid-reading.
+    @Published public private(set) var isSwitchingChapter: Bool = false
+
+    public var isActive: Bool { state != .stopped || isSwitchingChapter }
 
     // MARK: - Loading
 
     /// Loads a chapter's text and starts at `startCharPos` (or from the top when 0).
     public func load(chapterText: String, startCharPos: Int = 0, language: String = "zh-CN") {
+        isSwitchingChapter = false
         self.language = language
         let lines = ReadAloudText.paragraphs(in: chapterText)
         paragraphs = lines
@@ -206,6 +212,7 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
 
     public func stop() {
         stopTimer()
+        isSwitchingChapter = false
         stopSpeakingOnly()
         paragraphs = []
         currentParagraph = ""
@@ -259,7 +266,11 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
     private func advanceChapter(by delta: Int) {
         stopTimer()
         stopSpeakingOnly()
-        onRequestChapter?(delta)
+        // Nobody will resume speech if the reader is not listening, so do not claim a
+        // handoff is in flight — the bar would stay up forever.
+        guard let onRequestChapter else { return }
+        isSwitchingChapter = true
+        onRequestChapter(delta)
     }
 
     private func respeakCurrentParagraph() {

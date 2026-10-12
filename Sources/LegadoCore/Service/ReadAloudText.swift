@@ -39,8 +39,13 @@ public enum ReadAloudText {
 
     /// Android's `AppPattern.notReadAloudRegex` — a line of nothing but whitespace,
     /// punctuation, symbols or control characters has nothing worth speaking.
+    ///
+    /// The image placeholder is skipped too: `ContentProcessor` leaves `[image:url]` markers
+    /// inline, so a page that opens with an illustration would otherwise have the reader speak
+    /// the URL out loud.
     public static func isSpeakable(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
+        if text.hasPrefix("[image:"), text.hasSuffix("]") { return false }
         let ns = text as NSString
         guard let regex = try? NSRegularExpression(pattern: "^(\\s|\\p{P}|\\p{C}|\\p{Z}|\\p{S})+$")
         else { return true }

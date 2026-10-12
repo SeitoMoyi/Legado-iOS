@@ -9,6 +9,7 @@ unregistered files, which breaks the iOS build and the release workflow.
 Usage:
     python3 tools/xcode_add_sources.py Sources/LegadoCore/Models/Bookmark.swift ...
     python3 tools/xcode_add_sources.py --check          # list unregistered files
+    python3 tools/xcode_add_sources.py --remove Sources/LegadoApp/Services/Old.swift
 """
 
 import argparse
@@ -126,10 +127,49 @@ def register(paths):
     return 0
 
 
+def unregister(paths):
+    """Inverse of `register`, for deleted features whose files no longer exist."""
+    project = load()
+    objects = project["objects"]
+    group_key = find_group(objects, GROUP_NAME)
+    phase_key = find_sources_phase(objects, find_target(objects, project["rootObject"]))
+    by_path = {
+        value.get("path"): key
+        for key, value in objects.items()
+        if value.get("isa") == "PBXFileReference"
+    }
+
+    removed = []
+    for path in paths:
+        file_ref = by_path.get(path)
+        if file_ref is None:
+            print("skip (not registered): %s" % path)
+            continue
+        build_files = [
+            key for key, value in objects.items()
+            if value.get("isa") == "PBXBuildFile" and value.get("fileRef") == file_ref
+        ]
+        for build_file in build_files:
+            objects.pop(build_file, None)
+            objects[phase_key]["files"] = [f for f in objects[phase_key].get("files", [])
+                                           if f != build_file]
+        objects.pop(file_ref, None)
+        objects[group_key]["children"] = [c for c in objects[group_key].get("children", [])
+                                          if c != file_ref]
+        removed.append(path)
+        print("unregistered: %s" % path)
+
+    if removed:
+        save(project)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", help="paths relative to the ios/ directory")
     parser.add_argument("--check", action="store_true", help="list unregistered Swift files")
+    parser.add_argument("--remove", action="store_true",
+                        help="drop these paths from the project instead of adding them")
     args = parser.parse_args()
 
     if args.check:
@@ -137,7 +177,7 @@ def main():
     if not args.paths:
         parser.print_help()
         return 1
-    return register(args.paths)
+    return unregister(args.paths) if args.remove else register(args.paths)
 
 
 if __name__ == "__main__":

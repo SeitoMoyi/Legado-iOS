@@ -39,13 +39,7 @@ struct MoreSettingsPanel: View {
                     }
                 }
 
-                section("翻页输入") {
-                    ReaderPanelSwitchRow(title: "音量键翻页", config: config,
-                                         isOn: pref(\.volumeKeyPage))
-                    ReaderPanelSwitchRow(title: "朗读时音量键翻页", config: config,
-                                         isOn: pref(\.volumeKeyPageOnPlay))
-                    ReaderPanelSwitchRow(title: "按键长按翻页", config: config,
-                                         isOn: pref(\.keyPageOnLongPress))
+                section("翻页") {
                     ReaderPanelStepperRow(title: "滑动翻页阈值", config: config,
                                           value: pref(\.pageTouchSlop),
                                           range: 0...300, step: 5,

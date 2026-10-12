@@ -92,6 +92,9 @@ public struct ReaderView: View {
     @State private var scrollSessionId: UUID = UUID()
     @State private var scrollToChapterId: String? = nil
     @State private var errorMessage: String? = nil
+    /// Next step the user can actually take, shown under the failure text. The failure page
+    /// used to state the error and offer a dead 重试 button, which read as an inescapable screen.
+    @State private var errorGuidance: String? = nil
     /// Re-applies the 屏幕常亮 timeout without leaking the previous one.
     @State private var idleTimerTask: Task<Void, Never>? = nil
 
@@ -126,6 +129,14 @@ public struct ReaderView: View {
 
     private var currentLoadedChapter: LoadedChapter? {
         loadedChapters.first(where: { $0.chapter.index == currentChapterIndex }) ?? loadedChapters.first
+    }
+
+    /// Whether the canvas can still show a chapter body. `currentChapterIndex` only advances on
+    /// success, so a failed load leaves the previous chapter intact.
+    private var hasReadableContent: Bool {
+        loadedChapters.contains {
+            !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     private var currentChapterContent: String {
@@ -322,7 +333,7 @@ public struct ReaderView: View {
                 // 1. Reading Canvas with Permanent Fixed Bottom Info Bar
                 readingCanvas
 
-                volumeKeyLayer
+                aloudFloatingLayer
 
                 controlsLayer
 
@@ -449,27 +460,49 @@ public struct ReaderView: View {
                 .foregroundColor(.orange)
             Text("加载失败")
                 .font(.headline)
+                .foregroundColor(readerConfig.theme.textColor)
             Text(error)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            Button("重试") {
-                loadInitialChapter(at: currentChapterIndex)
+            if let guidance = errorGuidance {
+                Text(guidance)
+                    .font(.caption)
+                    .foregroundColor(readerConfig.theme.textColor.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
             }
-            .buttonStyle(.borderedProminent)
+            HStack(spacing: 12) {
+                // Retrying has to restart from the TOC: the previous target,
+                // `loadInitialChapter`, begins with `guard !chapters.isEmpty` and so silently
+                // did nothing whenever the目录 was what failed.
+                Button("重试") { Task { await loadTOCAndStart() } }
+                    .buttonStyle(.borderedProminent)
+                Button("返回书架", action: exitReader)
+                    .buttonStyle(.bordered)
+            }
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // This view replaces the whole canvas, and with it the 3×3 tap zones and the swipe
+        // gesture that raise the menu. Without its own gesture there is no way to reach 退出.
+        .contentShape(Rectangle())
+        .onTapGesture { toggleControls() }
     }
 
-    /// Volume keys as page turns. Disabled while a panel is open, matching Android's
-    /// `if (menuLayoutIsVisible) return super.onKeyDown(...)`.
-    private var volumeKeyLayer: some View {
-        VolumeKeyObserver(isEnabled: readerConfig.prefs.volumeKeyPage && panel == .none,
-                          ignoreWhilePlaying: !readerConfig.prefs.volumeKeyPageOnPlay,
-                          isPlaying: audioService.isPlaying,
-                          continuousWhilePressed: readerConfig.prefs.keyPageOnLongPress) { forward in
-            turnPage(forward: forward)
+    /// Floating 播放 / 暂停 / 结束 controls while speech is running.
+    ///
+    /// Bound to the audio state, not to `showControls`: stopping or resuming playback has to
+    /// stay reachable after the menu collapses, which is the whole reason this exists next to
+    /// the 朗读面板.
+    @ViewBuilder private var aloudFloatingLayer: some View {
+        if audioService.isActive {
+            VStack(spacing: 0) {
+                Spacer()
+                ReadAloudFloatingBar(audio: audioService, config: readerConfig)
+                    .padding(.bottom, 32)
+            }
         }
     }
 
@@ -953,13 +986,7 @@ public struct ReaderView: View {
     private var topNavigationBar: some View {
         HStack(alignment: .center) {
             // Exit button
-            Button(action: {
-                audioService.stop()
-                if let onDismiss = onDismiss {
-                    onDismiss()
-                }
-                dismiss()
-            }) {
+            Button(action: exitReader) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
@@ -1032,7 +1059,7 @@ public struct ReaderView: View {
 
                     Section("本章") {
                         Button("刷新本章") { reloadCurrentChapter() }
-                        Button("更新目录") { Task { await loadTOCAndStart() } }
+                        Button("更新目录") { Task { await refreshTOC(force: true, notice: .always) } }
                         Button("清理本书缓存") { clearBookCache() }
                     }
                 } label: {
@@ -1402,6 +1429,23 @@ public struct ReaderView: View {
     }
 
     // MARK: - Data Loading Pipeline
+
+    /// Installs a chapter list and keeps the reader's index inside its bounds.
+    private func apply(chapters newChapters: [BookChapter]) {
+        var rebuilt = newChapters
+        for i in 0..<rebuilt.count { rebuilt[i].index = i }
+        chapters = rebuilt
+        if currentChapterIndex >= rebuilt.count {
+            currentChapterIndex = max(0, rebuilt.count - 1)
+        }
+    }
+
+    /// Cache-first, like Android's `BookInfoViewModel.kt:105-113` (read the `chapters` table,
+    /// crawl only when it is empty).
+    ///
+    /// Before this the TOC was re-crawled on every single open — the reason reading a book
+    /// always cost a round trip, and the reason an offline book could not be opened at all
+    /// even though its chapters were on disk.
     private func loadTOCAndStart() async {
         if book.origin == "local" {
             var localChapters = BookStore.shared.getChapters(for: book.bookUrl)
@@ -1418,32 +1462,121 @@ public struct ReaderView: View {
             }
         }
 
+        let cached = BookStore.shared.getChapters(for: book.bookUrl)
+        if !cached.isEmpty {
+            apply(chapters: cached)
+            errorMessage = nil
+            errorGuidance = nil
+            loadInitialChapter(at: currentChapterIndex)
+            // The cached list may be behind the site; reconcile quietly instead of blocking
+            // the reader on it.
+            if BookStore.shared.tocIsStale(bookUrl: book.bookUrl) {
+                await refreshTOC(force: false, notice: .failuresOnly)
+            }
+            return
+        }
+
+        await crawlTOCFromNetwork()
+    }
+
+    /// The only path allowed to show the failure page: there is no cached TOC to fall back on.
+    private func crawlTOCFromNetwork() async {
         guard let source = effectiveSource else {
             errorMessage = "未找到书籍关联的书源"
+            errorGuidance = "这本书的书源已被删除或禁用。返回书架可在详情页换源，或到「设置 · 书源管理」恢复书源。"
             isLoadingInitial = false
             return
         }
 
         do {
-            var fetchedChapters = try await BookContentService.shared.fetchChapterList(book: book, source: source)
-            for i in 0..<fetchedChapters.count {
-                fetchedChapters[i].index = i
-            }
-            guard !fetchedChapters.isEmpty else {
+            let result = try await BookContentService.shared.fetchBookDetailResult(book: book, source: source)
+            guard !result.chapters.isEmpty else {
                 if await tryAutoChangeSource() { return }
                 self.errorMessage = "目录为空"
+                self.errorGuidance = "该书源没有返回任何章节。可重试，或换源后再读。"
                 self.isLoadingInitial = false
                 return
             }
-            self.chapters = fetchedChapters
-            if currentChapterIndex >= fetchedChapters.count {
-                currentChapterIndex = max(0, fetchedChapters.count - 1)
+            apply(chapters: result.chapters)
+            if result.complete {
+                BookStore.shared.saveChapters(result.chapters, for: book.bookUrl)
+                BookStore.shared.markTocFetched(bookUrl: book.bookUrl)
+            } else {
+                // Usable now, but never cached: a half-book TOC would later be compared against
+                // as if the book had shrunk.
+                showControlHint("目录过长只取到前 \(result.chapters.count) 章，本次不写入缓存")
             }
             loadInitialChapter(at: currentChapterIndex)
         } catch {
             if await tryAutoChangeSource() { return }
             self.errorMessage = "目录解析失败: \(error.localizedDescription)"
+            self.errorGuidance = "目录需要联网抓取。请检查网络后重试；离线时无法打开未缓存过目录的书。"
             self.isLoadingInitial = false
+        }
+    }
+
+    /// Re-crawls the TOC in the background and swaps it in only when it actually changed.
+    ///
+    /// Never touches `errorMessage`: when this runs we are already reading from the cached
+    /// list, so a dead source must not tear the page away.
+    /// How loudly a TOC refresh should report itself.
+    private enum TocRefreshNotice {
+        case silent        // background trigger while reading near the end
+        case failuresOnly  // cache-first open: the user should learn they are offline
+        case always        // explicit 「更新目录」
+    }
+
+    private func refreshTOC(force: Bool, notice: TocRefreshNotice) async {
+        guard let source = effectiveSource else { return }
+        if !force && !BookStore.shared.tocIsStale(bookUrl: book.bookUrl) { return }
+
+        let previous = chapters
+        let keepIndex = currentChapterIndex
+        let keepTitle = keepIndex < previous.count ? previous[keepIndex].title : ""
+        let keepPos = currentChapterCharOffset()
+
+        do {
+            let result = try await BookContentService.shared.fetchBookDetailResult(book: book, source: source)
+            // A truncated crawl is not a TOC; caching it would make 追更 compare against a
+            // half-book list later.
+            guard result.complete, !result.chapters.isEmpty else {
+                if notice == .always { showControlHint("目录未更新：抓取不完整或为空") }
+                return
+            }
+            BookStore.shared.saveChapters(result.chapters, for: book.bookUrl)
+            BookStore.shared.markTocFetched(bookUrl: book.bookUrl)
+
+            let unchanged = TocCache.isSameList(result.chapters, previous)
+            guard !unchanged else {
+                if notice == .always { showControlHint("目录已是最新（\(previous.count) 章）") }
+                return
+            }
+
+            // The content cache is keyed by chapter index. As long as the new list is only the
+            // old one plus appended chapters, every cached body still belongs to its index; any
+            // other shape means the indices now point at different chapters.
+            if !TocCache.isAppendOnly(previous, result.chapters) {
+                chapterCache.removeAll()
+                BookContentService.shared.clearCache(for: book.bookUrl)
+                if notice != .silent { showControlHint("目录结构变化，已清除旧的章节缓存") }
+            }
+
+            let titles = result.chapters.map { $0.title }
+            let mapped = ChapterMatcher.mapChapter(oldIndex: keepIndex, oldTitle: keepTitle,
+                                                   oldCount: previous.count, newTitles: titles)
+            apply(chapters: result.chapters)
+            let newIndex = min(mapped, max(0, result.chapters.count - 1))
+            currentChapterIndex = newIndex
+            loadInitialChapter(at: newIndex,
+                               targetCharPos: newIndex == keepIndex ? keepPos : nil)
+            if notice == .always {
+                showControlHint("目录已更新：\(previous.count) → \(result.chapters.count) 章")
+            }
+        } catch {
+            guard notice != .silent else { return }
+            // This is the offline case that matters: the reader is showing a cached TOC, and
+            // without a word about it a missing chapter looks like a broken book source.
+            showControlHint("无法更新目录（\(error.localizedDescription)），当前显示缓存内容")
         }
     }
 
@@ -1561,6 +1694,7 @@ public struct ReaderView: View {
             isLoadingInitial = true
         }
         errorMessage = nil
+        errorGuidance = nil
 
         let source = effectiveSource
 
@@ -1647,12 +1781,27 @@ public struct ReaderView: View {
                 let currentPos = self.currentChapterCharOffset()
                 BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: index, chapterTitle: currentChapter.title, chapterPos: currentPos)
                 self.preCacheNeighbors(around: index)
+                // Android re-crawls the TOC once the reader gets near the end of a serialising
+                // book (`ReadBook.upToc`), which is how new chapters show up without a manual
+                // 「更新目录」。
+                if index >= self.chapters.count - 3 {
+                    Task { await self.refreshTOC(force: false, notice: .silent) }
+                }
 
                 if readerConfig.pageMode == .scroll && self.scrollToChapterId == nil {
                     self.scrollToChapterId = scrollToTargetEnd ? "chapter_end_\(index)" : "chapter_\(index)"
                 }
             } catch {
-                self.errorMessage = "正文解析失败: \(error.localizedDescription)"
+                // Android renders the error as the page's text (`ReadBook.upMsg`) and keeps the
+                // reader navigable; the iOS equivalent is a banner when something is already on
+                // screen. Taking over the canvas here used to hide the previous chapter and, with
+                // the tap zones gone, made the reader feel trapped.
+                if self.hasReadableContent {
+                    self.showControlHint("本章获取失败：\(error.localizedDescription)")
+                } else {
+                    self.errorMessage = "正文解析失败: \(error.localizedDescription)"
+                    self.errorGuidance = "这一章还没有本地缓存，需要联网获取。可重试、跳到别的章节，或返回书架。"
+                }
                 self.isLoadingInitial = false
             }
         }
@@ -1919,8 +2068,7 @@ public struct ReaderView: View {
             }
             saveCurrentProgress()
             configureAudioContext()
-            audioService.load(chapterText: loaded.content,
-                              startCharPos: readerConfig.prefs.readAloudByPage ? 0 : 0)
+            audioService.load(chapterText: loaded.content, startCharPos: 0)
             preCacheNeighbors(around: target)
         }
     }
@@ -1930,8 +2078,29 @@ public struct ReaderView: View {
         if audioService.isActive {
             audioService.togglePlayPause()
         } else {
-            audioService.load(chapterText: currentChapterContent)
+            audioService.load(chapterText: currentChapterContent,
+                              startCharPos: currentAloudStartPos())
         }
+    }
+
+    /// Chapter-relative offset of the first character on screen, in `ReadAloudText`'s own
+    /// counting basis (paragraph lengths plus the newline between them). Matching that basis is
+    /// the point: the block-summing offset used for `durChapterPos` does not count newlines or
+    /// image lines, so feeding it to the speech queue would land on the wrong paragraph.
+    private func currentAloudStartPos() -> Int {
+        guard let cur = currentLoadedChapter else { return 0 }
+        let anchorText: String
+        if readerConfig.pageMode == .pageByPage, currentPageIndex < cur.pages.count {
+            anchorText = cur.pages[currentPageIndex].first { !$0.text.isEmpty }?.text ?? ""
+        } else {
+            anchorText = cur.blocks.first { $0.id == currentReadingBlockId }?.text ?? ""
+        }
+        let needle = anchorText.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return 0 }
+
+        let paragraphs = ReadAloudText.paragraphs(in: cur.content)
+        guard let index = paragraphs.firstIndex(of: needle) else { return 0 }
+        return ReadAloudText.offset(of: paragraphs, at: index)
     }
 
     private func configureAudioContext() {
@@ -1949,6 +2118,16 @@ public struct ReaderView: View {
         }
         keepAloudInBackground = true
         closePanel()
+        if let onDismiss = onDismiss {
+            onDismiss()
+        }
+        dismiss()
+    }
+
+    /// The one way out of the reader. Also the only affordance on the failure page, which is
+    /// why it must never depend on `showControls` or the canvas being rendered.
+    private func exitReader() {
+        audioService.stop()
         if let onDismiss = onDismiss {
             onDismiss()
         }
