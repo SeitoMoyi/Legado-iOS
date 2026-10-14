@@ -7,64 +7,18 @@ import LegadoCore
 #if os(iOS)
 import UIKit
 
-// MARK: - CoreText Line Model for Smooth Scroll Canvas
-
-public struct ContinuousCTLine {
-    public let text: String
-    public let ctLine: CTLine
-    public let isParagraphEnd: Bool
-    public let paragraphText: String
-    public let charRange: Range<Int>
-    public let y: CGFloat
-    public let height: CGFloat
-}
-
-public struct ContinuousImageItem {
-    public let urlString: String
-    public let y: CGFloat
-    public let height: CGFloat
-}
-
-public final class ContinuousChapterLayout {
-    public let chapter: BookChapter
-    public let rawContent: String
-    public let lines: [ContinuousCTLine]
-    public let images: [ContinuousImageItem]
-    public let titleHeight: CGFloat
-    public let contentHeight: CGFloat
-    public let totalHeight: CGFloat
-    public var yOffset: CGFloat = 0
-
-    public init(
-        chapter: BookChapter,
-        rawContent: String,
-        lines: [ContinuousCTLine],
-        images: [ContinuousImageItem],
-        titleHeight: CGFloat,
-        contentHeight: CGFloat,
-        totalHeight: CGFloat,
-        yOffset: CGFloat = 0
-    ) {
-        self.chapter = chapter
-        self.rawContent = rawContent
-        self.lines = lines
-        self.images = images
-        self.titleHeight = titleHeight
-        self.contentHeight = contentHeight
-        self.totalHeight = totalHeight
-        self.yOffset = yOffset
-    }
-}
-
-// MARK: - Single Chapter Canvas View (Direct CoreText Drawing)
+// MARK: - Single Chapter Canvas View (Direct CoreText Drawing from Unified Typography)
 
 public final class ChapterCanvasLayerView: UIView {
-    public var layout: ContinuousChapterLayout?
+    public var typography: ChapterTypography?
     public var fontSize: CGFloat = 18
+    public var lineSpacing: CGFloat = 6
+    public var letterSpacing: CGFloat = 0
     public var textColor: UIColor = .label
     public var accentColor: UIColor = .systemBlue
     public var paddingLeading: CGFloat = 20
     public var paddingTrailing: CGFloat = 20
+    public var justify: Bool = true
     public var aloudParagraph: String = ""
     public var aloudIsActive: Bool = false
     public var isLastChapterInBook: Bool = false
@@ -82,24 +36,35 @@ public final class ChapterCanvasLayerView: UIView {
     }
 
     public override func draw(_ rect: CGRect) {
-        guard let ctx = UIGraphicsGetCurrentContext(), let layout = layout else { return }
+        guard let ctx = UIGraphicsGetCurrentContext(), let typo = typography else { return }
 
         let usableWidth = max(100, bounds.width - paddingLeading - paddingTrailing)
 
-        // 1. Draw Chapter Title
-        let titleFont = CTFontCreateWithName("PingFangSC-Semibold" as CFString, fontSize + 3, nil)
-        let titleAttrs: [CFString: Any] = [
+        // 1. Draw Chapter Title (Multi-line wrapped, unified with Slide mode!)
+        let titleFontSize = fontSize + 4.0
+        let titleFont = CTFontCreateWithName("PingFangSC-Semibold" as CFString, titleFontSize, nil)
+        var titleAttrs: [CFString: Any] = [
             kCTFontAttributeName: titleFont,
             kCTForegroundColorAttributeName: textColor.cgColor
         ]
-        if let titleAttrStr = CFAttributedStringCreate(nil, layout.chapter.title as CFString, titleAttrs as CFDictionary) {
+        if letterSpacing != 0 {
+            titleAttrs[kCTKernAttributeName] = letterSpacing
+        }
+
+        let titleLineHeight = typo.titleLineHeight
+
+        for (tIdx, tLine) in typo.titleLines.enumerated() {
+            guard !tLine.isEmpty,
+                  let titleAttrStr = CFAttributedStringCreate(nil, tLine as CFString, titleAttrs as CFDictionary) else {
+                continue
+            }
             let titleLine = CTLineCreateWithAttributedString(titleAttrStr)
             var ascent: CGFloat = 0
             var descent: CGFloat = 0
             var leading: CGFloat = 0
             CTLineGetTypographicBounds(titleLine, &ascent, &descent, &leading)
 
-            let titleY = 24.0 + ascent
+            let titleY = 24.0 + CGFloat(tIdx) * titleLineHeight + ascent
             ctx.saveGState()
             ctx.textMatrix = .identity
             ctx.translateBy(x: paddingLeading, y: titleY)
@@ -109,7 +74,16 @@ public final class ChapterCanvasLayerView: UIView {
         }
 
         // 2. Draw Text Lines with CoreText
-        for lineInfo in layout.lines {
+        let bodyFont = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
+        var bodyAttrs: [CFString: Any] = [
+            kCTFontAttributeName: bodyFont,
+            kCTForegroundColorAttributeName: textColor.cgColor
+        ]
+        if letterSpacing != 0 {
+            bodyAttrs[kCTKernAttributeName] = letterSpacing
+        }
+
+        for lineInfo in typo.lines {
             // Check if this line is in the aloud paragraph
             let isAloud = aloudIsActive && !aloudParagraph.isEmpty && (
                 lineInfo.paragraphText == aloudParagraph ||
@@ -132,11 +106,23 @@ public final class ChapterCanvasLayerView: UIView {
                 ctx.restoreGState()
             }
 
-            // Draw CTLine
+            guard let lineAttrStr = CFAttributedStringCreate(nil, lineInfo.text as CFString, bodyAttrs as CFDictionary) else {
+                continue
+            }
+            let lineTypesetter = CTTypesetterCreateWithAttributedString(lineAttrStr)
+            let rawLine = CTTypesetterCreateLine(lineTypesetter, CFRange(location: 0, length: lineInfo.text.count))
+
+            let finalLine: CTLine
+            if justify && !lineInfo.isParagraphEnd && lineInfo.text.count > 5 {
+                finalLine = CTLineCreateJustifiedLine(rawLine, 1.0, Double(usableWidth)) ?? rawLine
+            } else {
+                finalLine = rawLine
+            }
+
             var ascent: CGFloat = 0
             var descent: CGFloat = 0
             var leading: CGFloat = 0
-            CTLineGetTypographicBounds(lineInfo.ctLine, &ascent, &descent, &leading)
+            CTLineGetTypographicBounds(finalLine, &ascent, &descent, &leading)
 
             let baselineY = lineInfo.y + ascent
 
@@ -144,12 +130,12 @@ public final class ChapterCanvasLayerView: UIView {
             ctx.textMatrix = .identity
             ctx.translateBy(x: paddingLeading, y: baselineY)
             ctx.scaleBy(x: 1.0, y: -1.0)
-            CTLineDraw(lineInfo.ctLine, ctx)
+            CTLineDraw(finalLine, ctx)
             ctx.restoreGState()
         }
 
         // 3. Draw Chapter End Transition Banner
-        let bannerY = layout.titleHeight + layout.contentHeight + 20
+        let bannerY = typo.totalHeight - 72.0 + 20.0
         let bannerWidth = bounds.width - paddingLeading - paddingTrailing
 
         // Divider line
@@ -196,35 +182,13 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     public var onTapZone: ((ClickActionCode) -> Void)?
     public var onRequestChapter: ((Int) async -> LoadedChapter?)?
 
-    private var chapterLayouts: [ContinuousChapterLayout] = []
+    private var chapterTypographies: [ChapterTypography] = []
     private var chapterViews: [Int: ChapterCanvasLayerView] = [:]
     private var activeChapterIndex: Int = 0
     private var totalChaptersCount: Int = 0
     private var chaptersMeta: [BookChapter] = []
 
-    // Styling
-    private var fontSize: CGFloat = 18
-    private var lineSpacing: CGFloat = 6
-    private var letterSpacing: CGFloat = 0
-    private var paragraphSpacing: CGFloat = 10
-    private var paddingLeading: CGFloat = 20
-    private var paddingTrailing: CGFloat = 20
-    private var textColor: UIColor = .label
-    private var accentColor: UIColor = .systemBlue
-    private var justify: Bool = true
-
-    // Audio highlighting
-    private var aloudParagraph: String = ""
-    private var aloudIsActive: Bool = false
-
-    // Tap actions map (3x3 grid)
-    private var tapActionList: [ClickActionCode] = ReaderPrefs.defaultClickActions.map { ClickActionCode.from($0) }
-
-    // Loading locks
-    private var isLoadingPrevious: Bool = false
-    private var isLoadingNext: Bool = false
-    private var isPrependingChapter: Bool = false
-
+    // Viewport dimensions
     private var lastLayoutWidth: CGFloat = 0
 
     private var effectiveViewportWidth: CGFloat {
@@ -245,13 +209,32 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         #endif
     }
 
-    public override func layoutSubviews() {
-        super.layoutSubviews()
-        if bounds.width > 50 && abs(bounds.width - lastLayoutWidth) > 1 {
-            lastLayoutWidth = bounds.width
-            recalculateAllLayouts()
-        }
-    }
+    // Styling
+    private var fontSize: CGFloat = 18
+    private var lineSpacing: CGFloat = 6
+    private var letterSpacing: CGFloat = 0
+    private var paragraphSpacing: CGFloat = 10
+    private var paddingLeading: CGFloat = 20
+    private var paddingTrailing: CGFloat = 20
+    private var paddingTop: CGFloat = 40
+    private var paddingBottom: CGFloat = 40
+    private var textColor: UIColor = .label
+    private var accentColor: UIColor = .systemBlue
+    private var justify: Bool = true
+    private var imageStyle: ReadImageStyle = .standard
+
+    // Audio highlighting
+    private var aloudParagraph: String = ""
+    private var aloudIsActive: Bool = false
+
+    // Tap actions map (3x3 grid)
+    private var tapActionList: [ClickActionCode] = ReaderPrefs.defaultClickActions.map { ClickActionCode.from($0) }
+
+    // Loading locks
+    private var isLoadingPrevious: Bool = false
+    private var isLoadingNext: Bool = false
+    private var isPrependingChapter: Bool = false
+
     public override init(frame: CGRect) {
         super.init(frame: frame)
         setupScrollView()
@@ -272,6 +255,14 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         addGestureRecognizer(tapGesture)
     }
 
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.width > 50 && abs(bounds.width - lastLayoutWidth) > 1 {
+            lastLayoutWidth = bounds.width
+            recalculateAllLayouts()
+        }
+    }
+
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
         let bounds = self.bounds
@@ -280,7 +271,6 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         guard width > 0, height > 0 else { return }
 
-        // Local coordinate inside visible viewport:
         let viewX = point.x - contentOffset.x
         let viewY = point.y - contentOffset.y
 
@@ -300,9 +290,12 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         paragraphSpacing: CGFloat,
         paddingLeading: CGFloat,
         paddingTrailing: CGFloat,
+        paddingTop: CGFloat,
+        paddingBottom: CGFloat,
         textColor: UIColor,
         accentColor: UIColor,
         justify: Bool,
+        imageStyle: ReadImageStyle,
         tapActions: [ClickActionCode],
         aloudParagraph: String,
         aloudIsActive: Bool,
@@ -315,7 +308,10 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             self.paragraphSpacing != paragraphSpacing ||
             self.paddingLeading != paddingLeading ||
             self.paddingTrailing != paddingTrailing ||
-            self.justify != justify
+            self.paddingTop != paddingTop ||
+            self.paddingBottom != paddingBottom ||
+            self.justify != justify ||
+            self.imageStyle != imageStyle
         )
 
         self.fontSize = fontSize
@@ -324,19 +320,21 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         self.paragraphSpacing = paragraphSpacing
         self.paddingLeading = paddingLeading
         self.paddingTrailing = paddingTrailing
+        self.paddingTop = paddingTop
+        self.paddingBottom = paddingBottom
         self.textColor = textColor
         self.accentColor = accentColor
         self.justify = justify
+        self.imageStyle = imageStyle
         self.tapActionList = tapActions
         self.aloudParagraph = aloudParagraph
         self.aloudIsActive = aloudIsActive
         self.chaptersMeta = chaptersMeta
         self.totalChaptersCount = chaptersMeta.count
 
-        if needsRelayout && bounds.width > 0 {
+        if needsRelayout && effectiveViewportWidth > 0 {
             recalculateAllLayouts()
         } else {
-            // Update visual properties on existing views
             for (_, view) in chapterViews {
                 view.textColor = textColor
                 view.accentColor = accentColor
@@ -348,41 +346,41 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     public func resetToChapter(loaded: LoadedChapter, toEnd: Bool = false, targetCharPos: Int? = nil) {
-        // Clear all existing canvas views
         for (_, view) in chapterViews {
             view.removeFromSuperview()
         }
         chapterViews.removeAll()
-        chapterLayouts.removeAll()
+        chapterTypographies.removeAll()
 
         activeChapterIndex = loaded.chapter.index
 
-        let layout = buildLayout(for: loaded)
-        layout.yOffset = 0
-        chapterLayouts = [layout]
+        let typography = buildTypography(for: loaded)
+        typography.yOffset = 0
+        chapterTypographies = [typography]
 
         let viewWidth = effectiveViewportWidth
         let viewHeight = effectiveViewportHeight
 
-        contentSize = CGSize(width: viewWidth, height: layout.totalHeight)
+        contentSize = CGSize(width: viewWidth, height: typography.totalHeight)
 
-        let chapterView = makeChapterView(for: layout)
+        let chapterView = makeChapterView(for: typography)
         addSubview(chapterView)
         chapterViews[loaded.chapter.index] = chapterView
 
         if let charPos = targetCharPos, charPos > 0 {
-            if let line = layout.lines.first(where: { line in
+            // Find line corresponding to charPos with 100% precision
+            if let line = typography.lines.first(where: { line in
                 charPos >= line.charRange.lowerBound && charPos < line.charRange.upperBound
-            }) ?? layout.lines.first(where: { line in
+            }) ?? typography.lines.first(where: { line in
                 line.charRange.lowerBound >= charPos
             }) {
-                let targetY = max(0, min(layout.totalHeight - viewHeight, line.y - 30))
+                let targetY = max(0, min(typography.totalHeight - viewHeight, line.y - 20))
                 contentOffset = CGPoint(x: 0, y: targetY)
             } else {
                 contentOffset = .zero
             }
         } else if toEnd {
-            let targetY = max(0, layout.totalHeight - viewHeight)
+            let targetY = max(0, typography.totalHeight - viewHeight)
             contentOffset = CGPoint(x: 0, y: targetY)
         } else {
             contentOffset = .zero
@@ -398,172 +396,95 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         }
     }
 
-    // MARK: - Layout Calculation Engine
+    // MARK: - Typography Generation & Layout
 
-    private func buildLayout(for loaded: LoadedChapter) -> ContinuousChapterLayout {
-        let viewWidth = effectiveViewportWidth
-        let usableWidth = max(100.0, viewWidth - paddingLeading - paddingTrailing)
-        let lineHeight = fontSize * 1.25 + lineSpacing
-        let titleHeight = (fontSize + 3) * 1.4 + 28.0
-
-        let font = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
-        var attrs: [CFString: Any] = [
-            kCTFontAttributeName: font,
-            kCTForegroundColorAttributeName: textColor.cgColor
-        ]
-        if letterSpacing != 0 {
-            attrs[kCTKernAttributeName] = letterSpacing
+    private func buildTypography(for loaded: LoadedChapter) -> ChapterTypography {
+        if let existing = loaded.typography,
+           abs(existing.totalHeight) > 0.1,
+           existing.rawContent == loaded.content {
+            return existing
         }
 
-        var lines: [ContinuousCTLine] = []
-        var images: [ContinuousImageItem] = []
-        var currentY: CGFloat = titleHeight + 10.0
-        var charCursor = 0
-
-        let paragraphs = loaded.content.components(separatedBy: "\n")
-
-        for pText in paragraphs {
-            let trimmed = pText.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else {
-                charCursor += pText.count + 1
-                continue
-            }
-
-            // Check if paragraph is image placeholder
-            if trimmed.hasPrefix("[image:") && trimmed.hasSuffix("]") {
-                let imgUrl = String(trimmed.dropFirst(7).dropLast(1)).trimmingCharacters(in: .whitespaces)
-                let imgHeight: CGFloat = 260.0
-                images.append(ContinuousImageItem(urlString: imgUrl, y: currentY, height: imgHeight))
-                currentY += imgHeight + paragraphSpacing
-                charCursor += pText.count + 1
-                continue
-            }
-
-            guard let attrString = CFAttributedStringCreate(nil, pText as CFString, attrs as CFDictionary) else {
-                charCursor += pText.count + 1
-                continue
-            }
-
-            let typesetter = CTTypesetterCreateWithAttributedString(attrString)
-            let textLen = CFStringGetLength(pText as CFString)
-            var start = 0
-            let nsStr = pText as NSString
-
-            while start < textLen {
-                let count = CTTypesetterSuggestLineBreak(typesetter, start, Double(usableWidth))
-                if count <= 0 { break }
-
-                let subText = nsStr.substring(with: NSRange(location: start, length: count))
-                let isEnd = (start + count >= textLen)
-                let subRange = start..<(start + count)
-
-                guard let lineAttrStr = CFAttributedStringCreate(nil, subText as CFString, attrs as CFDictionary) else {
-                    start += count
-                    continue
-                }
-                let lineTypesetter = CTTypesetterCreateWithAttributedString(lineAttrStr)
-                let rawLine = CTTypesetterCreateLine(lineTypesetter, CFRange(location: 0, length: subText.count))
-
-                let finalLine: CTLine
-                if justify && !isEnd && subText.count > 5 {
-                    finalLine = CTLineCreateJustifiedLine(rawLine, 1.0, Double(usableWidth)) ?? rawLine
-                } else {
-                    finalLine = rawLine
-                }
-
-                lines.append(ContinuousCTLine(
-                    text: subText,
-                    ctLine: finalLine,
-                    isParagraphEnd: isEnd,
-                    paragraphText: pText,
-                    charRange: subRange,
-                    y: currentY,
-                    height: lineHeight
-                ))
-
-                currentY += lineHeight
-                if isEnd {
-                    currentY += paragraphSpacing
-                }
-                start += count
-            }
-
-            charCursor += pText.count + 1
-        }
-
-        let contentHeight = currentY - (titleHeight + 10.0)
-        let bannerHeight: CGFloat = 72.0
-        let totalHeight = currentY + bannerHeight
-
-        return ContinuousChapterLayout(
+        return TypographyEngine.typeset(
             chapter: loaded.chapter,
-            rawContent: loaded.content,
-            lines: lines,
-            images: images,
-            titleHeight: titleHeight,
-            contentHeight: contentHeight,
-            totalHeight: totalHeight,
-            yOffset: 0
+            content: loaded.content,
+            containerWidth: effectiveViewportWidth,
+            containerHeight: effectiveViewportHeight,
+            fontSize: fontSize,
+            lineSpacing: lineSpacing,
+            letterSpacing: letterSpacing,
+            paragraphSpacing: paragraphSpacing,
+            paddingLeading: paddingLeading,
+            paddingTrailing: paddingTrailing,
+            paddingTop: paddingTop,
+            paddingBottom: paddingBottom,
+            imageStyle: imageStyle,
+            justify: justify
         )
     }
 
-    private func makeChapterView(for layout: ContinuousChapterLayout) -> ChapterCanvasLayerView {
-        let frame = CGRect(x: 0, y: layout.yOffset, width: effectiveViewportWidth, height: layout.totalHeight)
+    private func makeChapterView(for typography: ChapterTypography) -> ChapterCanvasLayerView {
+        let frame = CGRect(x: 0, y: typography.yOffset, width: effectiveViewportWidth, height: typography.totalHeight)
         let view = ChapterCanvasLayerView(frame: frame)
-        view.layout = layout
+        view.typography = typography
         view.fontSize = fontSize
+        view.lineSpacing = lineSpacing
+        view.letterSpacing = letterSpacing
         view.textColor = textColor
         view.accentColor = accentColor
         view.paddingLeading = paddingLeading
         view.paddingTrailing = paddingTrailing
+        view.justify = justify
         view.aloudParagraph = aloudParagraph
         view.aloudIsActive = aloudIsActive
-        view.isLastChapterInBook = (layout.chapter.index >= totalChaptersCount - 1)
-        if layout.chapter.index + 1 < chaptersMeta.count {
-            view.nextChapterTitle = chaptersMeta[layout.chapter.index + 1].title
+        view.isLastChapterInBook = (typography.chapter.index >= totalChaptersCount - 1)
+        if typography.chapter.index + 1 < chaptersMeta.count {
+            view.nextChapterTitle = chaptersMeta[typography.chapter.index + 1].title
         }
         return view
     }
 
     private func recalculateAllLayouts() {
-        guard !chapterLayouts.isEmpty, effectiveViewportWidth > 0 else { return }
+        guard !chapterTypographies.isEmpty, effectiveViewportWidth > 0 else { return }
 
         var currentY: CGFloat = 0
-        var newLayouts: [ContinuousChapterLayout] = []
+        var newTypographies: [ChapterTypography] = []
 
-        for layout in chapterLayouts {
-            // Re-build layout with current font size and usable width using original chapter content
+        for typo in chapterTypographies {
             let loaded = LoadedChapter(
-                chapter: layout.chapter,
-                content: layout.rawContent,
+                chapter: typo.chapter,
+                content: typo.rawContent,
                 blocks: []
             )
-            let updated = buildLayout(for: loaded)
+            let updated = buildTypography(for: loaded)
             updated.yOffset = currentY
-            newLayouts.append(updated)
+            newTypographies.append(updated)
 
-            if let view = chapterViews[layout.chapter.index] {
+            if let view = chapterViews[typo.chapter.index] {
                 view.frame = CGRect(x: 0, y: currentY, width: effectiveViewportWidth, height: updated.totalHeight)
-                view.layout = updated
+                view.typography = updated
                 view.fontSize = fontSize
+                view.lineSpacing = lineSpacing
+                view.letterSpacing = letterSpacing
                 view.textColor = textColor
                 view.accentColor = accentColor
                 view.paddingLeading = paddingLeading
                 view.paddingTrailing = paddingTrailing
+                view.justify = justify
                 view.setNeedsDisplay()
             }
 
             currentY += updated.totalHeight
         }
 
-        chapterLayouts = newLayouts
+        chapterTypographies = newTypographies
         contentSize = CGSize(width: effectiveViewportWidth, height: currentY)
     }
 
     // MARK: - Seamless Bidirectional Chapter Chaining
 
     private func loadPreviousChapter() async {
-        guard !isLoadingPrevious, let first = chapterLayouts.first, first.chapter.index > 0 else { return }
+        guard !isLoadingPrevious, let first = chapterTypographies.first, first.chapter.index > 0 else { return }
         let prevIndex = first.chapter.index - 1
         isLoadingPrevious = true
 
@@ -572,40 +493,36 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             return
         }
 
-        // Build layout for previous chapter
-        let prevLayout = buildLayout(for: loaded)
-        let addedHeight = prevLayout.totalHeight
+        let viewWidth = effectiveViewportWidth
+        let prevTypo = buildTypography(for: loaded)
+        let addedHeight = prevTypo.totalHeight
 
-        // Shift existing chapters down by addedHeight
         isPrependingChapter = true
-        for layout in chapterLayouts {
-            layout.yOffset += addedHeight
-            if let view = chapterViews[layout.chapter.index] {
+        for typo in chapterTypographies {
+            typo.yOffset += addedHeight
+            if let view = chapterViews[typo.chapter.index] {
                 view.frame.origin.y += addedHeight
             }
         }
 
-        prevLayout.yOffset = 0
-        chapterLayouts.insert(prevLayout, at: 0)
+        prevTypo.yOffset = 0
+        chapterTypographies.insert(prevTypo, at: 0)
 
-        let prevView = makeChapterView(for: prevLayout)
+        let prevView = makeChapterView(for: prevTypo)
         addSubview(prevView)
         chapterViews[loaded.chapter.index] = prevView
 
-        // Update contentSize and ATOMICALLY shift contentOffset.y so user sees ZERO movement
-        let viewWidth = effectiveViewportWidth
         contentSize = CGSize(width: viewWidth, height: contentSize.height + addedHeight)
         contentOffset = CGPoint(x: contentOffset.x, y: contentOffset.y + addedHeight)
 
         isPrependingChapter = false
         isLoadingPrevious = false
 
-        // Prune chapters if too many loaded (keep window <= 5)
         pruneDistantChapters()
     }
 
     private func loadNextChapter() async {
-        guard !isLoadingNext, let last = chapterLayouts.last, last.chapter.index < totalChaptersCount - 1 else { return }
+        guard !isLoadingNext, let last = chapterTypographies.last, last.chapter.index < totalChaptersCount - 1 else { return }
         let nextIndex = last.chapter.index + 1
         isLoadingNext = true
 
@@ -614,44 +531,41 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             return
         }
 
+        let viewWidth = effectiveViewportWidth
         let currentBottom = contentSize.height
-        let nextLayout = buildLayout(for: loaded)
-        nextLayout.yOffset = currentBottom
-        chapterLayouts.append(nextLayout)
+        let nextTypo = buildTypography(for: loaded)
+        nextTypo.yOffset = currentBottom
+        chapterTypographies.append(nextTypo)
 
-        let nextView = makeChapterView(for: nextLayout)
+        let nextView = makeChapterView(for: nextTypo)
         addSubview(nextView)
         chapterViews[loaded.chapter.index] = nextView
 
-        let viewWidth = effectiveViewportWidth
-        contentSize = CGSize(width: viewWidth, height: currentBottom + nextLayout.totalHeight)
+        contentSize = CGSize(width: viewWidth, height: currentBottom + nextTypo.totalHeight)
         isLoadingNext = false
 
-        // Prune chapters if too many loaded
         pruneDistantChapters()
     }
 
     private func pruneDistantChapters() {
-        guard chapterLayouts.count > 5 else { return }
-        // Keep active chapter and immediate neighbors
-        while chapterLayouts.count > 4 {
-            if let first = chapterLayouts.first, first.chapter.index < activeChapterIndex - 1 {
+        guard chapterTypographies.count > 5 else { return }
+        while chapterTypographies.count > 4 {
+            if let first = chapterTypographies.first, first.chapter.index < activeChapterIndex - 1 {
                 let removedHeight = first.totalHeight
                 chapterViews[first.chapter.index]?.removeFromSuperview()
                 chapterViews.removeValue(forKey: first.chapter.index)
-                chapterLayouts.removeFirst()
+                chapterTypographies.removeFirst()
 
-                // Shift remaining chapters up
-                for layout in chapterLayouts {
-                    layout.yOffset -= removedHeight
-                    chapterViews[layout.chapter.index]?.frame.origin.y -= removedHeight
+                for typo in chapterTypographies {
+                    typo.yOffset -= removedHeight
+                    chapterViews[typo.chapter.index]?.frame.origin.y -= removedHeight
                 }
-                contentSize = CGSize(width: bounds.width, height: contentSize.height - removedHeight)
+                contentSize = CGSize(width: effectiveViewportWidth, height: contentSize.height - removedHeight)
                 contentOffset = CGPoint(x: contentOffset.x, y: max(0, contentOffset.y - removedHeight))
-            } else if let last = chapterLayouts.last, last.chapter.index > activeChapterIndex + 2 {
+            } else if let last = chapterTypographies.last, last.chapter.index > activeChapterIndex + 2 {
                 chapterViews[last.chapter.index]?.removeFromSuperview()
                 chapterViews.removeValue(forKey: last.chapter.index)
-                chapterLayouts.removeLast()
+                chapterTypographies.removeLast()
                 contentSize = CGSize(width: effectiveViewportWidth, height: last.yOffset)
             } else {
                 break
@@ -669,21 +583,20 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         // 1. Detect active chapter at reading focus line (30% from top of screen)
         let focusY = offsetY + viewHeight * 0.3
-        if let current = chapterLayouts.first(where: { focusY >= $0.yOffset && focusY < ($0.yOffset + $0.totalHeight) }) {
+        if let current = chapterTypographies.first(where: { focusY >= $0.yOffset && focusY < ($0.yOffset + $0.totalHeight) }) {
             if activeChapterIndex != current.chapter.index {
                 activeChapterIndex = current.chapter.index
                 onChapterChange?(current.chapter.index, current.chapter.title)
             }
 
-            // Estimate character offset
-            let relY = focusY - current.yOffset - current.titleHeight
+            let relY = focusY - current.yOffset - current.titleTotalHeight
             if let line = current.lines.first(where: { relY >= $0.y && relY < ($0.y + $0.height) }) {
                 onCharOffsetChange?(line.charRange.lowerBound)
             }
         }
 
         // 2. Check top boundary: only load previous chapter when user actually scrolls UP past the top boundary!
-        if offsetY < -15, let first = chapterLayouts.first, first.chapter.index > 0 {
+        if offsetY < -15, let first = chapterTypographies.first, first.chapter.index > 0 {
             Task { @MainActor in
                 await self.loadPreviousChapter()
             }
@@ -691,7 +604,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         // 3. Check bottom boundary for loading next chapter (within 1000pt of bottom)
         let distToBottom = contentSize.height - (offsetY + viewHeight)
-        if distToBottom < 1000, let last = chapterLayouts.last, last.chapter.index < totalChaptersCount - 1 {
+        if distToBottom < 1000, let last = chapterTypographies.last, last.chapter.index < totalChaptersCount - 1 {
             Task { @MainActor in
                 await self.loadNextChapter()
             }
@@ -699,8 +612,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     public func scrollToChapter(_ index: Int, animated: Bool = true) {
-        if let layout = chapterLayouts.first(where: { $0.chapter.index == index }) {
-            setContentOffset(CGPoint(x: 0, y: layout.yOffset), animated: animated)
+        if let typo = chapterTypographies.first(where: { $0.chapter.index == index }) {
+            setContentOffset(CGPoint(x: 0, y: typo.yOffset), animated: animated)
         }
     }
 }
@@ -712,9 +625,9 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
     public let chaptersMeta: [BookChapter]
     public let currentChapterIndex: Int
     public let scrollSessionId: UUID
+    public let targetCharPos: Int?
     public let readerConfig: ReaderConfig
     public let aloudParagraph: String
-    public let targetCharPos: Int?
     public let aloudIsActive: Bool
 
     public let onChapterChange: (Int, String) -> Void
@@ -740,9 +653,9 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         self.chaptersMeta = chaptersMeta
         self.currentChapterIndex = currentChapterIndex
         self.scrollSessionId = scrollSessionId
+        self.targetCharPos = targetCharPos
         self.readerConfig = readerConfig
         self.aloudParagraph = aloudParagraph
-        self.targetCharPos = targetCharPos
         self.aloudIsActive = aloudIsActive
         self.onChapterChange = onChapterChange
         self.onCharOffsetChange = onCharOffsetChange
@@ -781,16 +694,18 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
             paragraphSpacing: readerConfig.paragraphSpacing,
             paddingLeading: readerConfig.paddingLeading,
             paddingTrailing: readerConfig.paddingTrailing,
+            paddingTop: readerConfig.paddingTop,
+            paddingBottom: readerConfig.paddingBottom,
             textColor: UIColor(readerConfig.theme.textColor),
             accentColor: .systemBlue,
             justify: readerConfig.prefs.textFullJustify,
+            imageStyle: readerConfig.prefs.imageStyle,
             tapActions: readerConfig.clickActionList,
             aloudParagraph: aloudParagraph,
             aloudIsActive: aloudIsActive,
             chaptersMeta: chaptersMeta
         )
 
-        // Session ID changed -> Chapter jump or mode switch: reset cleanly
         if context.coordinator.currentSessionId != scrollSessionId {
             context.coordinator.currentSessionId = scrollSessionId
             if let chapter = loadedChapter {

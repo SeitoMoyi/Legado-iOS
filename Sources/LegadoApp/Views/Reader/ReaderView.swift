@@ -15,7 +15,8 @@ public struct LoadedChapter: Identifiable {
     public var id: Int { chapter.index }
     public let chapter: BookChapter
     public var content: String
-    public var blocks: [ContentBlock]
+    public var typography: ChapterTypography? = nil
+    public var blocks: [ContentBlock] = []
     public var pages: [[ContentBlock]] = []
 }
 
@@ -91,6 +92,7 @@ public struct ReaderView: View {
     @State private var scrollSessionId: UUID = UUID()
     @State private var scrollToChapterId: String? = nil
     @State private var scrollTargetCharPos: Int? = nil
+    @State private var scrollReadingCharOffset: Int = 0
     @State private var errorMessage: String? = nil
     /// Next step the user can actually take, shown under the failure text. The failure page
     /// used to state the error and offer a dead 重试 button, which read as an inescapable screen.
@@ -707,7 +709,7 @@ public struct ReaderView: View {
                 }
             },
             onCharOffsetChange: { offset in
-                // Continuous reading character offset tracked directly
+                self.scrollReadingCharOffset = offset
             },
             onTapZone: { action in
                 self.handleTapAction(action)
@@ -738,11 +740,17 @@ public struct ReaderView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         // If it's page 0, display Chapter Title at top
                         if currentPageIndex == 0, let cur = currentLoadedChapter {
-                            Text(cur.chapter.title)
-                                .font(.system(size: readerConfig.fontSize + 3, weight: .bold))
-                                .foregroundColor(readerConfig.theme.textColor)
-                                .padding(.bottom, 8)
-                                .fixedSize(horizontal: false, vertical: true)
+                            let titleLines = cur.typography?.titleLines ?? [cur.chapter.title]
+                            VStack(alignment: .leading, spacing: 3) {
+                                ForEach(Array(titleLines.enumerated()), id: \.offset) { _, tLine in
+                                    Text(tLine)
+                                        .font(.system(size: readerConfig.fontSize + 4, weight: .bold))
+                                        .foregroundColor(readerConfig.theme.textColor)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.bottom, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
                         // Page Content
@@ -1502,6 +1510,36 @@ public struct ReaderView: View {
         return false
     }
 
+    private func makeLoadedChapter(chapter: BookChapter, content: String) -> LoadedChapter {
+        let usableWidth = readerConfig.contentSize(for: readerContainerSize).width
+        let usableHeight = readerContainerSize.height
+        let typo = TypographyEngine.typeset(
+            chapter: chapter,
+            content: content,
+            containerWidth: usableWidth + readerConfig.paddingLeading + readerConfig.paddingTrailing,
+            containerHeight: usableHeight,
+            fontSize: readerConfig.fontSize,
+            lineSpacing: readerConfig.lineSpacing,
+            letterSpacing: readerConfig.letterSpacing,
+            paragraphSpacing: readerConfig.paragraphSpacing,
+            paddingLeading: readerConfig.paddingLeading,
+            paddingTrailing: readerConfig.paddingTrailing,
+            paddingTop: readerConfig.paddingTop,
+            paddingBottom: readerConfig.paddingBottom,
+            imageStyle: readerConfig.prefs.imageStyle,
+            justify: readerConfig.prefs.textFullJustify
+        )
+        let blocks = parseContentBlocks(from: content)
+        let pages = paginate(blocks: blocks, titleHeight: typo.titleTotalHeight)
+        return LoadedChapter(
+            chapter: chapter,
+            content: content,
+            typography: typo,
+            blocks: blocks,
+            pages: pages
+        )
+    }
+
     @MainActor
     private func getOrFetchChapter(at index: Int) async -> LoadedChapter? {
         guard index >= 0 && index < chapters.count else { return nil }
@@ -1514,13 +1552,11 @@ public struct ReaderView: View {
             let content = try await BookContentService.shared.fetchChapterContent(
                 chapter: targetChapter, source: effectiveSource,
                 nextChapterUrl: nextChapterUrl(after: index), context: context)
-            let blocks = parseContentBlocks(from: content)
-            let pages = paginate(blocks: blocks)
             if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                await tryAutoChangeSource() {
                 return nil
             }
-            let loaded = LoadedChapter(chapter: targetChapter, content: content, blocks: blocks, pages: pages)
+            let loaded = makeLoadedChapter(chapter: targetChapter, content: content)
             self.chapterCache[index] = loaded
             return loaded
         } catch {
@@ -1538,9 +1574,7 @@ public struct ReaderView: View {
             Task { @MainActor in
                 if let content = try? await BookContentService.shared.fetchChapterContent(
                     chapter: prevCh, source: source, nextChapterUrl: prevNextUrl, context: prevContext) {
-                    let blocks = parseContentBlocks(from: content)
-                    let pages = paginate(blocks: blocks)
-                    let loaded = LoadedChapter(chapter: prevCh, content: content, blocks: blocks, pages: pages)
+                    let loaded = self.makeLoadedChapter(chapter: prevCh, content: content)
                     self.chapterCache[index - 1] = loaded
                 }
             }
@@ -1553,9 +1587,7 @@ public struct ReaderView: View {
             Task { @MainActor in
                 if let content = try? await BookContentService.shared.fetchChapterContent(
                     chapter: nextCh, source: source, nextChapterUrl: afterNextUrl, context: nextContext) {
-                    let blocks = parseContentBlocks(from: content)
-                    let pages = paginate(blocks: blocks)
-                    let loaded = LoadedChapter(chapter: nextCh, content: content, blocks: blocks, pages: pages)
+                    let loaded = self.makeLoadedChapter(chapter: nextCh, content: content)
                     self.chapterCache[index + 1] = loaded
                 }
             }
@@ -1607,9 +1639,7 @@ public struct ReaderView: View {
                         chapter: currentChapter, source: source,
                         nextChapterUrl: nextChapterUrl(after: index),
                         context: processContext(for: currentChapter))
-                    let blocks = parseContentBlocks(from: content)
-                    let pages = paginate(blocks: blocks)
-                    loaded = LoadedChapter(chapter: currentChapter, content: content, blocks: blocks, pages: pages)
+                    loaded = self.makeLoadedChapter(chapter: currentChapter, content: content)
                     self.chapterCache[index] = loaded
                 }
 
@@ -1621,31 +1651,24 @@ public struct ReaderView: View {
                 // Restore position if durChapterPos is saved and opening the current chapter
                 if targetPageIndex == 0 && restorePos > 0 {
                     if self.readerConfig.pageMode == .pageByPage {
-                        var accumulated = 0
-                        var targetPage = 0
-                        for (pIdx, page) in loaded.pages.enumerated() {
-                            let pageCount = page.reduce(0) { $0 + $1.text.count }
-                            if accumulated + pageCount > restorePos {
+                        if let typo = loaded.typography {
+                            self.currentPageIndex = typo.pageIndex(forCharOffset: restorePos)
+                        } else {
+                            var accumulated = 0
+                            var targetPage = 0
+                            for (pIdx, page) in loaded.pages.enumerated() {
+                                let pageCount = page.reduce(0) { $0 + $1.text.count }
+                                if accumulated + pageCount > restorePos {
+                                    targetPage = pIdx
+                                    break
+                                }
+                                accumulated += pageCount
                                 targetPage = pIdx
-                                break
                             }
-                            accumulated += pageCount
-                            targetPage = pIdx
+                            self.currentPageIndex = min(targetPage, max(0, loaded.pages.count - 1))
                         }
-                        self.currentPageIndex = min(targetPage, max(0, loaded.pages.count - 1))
                     } else {
-                        var accumulated = 0
-                        var targetBlock = loaded.blocks.first?.id ?? 0
-                        for block in loaded.blocks {
-                            if accumulated + block.text.count > restorePos {
-                                targetBlock = block.id
-                                break
-                            }
-                            accumulated += block.text.count
-                            targetBlock = block.id
-                        }
-                        self.currentReadingBlockId = targetBlock
-                        self.scrollToChapterId = "block_\(index)_\(targetBlock)"
+                        self.scrollTargetCharPos = restorePos
                     }
                 } else if targetPageIndex == -1 {
                     self.currentPageIndex = max(0, loaded.pages.count - 1)
@@ -1700,22 +1723,28 @@ public struct ReaderView: View {
         let charPos = currentChapterCharOffset()
 
         for i in 0..<loadedChapters.count {
-            loadedChapters[i].pages = paginate(blocks: loadedChapters[i].blocks)
+            let ch = loadedChapters[i]
+            loadedChapters[i] = makeLoadedChapter(chapter: ch.chapter, content: ch.content)
+            chapterCache[ch.chapter.index] = loadedChapters[i]
         }
 
-        if let cur = currentLoadedChapter, !cur.pages.isEmpty {
-            var accumulated = 0
-            var targetPage = 0
-            for (pIdx, page) in cur.pages.enumerated() {
-                let pageCharCount = page.reduce(0) { $0 + $1.text.count }
-                if accumulated + pageCharCount > charPos {
+        if let cur = currentLoadedChapter {
+            if let typo = cur.typography {
+                currentPageIndex = typo.pageIndex(forCharOffset: charPos)
+            } else if !cur.pages.isEmpty {
+                var accumulated = 0
+                var targetPage = 0
+                for (pIdx, page) in cur.pages.enumerated() {
+                    let pageCharCount = page.reduce(0) { $0 + $1.text.count }
+                    if accumulated + pageCharCount > charPos {
+                        targetPage = pIdx
+                        break
+                    }
+                    accumulated += pageCharCount
                     targetPage = pIdx
-                    break
                 }
-                accumulated += pageCharCount
-                targetPage = pIdx
+                currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
             }
-            currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
             updateReadingBlockIdFromCurrentPage()
         }
     }
@@ -1788,6 +1817,13 @@ public struct ReaderView: View {
     private func currentChapterCharOffset() -> Int {
         guard let cur = currentLoadedChapter else { return 0 }
         if readerConfig.pageMode == .pageByPage {
+            if let typo = cur.typography,
+               currentPageIndex < typo.pageRanges.count {
+                let range = typo.pageRanges[currentPageIndex]
+                if range.lowerBound < typo.lines.count {
+                    return typo.lines[range.lowerBound].charRange.lowerBound
+                }
+            }
             var offset = 0
             let limit = min(currentPageIndex, cur.pages.count)
             for p in 0..<limit {
@@ -1797,14 +1833,7 @@ public struct ReaderView: View {
             }
             return offset
         } else {
-            var offset = 0
-            for block in cur.blocks {
-                if block.id == currentReadingBlockId {
-                    break
-                }
-                offset += block.text.count
-            }
-            return offset
+            return scrollReadingCharOffset
         }
     }
 
@@ -1998,9 +2027,7 @@ public struct ReaderView: View {
     private func saveEditedChapter(newTitle: String, newContent: String) {
         guard currentChapterIndex < chapters.count else { return }
         chapters[currentChapterIndex].title = newTitle
-        let blocks = parseContentBlocks(from: newContent)
-        let pages = paginate(blocks: blocks)
-        let loaded = LoadedChapter(chapter: chapters[currentChapterIndex], content: newContent, blocks: blocks, pages: pages)
+        let loaded = makeLoadedChapter(chapter: chapters[currentChapterIndex], content: newContent)
         chapterCache[currentChapterIndex] = loaded
         if let idx = loadedChapters.firstIndex(where: { $0.chapter.index == currentChapterIndex }) {
             loadedChapters[idx] = loaded
@@ -2117,19 +2144,18 @@ public struct ReaderView: View {
 
     /// Page capacity expressed as heights, so 段距 can be charged to the paragraph it
     /// follows instead of being averaged over a fixed line count.
-    private func calculateLayoutMetrics() -> (lineHeight: CGFloat, pageHeight: CGFloat, firstPageHeight: CGFloat) {
+    private func calculateLayoutMetrics(titleHeight: CGFloat? = nil) -> (lineHeight: CGFloat, pageHeight: CGFloat, firstPageHeight: CGFloat) {
         let height = max(400, readerContainerSize.height)
 
         let lineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
         let usableHeight = max(200, height - readerConfig.paddingTop - readerConfig.paddingBottom)
 
         // First page has chapter title (+ title padding)
-        let titleLineHeight = (readerConfig.fontSize + 3) * 1.3 + readerConfig.lineSpacing
-        let titleHeight = titleLineHeight * 1.5 + 16.0
+        let computedTitleHeight = titleHeight ?? (((readerConfig.fontSize + 3) * 1.3 + readerConfig.lineSpacing) * 1.5 + 16.0)
 
         return (lineHeight: lineHeight,
                 pageHeight: usableHeight,
-                firstPageHeight: max(100, usableHeight - titleHeight))
+                firstPageHeight: max(100, usableHeight - computedTitleHeight))
     }
 
     private func splitParagraphIntoLines(text: String, width: Double, fontSize: CGFloat) -> [(text: String, isParagraphEnd: Bool)] {
@@ -2173,8 +2199,8 @@ public struct ReaderView: View {
         return blocks
     }
 
-    private func paginate(blocks: [ContentBlock]) -> [[ContentBlock]] {
-        let metrics = calculateLayoutMetrics()
+    private func paginate(blocks: [ContentBlock], titleHeight: CGFloat? = nil) -> [[ContentBlock]] {
+        let metrics = calculateLayoutMetrics(titleHeight: titleHeight)
         let usableWidth = Double(readerConfig.contentSize(for: readerContainerSize).width)
         let paragraphSpacing = readerConfig.paragraphSpacing
 
