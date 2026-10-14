@@ -310,7 +310,7 @@ public struct WebDAVSyncView: View {
                 }
             }
 
-            Text("支持直接生成或导入 Android/iOS 通用的 backup*.zip 压缩包（含书架、书源、书签、替换规则、搜索历史、阅读样式 6 类完整数据），无需配置 WebDAV 也可跨设备迁移。")
+            Text("支持直接生成或导入 Android/iOS 通用的 backup*.zip 压缩包（含书架、书源、书签、替换规则、搜索历史、阅读样式、TXT目录规则、阅读记录、订阅源、文章收藏 10 类完整数据），无需配置 WebDAV 也可跨设备迁移。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }

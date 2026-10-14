@@ -3,10 +3,19 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.3-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.3.1-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+
+---
+
+## ✨ v0.2.3.1 新增
+
+本版为维护版本，针对 iOS 15 系统底层特性进行关键兼容性修复：
+
+- 🛠 **修复 iOS 15 顶栏「更多」菜单按钮不显示**：在 iOS 15 上，由于 `NavigationView` 将 `ToolbarItemGroup(placement: .primaryAction)` 的语义限制为单个 Primary Action，导致书架页（`BookshelfView`）与订阅源列表（`RssViews`）右上角仅渲染首个按钮（搜索/收藏），二级菜单按钮（`⋯`）被系统丢弃。现统一收敛为单个 `ToolbarItem` 内嵌 `HStack` 规范结构，恢复书架多选批量管理、网格/列表切换、排序方式等全部二级菜单功能。
+- 🛠 **修复替换规则页 iOS 15 顶栏按钮冲突**：在 `ReplaceRuleListView` 中合并并列的 `.primaryAction` 声明，确保「编辑」与「添加/导入/导出」菜单按钮在 iOS 15 上正常并存显示。
 
 ---
 
@@ -28,7 +37,7 @@
 
 ## ✨ v0.2.2 新增（上一版）
 
-这一版按使用反馈做了三件事：**删掉两个有害功能**、**把打开书从"必联网"改成"缓存优先"**、**修掉离线卡死**。实施记录见 `plan.md` 的 §13 与「批次 P0.5」。
+这一版按使用反馈做了三件事：**删掉两个有害功能**、**把打开书从"必联网"改成"缓存优先"**、**修掉离线卡死**。实施记录见 [UPDATE_LOG.md](UPDATE_LOG.md) 的「v0.2.2」小节与「关键设计决策与 Android 偏离备忘」表。
 
 - 🗑 **删除音量键翻页**：iOS 拦音量键只能借隐藏的 `MPVolumeView`，而它的 slider 一旦写入就**真的改系统音量** —— 实测每按一次音量被往下压一截直到 0。功能与 `volumeKeyPage` 等三个开关整体移除，改用系统手势与控制中心。
 - 🔊 **朗读悬浮控制条**：朗读期间常驻屏幕底部的 播放 / 暂停 / 结束 三键，**不随菜单与面板收起而消失**（可见性绑播放状态）。
@@ -39,7 +48,7 @@
 - 🚪 **离线不再困住阅读器**：加载失败页新增「返回书架」；「重试」原来调用了一个在目录为空时直接 return 的函数（死按钮），现在会真正重走抓目录流程；失败视图也能点出菜单；错误提示补上了可操作的下一步。
 - 🛟 **章节失败不再盖住整页**：屏幕上已有可读内容时，某一章获取失败只在底部提示一次并保留当前页（Android 是当页文本渲染，不阻断阅读）。
 - ⚙️ **设置页**：删除「阅读器显示设置」块（阅读设置的唯一入口收敛到阅读页的「界面」/「更多设置」面板，避免两处各写一份而漂移）；板块顺序改为 书源管理 → 书架与存储 → 外观模式 → 数据与云备份 → 正文处理 → 关于。
-- 🧪 **测试分层**：5 个访问真实书源的用例移到 `LiveSourceTests`，主机不可达时**自动 skip 而非 fail**；CI 发布门槛改为 `swift test --skip LiveSourceTests`（196 例，确定性 191 例）。
+- 🧪 **测试分层**：5 个访问真实书源的用例移到 `LiveSourceTests`，主机不可达时**自动 skip 而非 fail**；CI 发布门槛改为 `swift test --skip LiveSourceTests`（224 个用例，其中确定性 219 例全通过，联网冒烟 5 例）。
 
 ---
 
@@ -79,7 +88,7 @@
 
 - 📚 **全面兼容 Legado 3.0 书源生态**
   - 支持 CSS 选择器、JSONPath、XPath、正则表达式、JavaScript 动态脚本与模版语法的多重混合解析。
-  - 支持从**本地 `.json` 文件**、网络链接或剪贴板一键导入与批量更新书源。
+  - 支持从**本地 `.json` 文件**、网络链接导入，或**粘贴整源 JSON 到剪贴板**导入；支持多选批量启用/禁用/导出，以及并发「校验书源」。
   - 内置书源预设：机翻机器人书源全源发现流，ESJ Zone 书源统一命名规范。
   - 支持内置 Web 浏览器交互式登录（适配复杂防爬或需要 Cookie 验证的书源，支持双域会话镜像）。
   - 📖 详细规范请参阅：[**书源制作与兼容性规范指南 (BOOKSOURCE_GUIDE.md)**](BOOKSOURCE_GUIDE.md)。
@@ -91,10 +100,10 @@
 
 - 📖 **沉浸式全屏阅读器**
   - **无缝滚动阅读**：纵向连续滚动模式支持向下拉动无缝加载上一章，并在章节断点间丝滑阅读，不再重置回章节首页。
-  - **多排版模式**：覆盖 / 滑动 / 滚动 / 无动画四档翻页动画，互相切换完美保留阅读位置。
+  - **多排版模式**：覆盖 / 滑动 / 仿真 / 滚动 / 无动画五档翻页动画（仿真降级为滑动），互相切换完美保留阅读位置。
   - **分卷连贯性**：彻底解决多卷小说因卷标导致的目录章节断连问题，各章节顺畅连贯翻阅。
   - **原生全屏呈现**：所有入口（书籍详情页、目录跳转等）均以原生全屏视图进入阅读器，去除侵入性卡片交互。
-  - 内置默认白、复古羊皮纸、护眼草绿、夜间暗黑四套阅读主题，可调节字号、行距、字距、段距、缩进与正文边距，并全部持久化。
+  - 内置默认白、复古羊皮纸、护眼草绿、夜间暗黑、水墨屏五套预设主题 + 自定义配色，可调节字号、行距、字距、段距、缩进与正文边距，并全部持久化。
   - 支持离线正文缓存、单书一键清除缓存与全量清理。
 
 - 🔍 **聚合搜索**
@@ -102,7 +111,7 @@
   - 搜索范围三态 + 精准搜索 + 跨源合并与来源数排序 + 搜索历史。
 
 - 🔄 **WebDAV 多端无缝互通 (对齐 Android Legado)**
-  - **标准 ZIP 备份**：完整支持 Android Legado 标准的 `backup${yyyy-MM-dd}-${deviceName}.zip` 打包格式，保留 100% 书籍元数据与精确阅读进度（`durChapterIndex`, `durChapterPos`, `durChapterTime`）。
+  - **标准 ZIP 备份**：完整支持 Android Legado 标准的 `backup${yyyy-MM-dd}-${deviceName}.zip` 打包格式，保留书籍元数据与精确阅读进度（`durChapterIndex`, `durChapterPos`, `durChapterTime`），并覆盖 **10 类**数据（书架 / 书源 / 书签 / 替换规则 / 搜索历史 / 阅读样式 / TXT目录规则 / 阅读记录 / 订阅源 / 文章收藏）。
   - **多设备支持**：可自定义配置“设备名称”（默认自动识别为 iPhone / Mac 等），轻松识别不同设备的备份档案。
   - **秒级极速备份**：彻底移除高耗时的串行网络循环，全量备份由原本的 30+ 秒降至 1 秒内完成。
   - **云端历史备份选择**：支持一键检索并列出 WebDAV 远程所有历史备份归档（展示备份日期、文件体积），可自由挑选 Android 或 iOS 备份包进行合并恢复。
@@ -123,24 +132,33 @@ Legado-iOS/
 ├── Sources/
 │   ├── LegadoCore/               # 独立核心框架（跨平台纯 Swift 逻辑）
 │   │   ├── Engine/               # 规则引擎（JSEngine, RuleAnalyzer, RuleTokenizer）
-│   │   ├── Models/               # 数据模型（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels）
-│   │   ├── Service/              # 核心服务（NetworkClient, BookContentService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, WebDAVService, EpubParser...）
+│   │   ├── Models/               # 数据模型（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels, RssModels）
+│   │   ├── Service/              # 核心服务（NetworkClient, BookContentService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser...）
 │   │   └── Utils/                # 工具库（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, CryptoUtils, JSONPath）
 │   └── LegadoApp/                # SwiftUI 交互层与应用入口
-│       ├── Services/             # 状态容器（BookStore, SearchViewModel, AudioBookService, VolumeKeyObserver）
+│       ├── LegadoApp.swift       # @main 入口 + AppDelegate/SceneDelegate（快捷操作）+ MainTabView（书架/分类/订阅/设置 4 tab）+ legado:// URL 处理
+│       ├── Services/             # 状态容器（BookStore, SearchViewModel, AudioBookService, LaunchRouter）
 │       ├── Theme/                # 阅读主题与排版配置（ReaderConfig）
 │       └── Views/                # 界面视图
-│           ├── BookshelfView.swift       # 书架页（倒序排列、未读红点、下拉刷新、原生全屏阅读）
+│           ├── BookshelfView.swift       # 书架页（分组胶囊、三列网格/列表、4 种排序、批量管理）
 │           ├── CategoryExploreView.swift # 分类页（三级快速切换、预设分类流）
-│           ├── BookDetailView.swift      # 书籍详情页（目录、简介、缓存清理；换源入口目前在阅读页）
+│           ├── BookDetailView.swift      # 书籍详情页（目录、简介、换源、信息编辑、变量、缓存清理）
+│           ├── RssViews.swift            # 订阅模块（订阅源/文章流/正文阅读/收藏夹/源编辑）
+│           ├── AudioPlayView.swift       # 在线有声书独立播放页
+│           ├── SourceManagerView.swift   # 书源管理（搜索/三态胶囊/多选批量/并发校验/登录）
+│           ├── SourceDetailView.swift    # 书源详情页（登录/变量/信息）
+│           ├── SourceWebLoginView.swift  # 书源 WebView 登录
+│           ├── EditSourceSheet.swift     # 6-Tab 全字段书源编辑器 + 四阶段调试台
+│           ├── SearchBookView.swift      # 搜索页（多源并发、书架匹配、历史）
+│           ├── WebDAVSyncView.swift      # WebDAV 同步 + 本地备份包导出/导入
 │           ├── Reader/                   # 全屏阅读器
-│           │   ├── Panels/               # 界面 / 更多设置 / 朗读面板 + 共用卡片样式 + 点击区域
-│           │   └── Sheets/               # 书签 / 换源 / 起效的替换 / 搜索浮层
+│           │   ├── ReaderView.swift      # 阅读画布 / 顶栏 / 底栏 / 手势 / 缓存下载
+│           │   ├── Panels/               # 界面 / 更多设置 / 朗读 / 悬浮朗读条 + 共用卡片 + 点击区域
+│           │   └── Sheets/               # 书签 / 换源 / 起效的替换
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
-│           ├── SourceManagerView.swift   # 书源管理（本地文件导入、长按管理）
-│           └── SettingsView.swift        # 设置页（WebDAV 同步与历史备份选择、外观主题）
-├── Tests/LegadoCoreTests/        # 单元测试套件（176 例）
+│           └── SettingsView.swift        # 设置页（书源/书架与存储/外观/云备份与局域网/正文处理/关于）+ TXT目录/字典/HttpTTS/所有书签/阅读记录
+├── Tests/LegadoCoreTests/        # 单元测试套件（224 例，含 5 例联网冒烟）
 ├── tools/xcode_add_sources.py    # 把新增 Swift 文件登记进 Xcode 工程（无同步文件夹组）
 └── Legado.xcodeproj              # Xcode 工程文件
 ```

@@ -39,18 +39,18 @@ This session performed a **deep audit** of the existing `FEATURE_GAP_ANALYSIS.md
 
 | Section | Item | Notes |
 |---|---|---|
-| §7 | 完整 RSS: 订阅源编辑器(全字段)、订阅源调试页、文章级联删除 | Only basic CRUD, not full editor |
-| §9.6 | 规则订阅(聚合订阅列表) | Not implemented |
-| §14 | 主题设置页(全量偏好项: 启动页/E-Ink全局/封面网格) | Partial — E-Ink theme added this session to ReadStylePanel |
-| §15 | 备份设置页(全量条目) | Only WebDAV sync exists |
-| §19.3 | 所有书签(按书分组 section 列表/导出) | Bookmark store exists but no standalone list view |
+| §8 | 完整 RSS: 订阅源编辑器(全字段)、订阅源调试页、文章级联删除 | Only basic CRUD, not full editor |
+| §8.6 | 规则订阅(聚合订阅列表) | Not implemented |
+| §15 | 主题设置页(全量偏好项: 启动页/E-Ink全局/封面网格) | Partial — E-Ink theme added this session to ReadStylePanel |
+| §16 | 备份设置页(全量条目) | Only WebDAV sync + local zip export/import exists |
+| §19.3 | 所有书签(按书分组 section 列表/导出) | **Implemented** — `AllBookmarksView` (by-book sections, search, JSON/Markdown export) |
 | §20 | Web 服务 / 局域网 API | **Partially addressed this session** — LocalWebServer + WiFi传书 added |
 
 ### 2.3 Completion Matrix Updates (§1)
 
 | # | Module | Old % | New % | Reason |
 |---|---|---|---|---|
-| 1 | 应用外壳/底部导航 | 40% | **70%** | 4 tabs now live (was 3) |
+| 1 | 应用外壳/底部导航 | 40% | **55%** | 4 tabs now live (书架/分类/订阅/设置); 「我的」独立页、tab 显隐与默认主页仍缺 |
 | 7 | RSS 订阅 | 0% | **40%** | Core RSS flow implemented |
 | 9 | 书源编辑页 | N/A (was "最严重短板") | **85%** | 6-Tab editor verified |
 | 10 | 书源调试页 | N/A | **60%** | 4-stage debug台 |
@@ -79,6 +79,13 @@ This session performed a **deep audit** of the existing `FEATURE_GAP_ANALYSIS.md
 **Actions:**
 - 「搜索书籍」(UIApplicationShortcutIconTypeSearch)
 - 「继续阅读」(UIApplicationShortcutIconTypeBookmark)
+
+> **Follow-up (fixed 2026-10-13)**: the plist alone was inert — App Shortcuts are a *scene*-level
+> event, so the handler belongs on `UIWindowSceneDelegate`, not the application delegate. Added
+> `LegadoAppDelegate.configurationForConnecting` (mounts the scene delegate),
+> `LegadoSceneDelegate.windowScene(_:performActionFor:)`, `LaunchRouter` (hands the request to the
+> tab view / shelf) and `LaunchIntent` (shortcut-type mapping + 「最近阅读」 resolution, unit-tested).
+> 「搜索书籍」 → 分类 tab; 「继续阅读」 → opens the book with the newest `durChapterTime`.
 
 ### 3.3 WiFi Book Transfer / Local Web Server
 
@@ -146,7 +153,7 @@ Writes to `config.textFont` which persists via `ReadStyleConfig` → `ReaderStor
 | `xcodebuild` (iOS Simulator) | ✅ BUILD SUCCEEDED | `xcodebuild -scheme LegadoApp -sdk iphonesimulator build` |
 | `plutil -lint Info.plist` | ✅ OK | `plutil -lint ios/Sources/LegadoApp/Info.plist` |
 
-**Test suites executed:** BookmarkTests, ChangeSourceServiceTests, ChapterMatcherTests, CharsetAndPagingTests, LegadoCoreTests, PagedFetchTests, ReadAloudTextTests, ReaderConfigTests, ReplaceRuleTests, SearchScopeTests, TocCacheTests — all passed.
+**Test suites executed:** BookGroupTests, BookmarkTests, ChangeSourceServiceTests, ChapterMatcherTests, CharsetAndPagingTests, LegadoCoreTests, ReadAloudTextTests, ReaderConfigTests, ReplaceRuleTests, SearchScopeTests, TocCacheTests — all passed (210 deterministic cases; `LiveSourceTests` skipped).
 
 ---
 
@@ -154,20 +161,21 @@ Writes to `config.textFont` which persists via `ReadStyleConfig` → `ReaderStor
 
 | Metric | Value |
 |---|---|
-| Total Swift source files | 64 |
-| Total Swift source lines | ~23,500 |
-| LegadoCore module files | 33 |
-| LegadoApp module files | 31 |
+| Total Swift source files | 66 |
+| Total Swift source lines | ~23,800 |
+| LegadoCore module files | 34 |
+| LegadoApp module files | 32 |
 | View files | 26 |
-| Test files | 11 |
-| Test lines | ~2,870 |
+| Test files | 13 |
+| Test lines | ~3,120 |
+| Test cases | 224 (`swift test --skip LiveSourceTests` = 219 deterministic) |
 | Bottom tabs | 4 (书架/分类/订阅/设置) |
 | Reader themes | 6 (白/羊皮纸/护眼/暗黑/水墨屏/自定义) |
 | Reader fonts | 4 (系统/楷体/宋体/圆体) |
 | WebDAV backup types | 10 |
 | Rule management pages | 6 (书源/替换/TXT目录/字典/HttpTTS/阅读记录) |
 | URL schemes | 2 (legado://, yuedu://) |
-| Quick Actions | 2 (搜索书籍, 继续阅读) |
+| Quick Actions | 2 (搜索书籍 → 分类 tab, 继续阅读 → 最近阅读的书；已接线) |
 
 ---
 
@@ -176,17 +184,17 @@ Writes to `config.textFont` which persists via `ReadStyleConfig` → `ReaderStor
 These are the **verified still-missing** features, ranked by user impact:
 
 ### High Priority
-1. **RSS 订阅源全字段编辑器** — current editor is basic; Android has full rule editor
-2. **书签独立列表页** — `BookmarkStore` exists but no `AllBookmarksView` by-book section list
-3. **拖拽排序** (书源/书架) — no drag reorder in any list
-4. **二维码扫描导入** — needs camera permission + AVFoundation
-5. **自动翻页** — timer-based page flip in reader
+1. **RSS 订阅源全字段编辑器** — current editor covers only 7 fields; Android has full rule editor
+2. **拖拽排序** (书源/书架/替换规则/订阅源) — no drag reorder in any list
+3. **二维码扫描导入** — needs camera permission + AVFoundation
+4. **文本选择与选择菜单** — long-press selection + action menu (copy/dict/bookmark/aloud/search)
+5. **书内全文搜索** — cross-chapter full-text search with network fetch (current search only covers loaded chapter text)
 
 ### Medium Priority
 6. **内置浏览器** (general WebView browser, not login WebView)
-7. **全文搜索** (cross-chapter full-text search with network fetch)
-8. **规则订阅聚合** (`sourceSub.json`)
-9. **MOBI/AZW3/FB2** local book formats
+7. **规则订阅聚合** (`sourceSub.json`)
+8. **MOBI/AZW3/UMD/PDF** local book formats (Android has no FB2 either)
+9. **漫画专用模式** (page-snap, pinch zoom, filters, e-ink binarization)
 10. **桌面 Widget** (书架封面墙)
 
 ### Low Priority / Android-Specific
@@ -195,6 +203,8 @@ These are the **verified still-missing** features, ranked by user impact:
 13. CarPlay 集成
 14. 通知渠道 (下载/朗读/Web)
 15. 前台服务 → BGTaskScheduler
+
+> 已在本轮（v0.2.3）落地、不再是缺口的：`AllBookmarksView` 书签独立列表页、自动翻页（`toggleAutoPageTurn` + 悬浮条）。
 
 ---
 

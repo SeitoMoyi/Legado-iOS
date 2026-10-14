@@ -6,6 +6,7 @@
 
 ## 目录
 - [版本总览](#版本总览)
+- [v0.2.3.1（iOS 15 顶栏兼容性修复）](#v0231ios-15-顶栏兼容性修复)
 - [v0.2.3（书源 / 书架 / 规则工具链补齐，订阅与音频模块落地）](#v023书源--书架--规则工具链补齐订阅与音频模块落地)
 - [v0.2.2（缓存与离线可用性）](#v022缓存与离线可用性)
 - [v0.2.1（批次 P0：核心阅读与搜索闭环）](#v021批次-p0核心阅读与搜索闭环)
@@ -18,10 +19,29 @@
 
 | 版本 | 定位 | 主要更新内容 |
 |---|---|---|
-| **v0.2.3** | 书源 / 书架 / 规则工具链补齐，订阅与音频模块落地，Android 数据互通 | XPath 规则引擎（`RuleTokenizer` + `RuleAnalyzer`）、WebDAV 10 类数据完整备份恢复、JS 变量持久化、6-Tab 全字段书源编辑器与四阶段调试台、书源管理搜索/三态胶囊/多选批量/并发校验、书架三列网格与 4 种排序与批量管理、书架分组体系、书籍信息编辑与整书换源、目录自动定位/正倒序/缓存标记、TXT 目录规则、阅读记录统计、字典规则与阅读查词、HttpTTS 与在线有声书播放器、条漫全屏预览、章节区间离线下载、全部书签汇总、本地备份包导出/导入、4-Tab 根架构与 RSS 订阅全模块、URL Scheme (`legado://` / `yuedu://`) 导入、主屏快捷操作、局域网 WiFi 传书 |
+| **v0.2.3.1** | iOS 15 兼容性与顶栏交互修复 | 修复 iOS 15 下书架页右上角「更多 (⋯)」菜单按钮不显示的问题；修复订阅源列表与净化规则页在 iOS 15 下顶栏多按钮被系统丢弃的问题；统一收敛为 ToolbarItem + HStack 原语 |
+| **v0.2.3** | 书源 / 书架 / 规则工具链补齐，订阅与音频模块落地，Android 数据互通 | XPath 规则引擎（`RuleTokenizer` + `RuleAnalyzer`）、WebDAV 10 类数据完整备份恢复、JS 变量持久化、6-Tab 全字段书源编辑器与四阶段调试台、书源管理搜索/三态胶囊/多选批量/并发校验、书架三列网格与 4 种排序与批量管理、书架分组体系、书籍信息编辑与整书换源、目录自动定位/正倒序/缓存标记、TXT 目录规则、阅读记录统计、字典规则与阅读查词、HttpTTS 与在线有声书播放器、条漫全屏预览、章节区间离线下载、全部书签汇总、本地备份包导出/导入、4-Tab 根架构（书架/分类/订阅/设置）与 RSS 订阅基础闭环、URL Scheme (`legado://` / `yuedu://`) 导入、主屏快捷操作、局域网 WiFi 传书 |
 | **v0.2.2** | 缓存与离线可用性 | 目录缓存优先（TOC Cache）与 10 分钟静默刷新、离线失败态解死锁、续页总时长预算与截断保护、纯追加安全阀（`TocCache.isAppendOnly`）、朗读悬浮控制条 (`ReadAloudFloatingBar`)、听书状态自持、阅读面板归一 (`ReaderPanelChrome`)、设置页冗余项收敛、主动移除亮度调节与音量键翻页 |
 | **v0.2.1** | P0 核心阅读闭环 | 阅读页三级菜单与更多设置面板、配置持久化 (`ReaderStore`)、书签体系、整书/单章换源 (`ChapterMatcher`)、替换净化管线 (`ContentProcessor`)、朗读面板与后台音频、搜索历史与搜索范围、字符集自动嗅探与目录/正文续页 |
 | **v0.2.0** | 初始移植基线 | 基础书架、EPUB/TXT 阅读器、书源解析骨架、WebDAV 同步基础功能 |
+
+---
+
+## v0.2.3.1（iOS 15 顶栏兼容性修复）
+
+### 问题背景与根因
+在 iOS 15 设备与模拟器上，书架页（`BookshelfView`）顶栏右侧仅能看到「搜索」放大镜图标，原有的「更多 (⋯)」菜单按钮完全消失，导致无法进入批量管理多选、切换列表/三列网格视图、切换排序以及分组管理。
+
+**根因分析**：
+1. **SwiftUI 语义映射差异**：在 iOS 15 的 `NavigationView` 架构下，`ToolbarItemPlacement.primaryAction` 在底层被 UIKit 映射为单个 `navigationItem.rightBarButtonItem`。当把多个控件放在 `ToolbarItemGroup(placement: .primaryAction)` 中时，iOS 15 的 SwiftUI 导航桥接逻辑仅提取首个元素（搜索按钮）进行挂载，随后的 `Menu` 被系统静默丢弃。在 iOS 16+ 中，由于引入了 `NavigationStack` 与 `UIBarButtonItemGroup`，该语法才能被自动转换为组。
+2. **多视图一致性规范**：项目中 `BookDetailView`、`EditSourceSheet`、`SettingsView` 等页面均已采用 `ToolbarItem(placement: .primaryAction) { HStack(spacing: 12) { ... } }` 模式将多个按钮包裹为单一自定义视图避免被截断；而 `BookshelfView`、`RssViews` 和 `ReplaceRuleListView` 此前未对齐该规范。
+
+### 修复内容
+| 文件 | 变更 | 说明 |
+|---|---|---|
+| `BookshelfView.swift` | `ToolbarItemGroup` → `ToolbarItem` + `HStack(spacing: 12)` | 恢复 iOS 15 下书架页「搜索」与「更多 (⋯)」双按钮常驻并存显示 |
+| `RssViews.swift` | `ToolbarItemGroup` → `ToolbarItem` + `HStack(spacing: 12)` | 恢复 iOS 15 下订阅源列表页「收藏」与「新建/导入/导出 (⋯)」双按钮显示 |
+| `ReplaceRuleListView.swift` | 合并双 `ToolbarItem(.primaryAction)` 为单个 `ToolbarItem` + `HStack(spacing: 12)` | 消除 iOS 15 下「编辑」按钮与「添加/导入/导出 (⋯)」菜单按钮的冲突 |
 
 ---
 
@@ -74,7 +94,7 @@
 
 | 模块 | 改进内容 | 说明 |
 |---|---|---|
-| **4-Tab 根架构与 RSS 订阅** | 根界面扩展为 4 Tab，正式上线「订阅」模块 | `RssSourceListView`（订阅源管理/搜索/收藏）、`RssArticleListView`（分类与文章流）、`RssArticleReaderView`（正文规则提取与 Safari 跳转）、`RssStarListView`（文章收藏夹） |
+| **4-Tab 根架构与 RSS 订阅** | 根界面扩展为 4 Tab，上线「订阅」基础闭环 | `RssSourceListView`（订阅源管理/搜索/收藏/置顶/删除）、`RssArticleListView`（分类胶囊 + 文章流 + 下拉刷新）、`RssArticleReaderView`（`ruleContent` 正文提取）、`RssStarListView`（文章收藏夹）、`RssSourceEditSheet`（7 字段基础编辑器）；规则层缺口见 `FEATURE_GAP_ANALYSIS.md` §8 |
 | **全部书签汇总** | 设置页 `所有书签` | 按「书名 · 作者」分组展示全站书签，支持内容/备注搜索、编辑/删除、导出 JSON 与 Markdown 至剪贴板 |
 | **本地备份包导出与恢复** | `WebDAVSyncView` | 无需配置 WebDAV 即可离线导出/导入完整备份包（与 Android 兼容） |
 | **搜索页书架匹配区块** | `SearchBookView` | 关键词命中本地书架时在顶部优先展示「书架已有」快捷卡片 |
@@ -100,7 +120,7 @@
 |---|---|---|
 | **离线可用性** | 失败态退出与重试解死锁 (`loadFailureView`) | 目录加载失败时提供「返回书架」按钮；重试逻辑改为重新加载目录 (`loadTOCAndStart`)，解决原 `loadInitialChapter` 因列表为空直接 return 的死锁 |
 | **目录缓存优先** | 网络书目录入库与节流刷新 (`TocCache`) | 启动改为本地缓存优先 (`chapters_<md5>.json`)，避免每次进书必联网；后台 10 分钟静默刷新；目录章数变化时采用 `ChapterMatcher` 自动重定位当前阅读进度 |
-| **网络预算与截断保护** | 请求超时与续页总时长封顶 | 单次请求超时设为 30s；目录续页封顶 60s/200页，正文续页封顶 20s/50页；被截断的未完成内容严禁落盘缓存 |
+| **网络预算与截断保护** | 请求超时与续页总时长封顶 | 单次请求超时设为 30s；目录续页封顶 200 页 / 120s，正文续页封顶 50 页 / 30s（`BookContentService.tocTimeBudget` / `contentTimeBudget`）；被截断的未完成内容严禁落盘缓存 |
 | **缓存追加安全阀** | 纯追加校验 (`TocCache.isAppendOnly`) | 目录更新仅在纯追加时保留原章节正文缓存，目录结构错位时主动清空旧章节缓存，防止内容串章 |
 | **朗读悬浮条** | `ReadAloudFloatingBar` 独立常驻 | 播放/暂停/结束三键常驻屏幕底部，与菜单显隐解耦；从当前页首字起读；自动过滤插图标记 `[image:...]` |
 | **听书状态自持** | 播放状态自持有与暂停兜底 | 播放状态由 `AudioBookService.state` 自持，避免 `didPause` 回调丢失导致按钮状态卡死；暂停后 150ms 硬停兜底 |
@@ -153,12 +173,17 @@
 | **3** | 重新分段 | 简化为「按空行重排 + 合并碎行」 | Android 端使用含随机因子的断行逻辑，iOS 保持确定性处理 |
 | **4** | 正则替换超时 | 终止 Task、禁用该规则并保留未处理正文 | Android 因 Java 正则不可中断机制在超时后会强杀重启进程；iOS 优雅取消即可 |
 | **5** | 缓存内容 | 磁盘持久化「未净化原文」，读取时动态净化 | 便于用户修改替换规则或切换开关后即时生效，无需强制清除离线章节缓存 |
-| **6** | 续页双重限制 | 目录限 200 页 / 60s，正文限 50 页 / 20s | 防止个别书源配置死循环或极慢源导致挂死主流程 |
+| **6** | 续页双重限制 | 目录限 200 页 / 120s，正文限 50 页 / 30s | 防止个别书源配置死循环或极慢源导致挂死主流程；被截断的结果一律不写缓存 |
 | **7** | 音量键翻页 | **完全移除** | 私有拦截手段实测会直接修改系统物理音量并持续压低至 0，副作用不可接受 |
 | **8** | 亮度调节 | **完全移除** | 与 iOS 控制中心功能完全重复，且应用内浮层存在视图遮挡与绘制瑕疵 |
 | **9** | 单章换源流程 | 自动调用 `ChapterMatcher` 映射章节 | 章节匹配器单测通过率高，直接映射避免频繁打断用户翻页体验 |
 | **10** | 书源分类噪声 | 仅**显示层**过滤 Android 校验判定词与 `good` 标记 | 书源数据必须与 Android 双向互通，因此 `bookSourceGroup` / `bookSourceComment` / `respondTime` 一律原样保存,不改写书源;噪声只在渲染分组胶囊时隐藏 |
 | **11** | 响应耗时 (`respondTime`) | 仅在 `0 < ms < 180000` 时展示 | 同一字段在 Android 是「整轮校验耗时」,校验失败时写入 `timeout + 耗时`(≥180000)属失败标记;iOS 单次搜索耗时与之不可比,故隐藏失败标记并保留原始数据 |
+| **12** | 文字两端对齐开关在滚动模式下置灰 | 只有 CoreText 路径（翻页模式）能强制两端对齐 | SwiftUI `Text` 不支持 `textAlign: justify`；滚动模式用原生 `Text` 渲染 |
+| **13** | 「更多设置」面板只保留**真的生效**的开关 | `readBarStyleFollowPage`、`noAnimScrollPage`、`previewImageByClick`、`disableReturnKey`、`screenOrientation` 等项在 iOS 无对应实现 | 宁可不显示也不给死开关；`progressBarBehavior` 已于 v0.2.3 接线并恢复 picker |
+| **14** | 搜索空结果**不弹**「切换到全部书源 / 关闭精准搜索」引导 | 属交互打磨而非能力缺失 | 书架匹配区块（`SearchBookView.matchedBookshelfBooks`）已上线，空结果引导留待后续 |
+| **15** | 三个底部面板（「界面」/「更多设置」/「朗读」）统一走 `ReaderPanelChrome` | 同一个卡片曾被抄了三遍，底色/行标签透明度/高度三处漂移 | 统一占屏幕下 1/2、统一可滚动、统一行原语，全部跟随阅读主题色 |
+| **16** | 音量键翻页相关开关（`volumeKeyPage` 等 3 项）随功能整体移除 | 见 #7 | 与 #7 同因；三个开关不再出现在任何面板 |
 
 ---
 
@@ -166,5 +191,5 @@
 
 P1（生态兼容与书源维护）已在 v0.2.3 落地。剩余项详见 [FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md) §23：
 
-- **P2（功能对齐）**：完整 RSS 订阅源全字段编辑器、订阅源调试页与规则订阅聚合、Android 的高级分组（分组封面 / 组内排序 / 位掩码多选 / 拖拽排序）、MOBI/AZW3/FB2 本地格式、自动翻页与书内全文搜索、内置通用浏览器、二维码扫描导入。
-- **P3（iOS 平台特性融合）**：桌面 Widgets（书架/进度）、App Intents / Share Extension / Universal Links 深度联动、CarPlay。
+- **P2（功能对齐）**：完整 RSS 订阅源全字段编辑器、订阅源调试页与规则订阅聚合、Android 的高级分组（分组封面 / 组内排序 / 位掩码多选 / 拖拽排序）、MOBI/AZW3/UMD/PDF 本地格式（Android 亦不支持 FB2）、书内全文搜索、内置通用浏览器、二维码扫描导入、文本选择与词典取词。
+- **P3（iOS 平台特性融合）**：桌面 Widgets（书架/进度）、App Intents / Share Extension / Universal Links 深度联动、CarPlay、完整 LAN REST/WebSocket API（WiFi 传书已落地）。

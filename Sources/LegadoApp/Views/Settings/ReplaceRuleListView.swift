@@ -48,26 +48,27 @@ public struct ReplaceRuleListView: View {
         #endif
         .navigationTitle("替换净化")
         .toolbar {
-            #if os(iOS)
             ToolbarItem(placement: .primaryAction) {
-                EditButton()
-            }
-            #endif
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button {
-                        startNewRule()
-                    } label: { Label("添加规则", systemImage: "plus") }
+                HStack(spacing: 12) {
+                    #if os(iOS)
+                    EditButton()
+                    #endif
 
-                    Button {
-                        showImportSheet = true
-                    } label: { Label("粘贴导入", systemImage: "doc.on.clipboard") }
+                    Menu {
+                        Button {
+                            startNewRule()
+                        } label: { Label("添加规则", systemImage: "plus") }
 
-                    Button {
-                        exportRules()
-                    } label: { Label("导出 JSON", systemImage: "square.and.arrow.up") }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                        Button {
+                            showImportSheet = true
+                        } label: { Label("粘贴导入", systemImage: "doc.on.clipboard") }
+
+                        Button {
+                            exportRules()
+                        } label: { Label("导出 JSON", systemImage: "square.and.arrow.up") }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                 }
             }
         }

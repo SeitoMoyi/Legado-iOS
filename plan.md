@@ -1,4 +1,4 @@
-# Legado iOS v0.2.3 迭代实施计划 (Plan.md)
+# Legado iOS v0.2.3 迭代实施计划 (plan.md)
 
 > 配套文档：
 > - 功能差距清单：[FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md)
@@ -16,7 +16,7 @@
 
 | 阶段 | 模块 | 核心改动点 | 涉及文件 |
 |---|---|---|---|
-| **Part 1** | **底层静默 Bug 与数据安全修复** | 1.1 `RuleAnalyzer` 补齐 XPath 执行引擎<br>1.2 `WebDAVService` 备份/恢复扩充至 6 类核心数据<br>1.3 `JSEngine` 接通 `book.getVariable` / `setVariable`<br>1.4 `enabledExplore` 发现源过滤与开关 | `RuleTokenizer.swift`<br>`RuleAnalyzer.swift`<br>`WebDAVService.swift`<br>`JSEngine.swift`<br>`CategoryExploreView.swift` |
+| **Part 1** | **底层静默 Bug 与数据安全修复** | 1.1 `RuleAnalyzer` 补齐 XPath 执行引擎<br>1.2 `WebDAVService` 备份/恢复扩充核心数据（初版 6 类，Part 18 最终扩至 10 类）<br>1.3 `JSEngine` 接通 `book.getVariable` / `setVariable`<br>1.4 `enabledExplore` 发现源过滤与开关 | `RuleTokenizer.swift`<br>`RuleAnalyzer.swift`<br>`WebDAVService.swift`<br>`JSEngine.swift`<br>`CategoryExploreView.swift` |
 | **Part 2** | **UI 断点闭环与阅读器细节完善** | 2.1 `BookDetailView` 接入「整书换源」按钮与 Sheet<br>2.2 目录列表增强（自动定位当前章、正倒序切换、已缓存图标）<br>2.3 阅读器 `progressBarBehavior`（按页/按章）与 `imageStyle`（纯文字/单图等）接线 | `BookDetailView.swift`<br>`ReaderView.swift`<br>`MoreSettingsPanel.swift`<br>`BookContentService.swift` |
 | **Part 3** | **书源管理页全面升级 (P1 核心)** | 3.1 实时搜索过滤（支持名称/URL/`group:xx`）+ 分组胶囊栏<br>3.2 多选批量操作（全选/反选/启用/禁用/删除/导出 JSON）<br>3.3 并发书源有效性与响应耗时校验（自动标记失效源） | `SourceManagerView.swift`<br>`BookStore.swift` |
 
@@ -45,7 +45,7 @@
     - `searchHistory.json`（`[SearchKeyword]`）
     - `readConfig.json`（`ReadStyleConfig`）
   - `restoreFromZip` 与 `restore` 返回扩展结构体 `BackupRestorePayload`（同时保留旧版元组接口或平滑升级调用方 `WebDAVSyncView` / `BookStore`），恢复时合并书签、替换规则、搜索历史并刷新 `ReaderConfig`。
-- **验证**：单元测试断言打包后的 ZIP 内包含上述 6 个标准 JSON 文件，且解压恢复 round-trip 数据无损。
+- **验证**：单元测试断言打包后的 ZIP 内包含上述 JSON 文件，且解压恢复 round-trip 数据无损。（Part 1.2 的初始范围是 6 类；v0.2.3 的 Part 18 最终扩到 **10 类**，见该行。）
 
 #### 1.3 JS 引擎 `book.getVariable` / `setVariable` 真实持久化 (`JSEngine.swift` & `Book.swift`)
 - **问题**：`JSEngine.swift:239-240` 中 `getVariable` 恒返回 `""`，`setVariable` 为空闭包。
@@ -141,7 +141,7 @@
 | 模块 | 核心改进点 | 涉及文件 |
 |---|---|---|
 | **Part 7：全部书签汇总页 (`AllBookmarksView`)** | 7.1 设置页挂载「所有书签」入口，按「书名 · 作者」分组展示全站书签<br>7.2 支持全局书签内容/备注搜索、编辑/删除书签、一键导出全站书签（JSON / Markdown 至剪贴板） | `SettingsView.swift`<br>`BookmarkSheet.swift` |
-| **Part 8：本地备份包导出与恢复 (`LocalBackup`)** | 8.1 `WebDAVSyncView` 增加「生成并导出本地备份包 (`backup*.zip`)」能力（无需配置 WebDAV 即可离线导出/导入完整 6 类数据） | `WebDAVSyncView.swift` |
+| **Part 8：本地备份包导出与恢复 (`LocalBackup`)** | 8.1 `WebDAVSyncView` 增加「生成并导出本地备份包 (`backup*.zip`)」能力（无需配置 WebDAV 即可离线导出/导入完整 10 类数据） | `WebDAVSyncView.swift` |
 | **Part 9：搜索页书架匹配区块 (`SearchBookView`)** | 9.1 输入或搜索关键词时，若本地书架存在书名/作者匹配的藏书，在顶部优先展示「书架已有」快捷卡片 | `SearchBookView.swift` |
 | **Part 10：源变量与书籍变量编辑弹窗 (`VariableDialog`)** | 10.1 在 `BookDetailView` 菜单提供「设置书籍变量」与「设置源变量」弹窗（显示 `variableComment` 提示，读写持久化变量） | `BookDetailView.swift`<br>`BookStore.swift` |
 
@@ -158,4 +158,4 @@
 | **Part 15：条漫 / 漫画长图全屏与缩放预览** | 15.1 `ChapterImageView` 支持全屏缩放、双向手势滚动与清晰大图预览 | `ReaderView.swift` |
 | **Part 16：章节区间离线缓存 (`ChapterRangeDownloadSheet`)** | 16.1 阅读页溢出菜单上线「离线下载章节...」，支持起止章滑块、后续 50/100/全部下载及后台限流下载 | `ReaderView.swift`<br>`BookContentService.swift` |
 | **Part 17：书架分组体系 (`BookGroup`)** | 17.1 支持书架顶栏分组横向胶囊切换（全部/本地/自定义分组）<br>17.2 支持自定义分组 CRUD (`BookGroupManageSheet`)，多选模式支持批量移入分组 | `RuleModels.swift`<br>`BookshelfView.swift`<br>`BookStore.swift` |
-| **Part 18：WebDAV 完整 8 类数据备份互通** | 18.1 备份/恢复全覆盖：`bookshelf`, `bookSource`, `bookmark`, `replaceRule`, `searchHistory`, `readConfig`, `txtTocRule`, `readRecord`（+ `bookProgress/`） | `WebDAVService.swift`<br>`BookStore.swift`<br>`WebDAVSyncView.swift` |
+| **Part 18：WebDAV 完整 10 类数据备份互通** | 18.1 备份/恢复全覆盖：`bookshelf`, `bookSource`, `bookmark`, `replaceRule`, `searchHistory`, `readConfig`, `txtTocRule`, `readRecord`, `rssSources`, `rssStar`（+ `bookProgress/`） | `WebDAVService.swift`<br>`BookStore.swift`<br>`WebDAVSyncView.swift` |

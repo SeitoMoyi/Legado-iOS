@@ -142,6 +142,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>1706C3B013F8374F869010B2</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Services/LaunchRouter.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>18F2053E418685EEAF8FF6A6</key>
 		<dict>
 			<key>isa</key>
@@ -403,7 +414,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.3</string>
+				<string>0.2.3.1</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -734,6 +745,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>75F910926BC92D6C983565C5</key>
+		<dict>
+			<key>fileRef</key>
+			<string>1706C3B013F8374F869010B2</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>7A65BFBF9DF1BA7ED70DF463</key>
 		<dict>
 			<key>isa</key>
@@ -821,6 +839,8 @@
 				<string>E35CD718A81E7C0FD79E8E38</string>
 				<string>68327E34D4188645448DDA50</string>
 				<string>E6A5696F85EF7F1815D5F780</string>
+				<string>BA1F864FD654A78F1BB09449</string>
+				<string>1706C3B013F8374F869010B2</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -996,6 +1016,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>9428B1B564C516D1F8B62EEA</key>
+		<dict>
+			<key>fileRef</key>
+			<string>BA1F864FD654A78F1BB09449</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>96674C3FF4C27A98F9B32CFA</key>
 		<dict>
 			<key>isa</key>
@@ -1117,6 +1144,8 @@
 				<string>15692DF8CB74C0BAD8336DD3</string>
 				<string>81ABF06770933088C54FB22C</string>
 				<string>FEC4ACB5B9620EDE0E938738</string>
+				<string>9428B1B564C516D1F8B62EEA</string>
+				<string>75F910926BC92D6C983565C5</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1280,6 +1309,17 @@
 			<string>3B768B619B0210A4736D26A8</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>BA1F864FD654A78F1BB09449</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/LaunchIntent.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>C1075C1609FDA4D2F1A8E871</key>
 		<dict>
@@ -1627,7 +1667,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.3</string>
+				<string>0.2.3.1</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>

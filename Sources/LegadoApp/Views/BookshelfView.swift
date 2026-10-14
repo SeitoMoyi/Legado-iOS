@@ -38,6 +38,7 @@ public struct BookshelfView: View {
     @State private var showBatchDeleteConfirm: Bool = false
     @State private var selectedGroupId: Int64 = BookGroup.idAll
     @State private var showMoveGroupDialog: Bool = false
+    @ObservedObject private var launchRouter = LaunchRouter.shared
     @State private var showGroupManageSheet: Bool = false
 
     public init() {}
@@ -195,7 +196,7 @@ public struct BookshelfView: View {
                 )
                 .navigationTitle("我的书架")
                 .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
+                    ToolbarItem(placement: .primaryAction) {
                         if isSelecting {
                             Button("完成") {
                                 withAnimation {
@@ -204,63 +205,65 @@ public struct BookshelfView: View {
                                 }
                             }
                         } else {
-                            Button(action: { isSearchActive = true }) {
-                                Image(systemName: "magnifyingglass")
-                            }
-
-                            Menu {
-                                Button {
-                                    withAnimation {
-                                        isSelecting = true
-                                    }
-                                } label: {
-                                    Label("选择", systemImage: "checkmark.circle")
+                            HStack(spacing: 12) {
+                                Button(action: { isSearchActive = true }) {
+                                    Image(systemName: "magnifyingglass")
                                 }
 
-                                Button {
-                                    withAnimation {
-                                        isGridMode.toggle()
+                                Menu {
+                                    Button {
+                                        withAnimation {
+                                            isSelecting = true
+                                        }
+                                    } label: {
+                                        Label("选择", systemImage: "checkmark.circle")
                                     }
-                                } label: {
-                                    Label(isGridMode ? "切换为列表视图" : "切换为三列网格",
-                                          systemImage: isGridMode ? "list.bullet" : "square.grid.3x2")
-                                }
 
-                                Menu("排序方式 (\(sortOrder.label))") {
-                                    ForEach(BookshelfSortOrder.allCases, id: \.rawValue) { order in
-                                        Button {
-                                            sortOrderRaw = order.rawValue
-                                        } label: {
-                                            if sortOrder == order {
-                                                Label(order.label, systemImage: "checkmark")
-                                            } else {
-                                                Text(order.label)
+                                    Button {
+                                        withAnimation {
+                                            isGridMode.toggle()
+                                        }
+                                    } label: {
+                                        Label(isGridMode ? "切换为列表视图" : "切换为三列网格",
+                                              systemImage: isGridMode ? "list.bullet" : "square.grid.3x2")
+                                    }
+
+                                    Menu("排序方式 (\(sortOrder.label))") {
+                                        ForEach(BookshelfSortOrder.allCases, id: \.rawValue) { order in
+                                            Button {
+                                                sortOrderRaw = order.rawValue
+                                            } label: {
+                                                if sortOrder == order {
+                                                    Label(order.label, systemImage: "checkmark")
+                                                } else {
+                                                    Text(order.label)
+                                                }
                                             }
                                         }
                                     }
-                                }
 
-                                Button {
-                                    showGroupManageSheet = true
-                                } label: {
-                                    Label("书架分组管理", systemImage: "folder.badge.gearshape")
-                                }
+                                    Button {
+                                        showGroupManageSheet = true
+                                    } label: {
+                                        Label("书架分组管理", systemImage: "folder.badge.gearshape")
+                                    }
 
-                                Button {
-                                    showFileImporter = true
-                                } label: {
-                                    Label("导入本地书籍 (EPUB/TXT)", systemImage: "doc.badge.plus")
-                                }
+                                    Button {
+                                        showFileImporter = true
+                                    } label: {
+                                        Label("导入本地书籍 (EPUB/TXT)", systemImage: "doc.badge.plus")
+                                    }
 
-                                Button {
-                                    Task {
-                                        await bookStore.refreshAllBooks()
+                                    Button {
+                                        Task {
+                                            await bookStore.refreshAllBooks()
+                                        }
+                                    } label: {
+                                        Label("刷新全部目录", systemImage: "arrow.clockwise")
                                     }
                                 } label: {
-                                    Label("刷新全部目录", systemImage: "arrow.clockwise")
+                                    Image(systemName: "ellipsis.circle")
                                 }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
                             }
                         }
                     }
@@ -334,6 +337,17 @@ public struct BookshelfView: View {
             }
             #endif
         }
+        .onAppear { consumePendingBook() }
+        .onChange(of: launchRouter.pendingBook) { _ in consumePendingBook() }
+    }
+
+    /// Opens the book a 「继续阅读」 quick action resolved to. The router parks it rather than
+    /// presenting the reader itself, because the reader lives in this view's state.
+    private func consumePendingBook() {
+        guard let book = launchRouter.pendingBook else { return }
+        launchRouter.pendingBook = nil
+        selectedGroupId = BookGroup.idAll
+        selectedBook = book
     }
 
     private func toggleSelection(for url: String) {

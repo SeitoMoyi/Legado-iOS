@@ -111,6 +111,8 @@
 ]
 ```
 > **提示**：`url` 为空或含标题属性的条目会被自动识别为分组标题；带有有效 `url` 的条目会提取到顶部的横向快捷筛选栏与完整分类矩阵抽屉中。
+>
+> ⚠️ **iOS 差异**：`style`（`layout_flexGrow` / 颜色 / 圆角 / 粗体 / 字号）字段**当前被忽略**——`BookExploreService.parseCategories` 只解析 `title` / `url`，分组标题按「url 为空」判定。写上 `style` 不会报错，但不会有自定义外观。
 
 ### 5.2 换行文本格式
 ```text
@@ -137,7 +139,8 @@
 
 对于需要登录访问 VIP 章节、书架或通过 Cloudflare / 反爬验证的站点：
 1. **API 登录**:
-   - 书源配置 `loginUrl` 搭配 JS 脚本，在登录成功后通过 `java.put("loginHeader", ...)` 自动捕获鉴权 Header。
+   - 书源配置 `loginUrl` 搭配 JS 脚本；登录脚本成功后调用 **`source.putLoginHeader(JSON字符串)`** 保存鉴权 Header（Android 侧同名方法会同时写入 CookieStore；iOS 侧写入 `loginHeader` 字段并在后续请求中作为默认 Header 携带）。
+   - 也可在 JS 内用 `source.getLoginInfoMap().get("账号")` 读取用户在登录表单填入的凭据。
 2. **交互式网页登录 (Web Cookie)**:
    - 若 `loginUrl` 为纯网页地址（例如 `https://www.esjzone.cc/my/profile.html`），长按书源选择「登录」时，App 会直接启动内置 WebKit 浏览器。
    - 用户在页面完成登录或人机验证后，系统会自动抓取会话 Cookie（如 `ews_token`, `PHPSESSID` 等）并持久化保存。

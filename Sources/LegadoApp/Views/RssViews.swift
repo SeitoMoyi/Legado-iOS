@@ -106,45 +106,47 @@ public struct RssSourceListView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        showFavorites = true
-                    } label: {
-                        Image(systemName: "star")
-                    }
-
-                    Menu {
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 12) {
                         Button {
-                            editingSource = RssSource()
-                            showEditSheet = true
+                            showFavorites = true
                         } label: {
-                            Label("新建订阅源", systemImage: "plus")
+                            Image(systemName: "star")
                         }
 
-                        Button {
-                            showImportSheet = true
-                        } label: {
-                            Label("导入订阅源 JSON", systemImage: "doc.badge.plus")
-                        }
+                        Menu {
+                            Button {
+                                editingSource = RssSource()
+                                showEditSheet = true
+                            } label: {
+                                Label("新建订阅源", systemImage: "plus")
+                            }
 
-                        Button {
-                            sources = RssStore.defaultSources
-                            RssStore.saveSources(sources)
-                        } label: {
-                            Label("恢复默认订阅源", systemImage: "arrow.clockwise")
-                        }
+                            Button {
+                                showImportSheet = true
+                            } label: {
+                                Label("导入订阅源 JSON", systemImage: "doc.badge.plus")
+                            }
 
-                        Button {
-                            if let json = RssStore.exportSourcesJSON(sources) {
-                                copyToClipboard(json)
-                                alertMessage = "已将全部订阅源导出为 JSON 至剪贴板"
-                                showAlert = true
+                            Button {
+                                sources = RssStore.defaultSources
+                                RssStore.saveSources(sources)
+                            } label: {
+                                Label("恢复默认订阅源", systemImage: "arrow.clockwise")
+                            }
+
+                            Button {
+                                if let json = RssStore.exportSourcesJSON(sources) {
+                                    copyToClipboard(json)
+                                    alertMessage = "已将全部订阅源导出为 JSON 至剪贴板"
+                                    showAlert = true
+                                }
+                            } label: {
+                                Label("导出全部至剪贴板", systemImage: "square.and.arrow.up")
                             }
                         } label: {
-                            Label("导出全部至剪贴板", systemImage: "square.and.arrow.up")
+                            Image(systemName: "ellipsis.circle")
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
