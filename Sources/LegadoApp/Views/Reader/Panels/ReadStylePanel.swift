@@ -56,7 +56,7 @@ struct ReadStylePanel: View {
                     }
                     ReaderPanelMenuRow(title: "翻页", config: config, current: config.pageAnim.label) {
                         ForEach(PageAnim.allCases) { anim in
-                            Button(anim.label) { config.setPageAnim(anim); onRepaginate() }
+                            Button(anim.label) { config.setPageAnim(anim) }
                         }
                     }
 

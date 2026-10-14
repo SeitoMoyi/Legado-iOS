@@ -843,25 +843,17 @@ public struct ReaderView: View {
     }
 
     private func updateReadingBlockIdFromCurrentPage() {
-        guard let cur = currentLoadedChapter, !cur.pages.isEmpty else { return }
-        var charPos = 0
-        let limit = min(currentPageIndex, cur.pages.count)
-        for p in 0..<limit {
-            for block in cur.pages[p] {
-                charPos += block.text.count
+        guard let cur = currentLoadedChapter else { return }
+        if let typo = cur.typography,
+           currentPageIndex < typo.pageRanges.count {
+            let range = typo.pageRanges[currentPageIndex]
+            if range.lowerBound < typo.lines.count {
+                let charPos = typo.lines[range.lowerBound].charRange.lowerBound
+                scrollReadingCharOffset = charPos
+                scrollTargetCharPos = charPos
+                book.durChapterPos = charPos
             }
         }
-        var accumulated = 0
-        var targetBlockId = cur.blocks.first?.id ?? 0
-        for block in cur.blocks {
-            if accumulated + block.text.count > charPos {
-                targetBlockId = block.id
-                break
-            }
-            accumulated += block.text.count
-            targetBlockId = block.id
-        }
-        currentReadingBlockId = targetBlockId
     }
 
     private var currentChapterTotalPages: Int {
@@ -1227,20 +1219,6 @@ public struct ReaderView: View {
             // 1. Switching from Continuous Scroll to Page-by-Page:
             if let typo = cur.typography {
                 currentPageIndex = typo.pageIndex(forCharOffset: scrollReadingCharOffset)
-            } else {
-                let charPos = currentChapterCharOffset()
-                var accumulated = 0
-                var targetPage = 0
-                for (pIdx, page) in cur.pages.enumerated() {
-                    let pageCharCount = page.reduce(0) { $0 + $1.text.count }
-                    if accumulated + pageCharCount > charPos {
-                        targetPage = pIdx
-                        break
-                    }
-                    accumulated += pageCharCount
-                    targetPage = pIdx
-                }
-                currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
             }
             updateReadingBlockIdFromCurrentPage()
         } else {
@@ -1248,12 +1226,17 @@ public struct ReaderView: View {
             if let typo = cur.typography, currentPageIndex < typo.pageRanges.count {
                 let range = typo.pageRanges[currentPageIndex]
                 if range.lowerBound < typo.lines.count {
-                    scrollTargetCharPos = typo.lines[range.lowerBound].charRange.lowerBound
+                    let charPos = typo.lines[range.lowerBound].charRange.lowerBound
+                    scrollReadingCharOffset = charPos
+                    scrollTargetCharPos = charPos
                 } else {
+                    scrollReadingCharOffset = 0
                     scrollTargetCharPos = 0
                 }
             } else {
-                scrollTargetCharPos = currentChapterCharOffset()
+                let charPos = currentChapterCharOffset()
+                scrollReadingCharOffset = charPos
+                scrollTargetCharPos = charPos
             }
             scrollSessionId = UUID()
         }
