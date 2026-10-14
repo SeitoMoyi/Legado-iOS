@@ -119,27 +119,6 @@ public final class ChapterTypography: Identifiable {
         }
         return 0
     }
-
-    /// Finds the continuous scroll Y coordinate for a slide page
-    public func scrollY(forPage pageIndex: Int, paddingTop: CGFloat = 40.0) -> CGFloat {
-        guard pageIndex > 0, pageIndex < pageRanges.count else { return 0 }
-        let lineIdx = pageRanges[pageIndex].lowerBound
-        guard lineIdx < lines.count else { return 0 }
-        return max(0, lines[lineIdx].y - paddingTop)
-    }
-
-    /// Finds the slide page index closest to a continuous scroll Y offset
-    public func pageIndex(forScrollY scrollY: CGFloat, paddingTop: CGFloat = 40.0) -> Int {
-        guard !lines.isEmpty, !pageRanges.isEmpty else { return 0 }
-        if scrollY <= titleTotalHeight {
-            return 0
-        }
-        let readingY = scrollY + paddingTop
-        if let line = lines.first(where: { ($0.y + $0.height) >= readingY }) {
-            return pageIndex(forLine: line.index)
-        }
-        return pageRanges.count - 1
-    }
 }
 
 // MARK: - Unified Typography Engine (Single Source of Layout Truth)

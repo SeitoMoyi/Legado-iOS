@@ -3,10 +3,21 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.5-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.5.1-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+
+---
+
+## ✨ v0.2.5.1 新增
+
+阅读器代码清理与结构收敛（Phase A：死代码清除，零行为变更）：
+
+- 🧹 **删除冗余 PreferenceKeys 与坐标回传链路**：移除 SwiftUI `ScrollView` 时代残留的 `BlockFrameInfo`、`ReaderScrollPreferenceKey`、`ScrollOffsetPreferenceKey`，全面统一由原生 `UIScrollView` 委托直接驱动阅读游标。
+- 🧹 **删除失效的 `scrollToChapterId` 字符串锚点状态机**：彻底废弃 `"block_x_y"`、`"chapter_x"`、`"chapter_end_x"` 等无消费方的滚动锚点写入，章节跳转与模式切换统一由 `scrollSessionId` + `targetCharPos` 精确驱动。
+- 🧹 **删除重复的第二套排版实现**：从 `ReaderView` 中移除 `ContentBlock` 数据模型、`parseContentBlocks`、`trimTrailingWhitespace`、`splitParagraphIntoLines`、`buildPageBlocks`、`paginate`、`calculateLayoutMetrics` 等旧分页函数，全仓正文排版仅保留 `ChapterTypography` 单一真理源，杜绝未来再次出现双源漂移。
+- 🧹 **删除 `ChapterTypography` 死方法**：移除已无调用方的 `scrollY(forPage:)` 与 `pageIndex(forScrollY:)`，滑动/滚动索引切换只通过字符偏移（`forCharOffset` / `charRange`）单一路径完成。
 
 ---
 

@@ -6,6 +6,7 @@
 
 ## 目录
 - [版本总览](#版本总览)
+- [v0.2.5.1（阅读器死代码清除与排版单一真理源收敛）](#v0251阅读器死代码清除与排版单一真理源收敛)
 - [v0.2.5（统一排版引擎架构、零漂移模式切换与长标题折行）](#v025统一排版引擎架构零漂移模式切换与长标题折行)
 - [v0.2.4（纵向长卷连续滚动重构、P0 遗留项清零与 iOS 15 兼容）](#v024纵向长卷连续滚动重构p0-遗留项清零与-ios-15-兼容)
 - [v0.2.3（书源 / 书架 / 规则工具链补齐，订阅与音频模块落地）](#v023书源--书架--规则工具链补齐订阅与音频模块落地)
@@ -20,12 +21,42 @@
 
 | 版本 | 定位 | 主要更新内容 |
 |---|---|---|
+| **v0.2.5.1** | 阅读器死代码清除与排版单一真理源收敛（Phase A） | 删除 SwiftUI 滚动时代残留的 PreferenceKeys / `scrollToChapterId` 字符串锚点；删除 `ReaderView` 中第二套 `ContentBlock` + `paginate` 重复排版实现；全仓正文排版收敛至 `ChapterTypography` 单一真理源，零行为变更 |
 | **v0.2.5** | 统一排版架构、零漂移切换与长标题折行 | 统一滑动与滚动模式为同一套 CoreText 排版引擎 (`ChapterTypography`)；彻底解决滑动与滚动互相切换时漂移数行、重置回换页前旧位置的 Bug；章节长标题自适应多行折行，杜绝截断；排版换行符全局保护 |
 | **v0.2.4** | 纵向长卷连续滚动重构、P0 遗留项清零与 iOS 15 兼容 | 纵向连续滚动排版重构与全自动无缝长卷阅读；常驻系统顶栏状态栏；顶栏换源/刷新一键快捷图标；章节内容编辑 (`EditContentSheet`)；WebDAV 进度双向同步与智能覆盖；滚动模式朗读段落高亮与自动平滑居中；修复 iOS 15 顶栏多按钮显示 |
 | **v0.2.3** | 书源 / 书架 / 规则工具链补齐，订阅与音频模块落地，Android 数据互通 | XPath 规则引擎（`RuleTokenizer` + `RuleAnalyzer`）、WebDAV 10 类数据完整备份恢复、JS 变量持久化、6-Tab 全字段书源编辑器与四阶段调试台、书源管理搜索/三态胶囊/多选批量/并发校验、书架三列网格与 4 种排序与批量管理、书架分组体系、书籍信息编辑与整书换源、目录自动定位/正倒序/缓存标记、TXT 目录规则、阅读记录统计、字典规则与阅读查词、HttpTTS 与在线有声书播放器、条漫全屏预览、章节区间离线下载、全部书签汇总、本地备份包导出/导入、4-Tab 根架构（书架/分类/订阅/设置）与 RSS 订阅基础闭环、URL Scheme (`legado://` / `yuedu://`) 导入、主屏快捷操作、局域网 WiFi 传书 |
 | **v0.2.2** | 缓存与离线可用性 | 目录缓存优先（TOC Cache）与 10 分钟静默刷新、离线失败态解死锁、续页总时长预算与截断保护、纯追加安全阀（`TocCache.isAppendOnly`）、朗读悬浮控制条 (`ReadAloudFloatingBar`)、听书状态自持、阅读面板归一 (`ReaderPanelChrome`)、设置页冗余项收敛、主动移除亮度调节与音量键翻页 |
 | **v0.2.1** | P0 核心阅读闭环 | 阅读页三级菜单与更多设置面板、配置持久化 (`ReaderStore`)、书签体系、整书/单章换源 (`ChapterMatcher`)、替换净化管线 (`ContentProcessor`)、朗读面板与后台音频、搜索历史与搜索范围、字符集自动嗅探与目录/正文续页 |
 | **v0.2.0** | 初始移植基线 | 基础书架、EPUB/TXT 阅读器、书源解析骨架、WebDAV 同步基础功能 |
+
+---
+
+## v0.2.5.1（阅读器死代码清除与排版单一真理源收敛）
+
+> 本版为 **Phase A 纯清理**：不改变任何用户可感知行为，只删除迁移至原生 `UIScrollView` 画布后失去消费方的历史代码，为 Phase B（`LoadedChapter` 完全去 `blocks`/`pages` 化）扫清障碍。
+
+### 清理清单
+| 类别 | 删除内容 | 原因 |
+|---|---|---|
+| SwiftUI PreferenceKey | `BlockFrameInfo`、`ReaderScrollPreferenceKey`、`ScrollOffsetPreferenceKey` | 原生 `ContinuousScrollReaderUIView` 已改用 `scrollViewDidScroll` 直接上报首行字符偏移，Preference 回传链路无任何消费方 |
+| 滚动锚点状态机 | `scrollToChapterId`（`"block_x_y"` / `"chapter_x"` / `"chapter_end_x"`）及全部写入点 | 章节跳转、进度恢复、模式切换均已改由 `scrollSessionId` + `targetCharPos` + `contentOffset` 驱动，字符串锚点只写不读 |
+| 第二套排版实现 | `ContentBlock` 结构体、`parseContentBlocks`、`trimTrailingWhitespace`、`splitParagraphIntoLines`、`buildPageBlocks`、`paginate`、`calculateLayoutMetrics` | 与 `ChapterTypography` / `TypographyEngine` 完全重复，正是此前两套算法累积偏差导致模式切换漂移数行的根源 |
+| 死方法 | `ChapterTypography.scrollY(forPage:)`、`ChapterTypography.pageIndex(forScrollY:)` | 滑动↔滚动索引换算已统一走 `pageIndex(forCharOffset:)` / `charRange` 单一路径，零调用方 |
+
+### 消费点等价替换（行为不变）
+| 原 `blocks`/`pages` 用法 | 替换为 |
+|---|---|
+| `chapter.pages[pageIndex].map { $0.text }` | `typo.lines[typo.pageRanges[pageIndex]].map { $0.text }` |
+| `chapter.pages[pageIndex].map { $0.imageUrl == "p_end" }` | `typo.lines[...].map { $0.isParagraphEnd }` |
+| `pages[...].first?.isImage` 图片页判定 | `typo.images.first { $0.id == pageRanges[i].lowerBound }` |
+| `pages` 字符累计循环求 offset | `typo.lines[pageRanges[i].lowerBound].charRange.lowerBound`（O(1)） |
+| `currentReadingBlockId` 块游标 | `scrollReadingCharOffset`（滑动翻页即时同步） |
+| `cur.pages.count` 总页数 | `currentChapterTotalPages` ← `typo.pageRanges.count` |
+
+### 验证
+- `swift test --skip LiveSourceTests`：220 项全部通过。
+- `xcodebuild -scheme LegadoApp`（iOS Simulator，arm64 + x86_64）：编译通过。
+- 阅读模式切换、翻页、书签摘录、朗读起点、WebDAV 进度同步路径均经代码走查确认无行为差异。
 
 ---
 

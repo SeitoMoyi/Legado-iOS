@@ -453,8 +453,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         for typo in chapterTypographies {
             let loaded = LoadedChapter(
                 chapter: typo.chapter,
-                content: typo.rawContent,
-                blocks: []
+                content: typo.rawContent
             )
             let updated = buildTypography(for: loaded)
             updated.yOffset = currentY

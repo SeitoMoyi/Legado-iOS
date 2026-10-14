@@ -4,41 +4,11 @@ import CoreText
 import LegadoCore
 #endif
 
-public struct ContentBlock: Identifiable {
-    public let id: Int
-    public let isImage: Bool
-    public let text: String
-    public let imageUrl: String?
-}
-
 public struct LoadedChapter: Identifiable {
     public var id: Int { chapter.index }
     public let chapter: BookChapter
     public var content: String
     public var typography: ChapterTypography? = nil
-    public var blocks: [ContentBlock] = []
-    public var pages: [[ContentBlock]] = []
-}
-
-public struct BlockFrameInfo: Equatable {
-    public let chapterIndex: Int
-    public let blockId: Int
-    public let minY: CGFloat
-    public let maxY: CGFloat
-}
-
-public struct ReaderScrollPreferenceKey: PreferenceKey {
-    public static var defaultValue: [BlockFrameInfo] = []
-    public static func reduce(value: inout [BlockFrameInfo], nextValue: () -> [BlockFrameInfo]) {
-        value.append(contentsOf: nextValue())
-    }
-}
-
-public struct ScrollOffsetPreferenceKey: PreferenceKey {
-    public static var defaultValue: CGFloat = 0
-    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
 }
 
 extension View {
@@ -82,7 +52,6 @@ public struct ReaderView: View {
     @State private var currentChapterIndex: Int = 0
     @State private var loadedChapters: [LoadedChapter] = []
     @State private var currentPageIndex: Int = 0
-    @State private var currentReadingBlockId: Int = 0
     /// Which side the incoming page enters from; `cover` and `slide` differ only here.
     @State private var pageEdge: Edge = .trailing
     @State private var chapterCache: [Int: LoadedChapter] = [:]
@@ -90,7 +59,6 @@ public struct ReaderView: View {
 
     @State private var isLoadingInitial: Bool = true
     @State private var scrollSessionId: UUID = UUID()
-    @State private var scrollToChapterId: String? = nil
     @State private var scrollTargetCharPos: Int? = nil
     @State private var scrollReadingCharOffset: Int = 0
     @State private var errorMessage: String? = nil
@@ -754,24 +722,19 @@ public struct ReaderView: View {
 
                         // Page Content
                         if let cur = currentLoadedChapter,
-                           currentPageIndex < cur.pages.count,
-                           cur.pages[currentPageIndex].first?.isImage == true,
-                           let urlStr = cur.pages[currentPageIndex].first?.imageUrl {
+                           let typo = cur.typography,
+                           currentPageIndex < typo.pageRanges.count,
+                           let img = typo.images.first(where: { $0.id == typo.pageRanges[currentPageIndex].lowerBound }) {
                             let isFullImg = readerConfig.prefs.imageStyle == .full
-                            ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
+                            ChapterImageView(urlString: img.urlString, referer: effectiveSource?.bookSourceUrl)
                                 .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
                             let (lines, isParagraphEnd): ([String], [Bool]) = {
                                 if let cur = currentLoadedChapter,
                                    let typo = cur.typography,
                                    currentPageIndex < typo.pageRanges.count {
-                                    let range = typo.pageRanges[currentPageIndex]
-                                    let slice = Array(typo.lines[range])
+                                    let slice = Array(typo.lines[typo.pageRanges[currentPageIndex]])
                                     return (slice.map { $0.text }, slice.map { $0.isParagraphEnd })
-                                }
-                                if let cur = currentLoadedChapter, currentPageIndex < cur.pages.count {
-                                    let blocks = cur.pages[currentPageIndex]
-                                    return (blocks.map { $0.text }, blocks.map { $0.imageUrl == "p_end" })
                                 }
                                 return ([], [])
                             }()
@@ -860,7 +823,7 @@ public struct ReaderView: View {
         if let typo = currentLoadedChapter?.typography, !typo.pageRanges.isEmpty {
             return typo.pageRanges.count
         }
-        return max(1, currentLoadedChapter?.pages.count ?? 1)
+        return 1
     }
 
     // MARK: - Page Turn Handler (Once chapter ends, next chapter starts next page)
@@ -881,7 +844,6 @@ public struct ReaderView: View {
                     let nextIdx = currentChapterIndex + 1
                     currentChapterIndex = nextIdx
                     currentPageIndex = 0
-                    currentReadingBlockId = 0
                     loadInitialChapter(at: nextIdx, targetPageIndex: 0)
                 }
             }
@@ -1095,7 +1057,7 @@ public struct ReaderView: View {
             // Reading Percentage / Page Info
             if !chapters.isEmpty {
                 let progressPercent = Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0
-                if readerConfig.pageMode == .pageByPage, let cur = currentLoadedChapter, !cur.pages.isEmpty {
+                if readerConfig.pageMode == .pageByPage, currentLoadedChapter?.typography != nil {
                     Text("\(currentPageIndex + 1)/\(currentChapterTotalPages) · \(String(format: "%.1f%%", progressPercent))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
@@ -1122,7 +1084,7 @@ public struct ReaderView: View {
     private var chapterNavigationRow: some View {
         let isPageSliderMode = (readerConfig.prefs.progressBarBehavior == 0)
             && (readerConfig.pageMode == .pageByPage)
-            && ((currentLoadedChapter?.pages.count ?? 0) > 1)
+            && (currentChapterTotalPages > 1)
         let pageCount = currentChapterTotalPages
 
         return HStack(spacing: 14) {
@@ -1205,8 +1167,6 @@ public struct ReaderView: View {
         audioService.stop()
         currentChapterIndex = targetIndex
         currentPageIndex = 0
-        currentReadingBlockId = 0
-        scrollToChapterId = nil
         scrollTargetCharPos = toEnd ? Int.max : nil
         scrollSessionId = UUID()
         loadInitialChapter(at: targetIndex, targetPageIndex: toEnd ? -1 : 0, scrollToTargetEnd: toEnd)
@@ -1538,14 +1498,10 @@ public struct ReaderView: View {
             imageStyle: readerConfig.prefs.imageStyle,
             justify: readerConfig.prefs.textFullJustify
         )
-        let blocks = parseContentBlocks(from: content)
-        let pages = paginate(blocks: blocks, titleHeight: typo.titleTotalHeight)
         return LoadedChapter(
             chapter: chapter,
             content: content,
-            typography: typo,
-            blocks: blocks,
-            pages: pages
+            typography: typo
         )
     }
 
@@ -1658,41 +1614,21 @@ public struct ReaderView: View {
                     ?? (index == self.book.durChapterIndex ? self.book.durChapterPos : 0)
 
                 // Restore position if durChapterPos is saved and opening the current chapter
+                let totalPages = max(1, loaded.typography?.pageRanges.count ?? 1)
                 if targetPageIndex == 0 && restorePos > 0 {
                     if self.readerConfig.pageMode == .pageByPage {
                         if let typo = loaded.typography {
                             self.currentPageIndex = typo.pageIndex(forCharOffset: restorePos)
                         } else {
-                            var accumulated = 0
-                            var targetPage = 0
-                            for (pIdx, page) in loaded.pages.enumerated() {
-                                let pageCount = page.reduce(0) { $0 + $1.text.count }
-                                if accumulated + pageCount > restorePos {
-                                    targetPage = pIdx
-                                    break
-                                }
-                                accumulated += pageCount
-                                targetPage = pIdx
-                            }
-                            self.currentPageIndex = min(targetPage, max(0, loaded.pages.count - 1))
+                            self.currentPageIndex = 0
                         }
                     } else {
                         self.scrollTargetCharPos = restorePos
                     }
                 } else if targetPageIndex == -1 {
-                    self.currentPageIndex = max(0, loaded.pages.count - 1)
-                    if self.readerConfig.pageMode == .scroll && self.scrollToChapterId == nil {
-                        self.scrollToChapterId = "chapter_end_\(index)"
-                    }
+                    self.currentPageIndex = totalPages - 1
                 } else {
-                    self.currentPageIndex = min(targetPageIndex, max(0, loaded.pages.count - 1))
-                    if self.readerConfig.pageMode == .scroll && self.scrollToChapterId == nil {
-                        self.scrollToChapterId = "chapter_\(index)"
-                    }
-                }
-
-                if self.currentPageIndex < loaded.pages.count {
-                    self.currentReadingBlockId = loaded.pages[self.currentPageIndex].first?.id ?? 0
+                    self.currentPageIndex = min(targetPageIndex, totalPages - 1)
                 }
 
                 self.loadedChapters = [loaded]
@@ -1706,10 +1642,6 @@ public struct ReaderView: View {
                 // 「更新目录」。
                 if index >= self.chapters.count - 3 {
                     Task { await self.refreshTOC(force: false, notice: .silent) }
-                }
-
-                if readerConfig.pageMode == .scroll && self.scrollToChapterId == nil {
-                    self.scrollToChapterId = scrollToTargetEnd ? "chapter_end_\(index)" : "chapter_\(index)"
                 }
             } catch {
                 // Android renders the error as the page's text (`ReadBook.upMsg`) and keeps the
@@ -1737,110 +1669,20 @@ public struct ReaderView: View {
             chapterCache[ch.chapter.index] = loadedChapters[i]
         }
 
-        if let cur = currentLoadedChapter {
-            if let typo = cur.typography {
-                currentPageIndex = typo.pageIndex(forCharOffset: charPos)
-            } else if !cur.pages.isEmpty {
-                var accumulated = 0
-                var targetPage = 0
-                for (pIdx, page) in cur.pages.enumerated() {
-                    let pageCharCount = page.reduce(0) { $0 + $1.text.count }
-                    if accumulated + pageCharCount > charPos {
-                        targetPage = pIdx
-                        break
-                    }
-                    accumulated += pageCharCount
-                    targetPage = pIdx
-                }
-                currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
-            }
-            updateReadingBlockIdFromCurrentPage()
+        if let cur = currentLoadedChapter, let typo = cur.typography {
+            currentPageIndex = typo.pageIndex(forCharOffset: charPos)
         }
-    }
-
-    // MARK: - Paragraph and Page Parser
-
-    /// Turns already-sanitised, already-indented text into blocks.
-    ///
-    /// First-line indentation is applied by `ContentProcessor` (Android trims each line then
-    /// re-adds the configured indent). Trimming again here would erase it, so only trailing
-    /// whitespace is removed.
-    private func parseContentBlocks(from text: String) -> [ContentBlock] {
-        var blocks: [ContentBlock] = []
-        var currentId = 0
-        let regex = try? NSRegularExpression(pattern: "\\[image:(.*?)\\]")
-        let lines = text.components(separatedBy: "\n")
-
-        for line in lines {
-            let paragraph = Self.trimTrailingWhitespace(line)
-            if paragraph.isEmpty { continue }
-
-            if let regex = regex {
-                let nsLine = paragraph as NSString
-                let matches = regex.matches(in: paragraph, range: NSRange(location: 0, length: nsLine.length))
-                if !matches.isEmpty {
-                    var lastIndex = 0
-                    for match in matches {
-                        if match.range.location > lastIndex {
-                            let textBefore = Self.trimTrailingWhitespace(
-                                nsLine.substring(with: NSRange(location: lastIndex, length: match.range.location - lastIndex)))
-                            if !textBefore.isEmpty {
-                                blocks.append(ContentBlock(id: currentId, isImage: false, text: textBefore, imageUrl: nil))
-                                currentId += 1
-                            }
-                        }
-                        if match.numberOfRanges > 1 {
-                            let imgUrl = nsLine.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
-                            if readerConfig.prefs.imageStyle != .textOnly {
-                                blocks.append(ContentBlock(id: currentId, isImage: true, text: "", imageUrl: imgUrl))
-                                currentId += 1
-                            }
-                        }
-                        lastIndex = match.range.location + match.range.length
-                    }
-                    if lastIndex < nsLine.length {
-                        let textAfter = nsLine.substring(from: lastIndex).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !textAfter.isEmpty {
-                            blocks.append(ContentBlock(id: currentId, isImage: false, text: textAfter, imageUrl: nil))
-                            currentId += 1
-                        }
-                    }
-                    continue
-                }
-            }
-
-            blocks.append(ContentBlock(id: currentId, isImage: false, text: paragraph, imageUrl: nil))
-            currentId += 1
-        }
-        return blocks
-    }
-
-    static func trimTrailingWhitespace(_ text: String) -> String {
-        var slice = Substring(text)
-        while let last = slice.last, last == " " || last == "\t" || last == "\r" || last == "\u{3000}" || last.isNewline {
-            slice = slice.dropLast()
-        }
-        return String(slice)
+        updateReadingBlockIdFromCurrentPage()
     }
 
     private func currentChapterCharOffset() -> Int {
-        guard let cur = currentLoadedChapter else { return 0 }
         if readerConfig.pageMode == .pageByPage {
-            if let typo = cur.typography,
-               currentPageIndex < typo.pageRanges.count {
-                let range = typo.pageRanges[currentPageIndex]
-                if range.lowerBound < typo.lines.count {
-                    return typo.lines[range.lowerBound].charRange.lowerBound
-                }
+            if let typo = currentLoadedChapter?.typography,
+               currentPageIndex < typo.pageRanges.count,
+               typo.pageRanges[currentPageIndex].lowerBound < typo.lines.count {
+                return typo.lines[typo.pageRanges[currentPageIndex].lowerBound].charRange.lowerBound
             }
-            var offset = 0
-            let limit = min(currentPageIndex, cur.pages.count)
-            for p in 0..<limit {
-                for block in cur.pages[p] {
-                    offset += block.text.count
-                }
-            }
-            return offset
+            return 0
         } else {
             return scrollReadingCharOffset
         }
@@ -1862,18 +1704,21 @@ public struct ReaderView: View {
     /// Text captured with a new bookmark: the current page when paging, or the paragraph the
     /// reader is on when scrolling.
     private func currentPageText() -> String {
-        guard let chapter = currentLoadedChapter else { return "" }
-        if readerConfig.pageMode == .pageByPage,
-           currentPageIndex < chapter.pages.count {
-            return chapter.pages[currentPageIndex]
-                .map { $0.text }
-                .filter { !$0.isEmpty && $0 != "p_end" }
-                .joined(separator: "\n")
+        guard let cur = currentLoadedChapter, let typo = cur.typography else { return "" }
+        let lineSlice: ArraySlice<TypographyLine>
+        if readerConfig.pageMode == .pageByPage, currentPageIndex < typo.pageRanges.count {
+            lineSlice = typo.lines[typo.pageRanges[currentPageIndex]]
+        } else {
+            // Continuous scroll: the paragraph the reading focus line sits in.
+            let focus = typo.lines.first { line in
+                scrollReadingCharOffset >= line.charRange.lowerBound
+                    && scrollReadingCharOffset < line.charRange.upperBound
+            } ?? typo.lines.first { $0.charRange.lowerBound >= scrollReadingCharOffset }
+            guard let anchor = focus else { return "" }
+            let paragraph = anchor.paragraphText
+            lineSlice = typo.lines.filter { $0.paragraphText == paragraph }[...]
         }
-        let start = chapter.blocks.firstIndex { $0.id == currentReadingBlockId } ?? 0
-        let end = min(start + 4, chapter.blocks.count)
-        guard start < end else { return "" }
-        return chapter.blocks[start..<end]
+        return lineSlice
             .map { $0.text }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -1952,7 +1797,6 @@ public struct ReaderView: View {
             }
             currentChapterIndex = target
             currentPageIndex = 0
-            currentReadingBlockId = loaded.blocks.first?.id ?? 0
             if readerConfig.pageMode == .scroll {
                 loadedChapters = [loaded]
             }
@@ -1978,12 +1822,16 @@ public struct ReaderView: View {
     /// the point: the block-summing offset used for `durChapterPos` does not count newlines or
     /// image lines, so feeding it to the speech queue would land on the wrong paragraph.
     private func currentAloudStartPos() -> Int {
-        guard let cur = currentLoadedChapter else { return 0 }
+        guard let cur = currentLoadedChapter, let typo = cur.typography else { return 0 }
         let anchorText: String
-        if readerConfig.pageMode == .pageByPage, currentPageIndex < cur.pages.count {
-            anchorText = cur.pages[currentPageIndex].first { !$0.text.isEmpty }?.text ?? ""
+        if readerConfig.pageMode == .pageByPage, currentPageIndex < typo.pageRanges.count {
+            let range = typo.pageRanges[currentPageIndex]
+            anchorText = range.lowerBound < typo.lines.count ? typo.lines[range.lowerBound].text : ""
         } else {
-            anchorText = cur.blocks.first { $0.id == currentReadingBlockId }?.text ?? ""
+            anchorText = typo.lines.first { line in
+                scrollReadingCharOffset >= line.charRange.lowerBound
+                    && scrollReadingCharOffset < line.charRange.upperBound
+            }?.text ?? ""
         }
         let needle = anchorText.trimmingCharacters(in: .whitespaces)
         guard !needle.isEmpty else { return 0 }
@@ -2149,110 +1997,6 @@ public struct ReaderView: View {
                 moveAloudChapter(by: delta)
             }
         }
-    }
-
-    /// Page capacity expressed as heights, so 段距 can be charged to the paragraph it
-    /// follows instead of being averaged over a fixed line count.
-    private func calculateLayoutMetrics(titleHeight: CGFloat? = nil) -> (lineHeight: CGFloat, pageHeight: CGFloat, firstPageHeight: CGFloat) {
-        let height = max(400, readerContainerSize.height)
-
-        let lineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
-        let usableHeight = max(200, height - readerConfig.paddingTop - readerConfig.paddingBottom)
-
-        // First page has chapter title (+ title padding)
-        let computedTitleHeight = titleHeight ?? (((readerConfig.fontSize + 3) * 1.3 + readerConfig.lineSpacing) * 1.5 + 16.0)
-
-        return (lineHeight: lineHeight,
-                pageHeight: usableHeight,
-                firstPageHeight: max(100, usableHeight - computedTitleHeight))
-    }
-
-    private func splitParagraphIntoLines(text: String, width: Double, fontSize: CGFloat) -> [(text: String, isParagraphEnd: Bool)] {
-        let font = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
-        var attributes: [CFString: Any] = [kCTFontAttributeName: font]
-        // Kerning changes how much fits on a line, so measurement and drawing have to agree.
-        if readerConfig.letterSpacing != 0 {
-            attributes[kCTKernAttributeName] = readerConfig.letterSpacing
-        }
-        guard let attrString = CFAttributedStringCreate(nil, text as CFString, attributes as CFDictionary) else {
-            return [(text, true)]
-        }
-        let typesetter = CTTypesetterCreateWithAttributedString(attrString)
-        var start = 0
-        let textLen = CFStringGetLength(text as CFString)
-        var result: [(text: String, isParagraphEnd: Bool)] = []
-        let nsStr = text as NSString
-
-        while start < textLen {
-            let count = CTTypesetterSuggestLineBreak(typesetter, start, width)
-            if count <= 0 { break }
-            let sub = nsStr.substring(with: NSRange(location: start, length: count))
-            let isEnd = (start + count >= textLen)
-            result.append((sub, isEnd))
-            start += count
-        }
-        return result
-    }
-
-    private func buildPageBlocks(from lines: [(text: String, isParagraphEnd: Bool)], startingId: inout Int) -> [ContentBlock] {
-        var blocks: [ContentBlock] = []
-        for line in lines {
-            blocks.append(ContentBlock(
-                id: startingId,
-                isImage: false,
-                text: line.text,
-                imageUrl: line.isParagraphEnd ? "p_end" : nil
-            ))
-            startingId += 1
-        }
-        return blocks
-    }
-
-    private func paginate(blocks: [ContentBlock], titleHeight: CGFloat? = nil) -> [[ContentBlock]] {
-        let metrics = calculateLayoutMetrics(titleHeight: titleHeight)
-        let usableWidth = Double(readerConfig.contentSize(for: readerContainerSize).width)
-        let paragraphSpacing = readerConfig.paragraphSpacing
-
-        var pages: [[ContentBlock]] = []
-        var currentPageLines: [(text: String, isParagraphEnd: Bool)] = []
-        var usedHeight: CGFloat = 0
-        var pageHeight = metrics.firstPageHeight
-        var blockIdCounter = 10000
-
-        func flushPage() {
-            guard !currentPageLines.isEmpty else { return }
-            pages.append(buildPageBlocks(from: currentPageLines, startingId: &blockIdCounter))
-            currentPageLines = []
-            usedHeight = 0
-            pageHeight = metrics.pageHeight
-        }
-
-        for block in blocks {
-            if block.isImage {
-                flushPage()
-                pages.append([block])
-                pageHeight = metrics.pageHeight
-                usedHeight = 0
-            } else {
-                let pLines = splitParagraphIntoLines(text: block.text, width: usableWidth, fontSize: readerConfig.fontSize)
-                for lineInfo in pLines {
-                    currentPageLines.append(lineInfo)
-                    usedHeight += metrics.lineHeight + (lineInfo.isParagraphEnd ? paragraphSpacing : 0)
-                    // Always keep at least one line on a page, otherwise a paragraph gap
-                    // taller than the page would spin forever.
-                    if usedHeight >= pageHeight, currentPageLines.count > 1 {
-                        flushPage()
-                        pageHeight = metrics.pageHeight
-                    }
-                }
-            }
-        }
-
-        if !currentPageLines.isEmpty {
-            pages.append(buildPageBlocks(from: currentPageLines, startingId: &blockIdCounter))
-        }
-
-        return pages.isEmpty ? [[]] : pages
     }
 }
 

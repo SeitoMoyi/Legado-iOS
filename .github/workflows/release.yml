@@ -88,6 +88,7 @@ jobs:
 
             #### 🌟 更新内容
             详细更新日志请参阅仓库内 [UPDATE_LOG.md](UPDATE_LOG.md) 与 [README.md](README.md)。
+            - **v0.2.5.1**：阅读器死代码清除（Phase A）。删除 SwiftUI 滚动时代残留的 PreferenceKeys 与 scrollToChapterId 字符串锚点；删除 ReaderView 中第二套 ContentBlock + paginate 重复排版实现；全仓正文排版收敛至 ChapterTypography 单一真理源，零行为变更。
             - **v0.2.5**：统一排版引擎架构 (ChapterTypography)；彻底解决滑动与滚动互相切换时漂移数行、重置回换页前旧位置的 Bug；章节长标题自适应多行折行，杜绝截断；排版换行符全局保护。
             - **v0.2.4**：纵向连续滚动排版重构与全自动无缝长卷阅读；常驻系统顶栏状态栏；P0 核心遗留项清零；iOS 15 顶栏多按钮兼容性修复。
             #### 📱 安装说明
