@@ -90,6 +90,7 @@ public struct ReaderView: View {
     @State private var isLoadingInitial: Bool = true
     @State private var isLoadingNextChapter: Bool = false
     @State private var scrollSessionId: UUID = UUID()
+    @State private var isPullingToPrev: Bool = false
     @State private var scrollToChapterId: String? = nil
     @State private var errorMessage: String? = nil
     /// Next step the user can actually take, shown under the failure text. The failure page
@@ -697,30 +698,31 @@ public struct ReaderView: View {
 
                     LazyVStack(alignment: .leading, spacing: 0) {
                         // Top pull-down indicator for previous chapter
-                        if let firstLoaded = loadedChapters.first, firstLoaded.chapter.index > 0 {
-                            let prevIndex = firstLoaded.chapter.index - 1
+                        if currentChapterIndex > 0 {
+                            let prevIndex = currentChapterIndex - 1
                             Button(action: {
+                                showControlHint("已切换到上一章: \(chapters[prevIndex].title)")
                                 jumpToChapter(prevIndex, toEnd: false)
                             }) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.up.circle")
-                                        .font(.system(size: 13, weight: .semibold))
-                                    Text("点击或下拉切换到上一章: \(chapters[prevIndex].title)")
-                                        .font(.system(size: 12, weight: .medium))
+                                HStack(spacing: 8) {
+                                    Image(systemName: "chevron.up.circle.fill")
+                                        .font(.system(size: 15))
+                                    Text("上一章: \(chapters[prevIndex].title)")
+                                        .font(.system(size: 13, weight: .medium))
                                 }
-                                .foregroundColor(readerConfig.theme.textColor.opacity(0.65))
-                                .padding(.vertical, 10)
+                                .foregroundColor(readerConfig.theme.textColor.opacity(0.85))
+                                .padding(.vertical, 12)
                                 .frame(maxWidth: .infinity)
                                 .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(readerConfig.theme.textColor.opacity(0.06))
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(readerConfig.theme.textColor.opacity(0.08))
                                         .padding(.horizontal, readerConfig.paddingLeading)
                                 )
                             }
                             .buttonStyle(.plain)
-                            .padding(.top, 8)
+                            .padding(.top, 10)
                             .padding(.bottom, 6)
-                            .id("chapter_top_indicator_\(firstLoaded.chapter.index)")
+                            .id("chapter_top_indicator_\(currentChapterIndex)")
                         }
 
                         ForEach(loadedChapters) { loadedCh in
@@ -844,8 +846,19 @@ public struct ReaderView: View {
                 handleBlockFramesChanged(frames)
             }
             .id(scrollSessionId)
-            .refreshable {
-                await pullDownToLoadPreviousChapter()
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { minY in
+                guard readerConfig.pageMode == .scroll, !isLoadingInitial else { return }
+                if minY > 45, !isPullingToPrev, currentChapterIndex > 0 {
+                    isPullingToPrev = true
+                    let prevIndex = currentChapterIndex - 1
+                    showControlHint("已切换到上一章: \(chapters[prevIndex].title)")
+                    jumpToChapter(prevIndex, toEnd: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        isPullingToPrev = false
+                    }
+                } else if minY <= 5 {
+                    isPullingToPrev = false
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -1924,7 +1937,7 @@ public struct ReaderView: View {
         }
         let prevIndex = first.chapter.index - 1
         showControlHint("已切换到上一章: \(chapters[prevIndex].title)")
-        jumpToChapter(prevIndex, toEnd: false)
+        jumpToChapter(prevIndex, toEnd: true)
     }
 
     private func loadPreviousChapterForInfiniteScroll(before index: Int) {
