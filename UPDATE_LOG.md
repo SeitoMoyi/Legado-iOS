@@ -48,6 +48,10 @@
 2. **章节内容编辑 (`EditContentSheet`)**：接通动作码 `ClickActionCode.editContent` 与溢出菜单「编辑内容」，提供章节标题与正文字段编辑，支持实时修改保存落盘、一键重置为书源原始内容及全量文本拷贝。
 3. **WebDAV 进度双向同步 (`syncProgress`)**：新增 `WebDAVService.downloadBookProgress`，接通动作码 `ClickActionCode.syncProgress` 与溢出菜单「同步云端进度」；自动比对本地与云端进度时间戳，智能实现「新进度覆盖拉取」与「最新本地进度回传」。
 4. **连续滚动模式朗读高亮与自动跟踪**：接通滚动模式朗读句子高亮背景（`accentColor.opacity(0.15)`），并接入 `ScrollViewReader` 随段落发音进度自动平滑居中滚动。
+5. **纵向连续滚动模式体验全面对齐 Android**：
+   - **展现空间与边距统一**：重构滚动阅读排版，段落与图片完全采用 `readerConfig.paddingLeading`、`readerConfig.paddingTrailing` 与 `readerConfig.paragraphSpacing`，与滑动翻页模式共享同一套视觉宽度和排版留白。
+   - **常驻通知栏/状态栏**：修正隐藏状态栏布尔逻辑，默认完整显示系统顶栏（时间、电量、网络），并动态匹配暗黑/浅色阅读主题配色。
+   - **章节切换断层彻底修复**：修正向上切换「上一章」时 ScrollView 坐标偏移丢失和死锁的问题，统一通过重新生成滚动会话与目标定位锚点保证 100% 顺畅切换；章节顶部新增「上一章」轻便胶囊，底部新增「── 本章完 ──」优雅过渡条。
 ---
 
 ## v0.2.3（书源 / 书架 / 规则工具链补齐，订阅与音频模块落地）
