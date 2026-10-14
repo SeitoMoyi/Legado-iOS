@@ -374,7 +374,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             }) ?? typography.lines.first(where: { line in
                 line.charRange.lowerBound >= charPos
             }) {
-                let targetY = max(0, min(typography.totalHeight - viewHeight, line.y - 20))
+                let targetY = max(0, min(typography.totalHeight - viewHeight, line.y - paddingTop))
                 contentOffset = CGPoint(x: 0, y: targetY)
             } else {
                 contentOffset = .zero
@@ -581,16 +581,18 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         let offsetY = scrollView.contentOffset.y
         let viewHeight = bounds.height
 
-        // 1. Detect active chapter at reading focus line (30% from top of screen)
-        let focusY = offsetY + viewHeight * 0.3
-        if let current = chapterTypographies.first(where: { focusY >= $0.yOffset && focusY < ($0.yOffset + $0.totalHeight) }) {
+        // 1. Detect active chapter at reading focus line (top of viewport reading line)
+        let readingY = offsetY + paddingTop
+        if let current = chapterTypographies.first(where: { readingY >= $0.yOffset && readingY < ($0.yOffset + $0.totalHeight) }) {
             if activeChapterIndex != current.chapter.index {
                 activeChapterIndex = current.chapter.index
                 onChapterChange?(current.chapter.index, current.chapter.title)
             }
 
-            let relY = focusY - current.yOffset - current.titleTotalHeight
-            if let line = current.lines.first(where: { relY >= $0.y && relY < ($0.y + $0.height) }) {
+            let relY = readingY - current.yOffset
+            if relY <= current.titleTotalHeight {
+                onCharOffsetChange?(0)
+            } else if let line = current.lines.first(where: { ($0.y + $0.height) >= relY }) {
                 onCharOffsetChange?(line.charRange.lowerBound)
             }
         }

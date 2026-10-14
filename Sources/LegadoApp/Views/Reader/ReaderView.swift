@@ -724,17 +724,16 @@ public struct ReaderView: View {
     // MARK: - Mode 2: Page by Page (左右翻页)
     private var pageByPageView: some View {
         GeometryReader { geo in
-            let pages = currentLoadedChapter?.pages ?? []
+            let totalPages = currentChapterTotalPages
 
             ZStack {
-                if pages.isEmpty || currentPageIndex >= pages.count {
+                if totalPages == 0 || currentPageIndex >= totalPages {
                     VStack {
                         Spacer()
                         ProgressView()
                         Spacer()
                     }
                 } else {
-                    let pageBlocks = pages[currentPageIndex]
                     let usableWidth = readerConfig.contentSize(for: readerContainerSize).width
 
                     VStack(alignment: .leading, spacing: 0) {
@@ -754,13 +753,29 @@ public struct ReaderView: View {
                         }
 
                         // Page Content
-                        if pageBlocks.first?.isImage == true, let urlStr = pageBlocks.first?.imageUrl {
+                        if let cur = currentLoadedChapter,
+                           currentPageIndex < cur.pages.count,
+                           cur.pages[currentPageIndex].first?.isImage == true,
+                           let urlStr = cur.pages[currentPageIndex].first?.imageUrl {
                             let isFullImg = readerConfig.prefs.imageStyle == .full
                             ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
                                 .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
-                            let lines = pageBlocks.map { $0.text }
-                            let isParagraphEnd = pageBlocks.map { $0.imageUrl == "p_end" }
+                            let (lines, isParagraphEnd): ([String], [Bool]) = {
+                                if let cur = currentLoadedChapter,
+                                   let typo = cur.typography,
+                                   currentPageIndex < typo.pageRanges.count {
+                                    let range = typo.pageRanges[currentPageIndex]
+                                    let slice = Array(typo.lines[range])
+                                    return (slice.map { $0.text }, slice.map { $0.isParagraphEnd })
+                                }
+                                if let cur = currentLoadedChapter, currentPageIndex < cur.pages.count {
+                                    let blocks = cur.pages[currentPageIndex]
+                                    return (blocks.map { $0.text }, blocks.map { $0.imageUrl == "p_end" })
+                                }
+                                return ([], [])
+                            }()
+
                             let effectiveLineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
                             let gaps = CGFloat(isParagraphEnd.dropLast().filter { $0 }.count) * readerConfig.paragraphSpacing
                             let pageContentHeight = CGFloat(lines.count) * effectiveLineHeight + gaps
@@ -849,10 +864,16 @@ public struct ReaderView: View {
         currentReadingBlockId = targetBlockId
     }
 
+    private var currentChapterTotalPages: Int {
+        if let typo = currentLoadedChapter?.typography, !typo.pageRanges.isEmpty {
+            return typo.pageRanges.count
+        }
+        return max(1, currentLoadedChapter?.pages.count ?? 1)
+    }
+
     // MARK: - Page Turn Handler (Once chapter ends, next chapter starts next page)
     private func turnPage(forward: Bool) {
-        guard let current = currentLoadedChapter else { return }
-        let totalPages = current.pages.count
+        let totalPages = currentChapterTotalPages
 
         if forward {
             if currentPageIndex < totalPages - 1 {
@@ -1083,7 +1104,7 @@ public struct ReaderView: View {
             if !chapters.isEmpty {
                 let progressPercent = Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0
                 if readerConfig.pageMode == .pageByPage, let cur = currentLoadedChapter, !cur.pages.isEmpty {
-                    Text("\(currentPageIndex + 1)/\(cur.pages.count) · \(String(format: "%.1f%%", progressPercent))")
+                    Text("\(currentPageIndex + 1)/\(currentChapterTotalPages) · \(String(format: "%.1f%%", progressPercent))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
                 } else {
@@ -1110,7 +1131,7 @@ public struct ReaderView: View {
         let isPageSliderMode = (readerConfig.prefs.progressBarBehavior == 0)
             && (readerConfig.pageMode == .pageByPage)
             && ((currentLoadedChapter?.pages.count ?? 0) > 1)
-        let pageCount = max(1, currentLoadedChapter?.pages.count ?? 1)
+        let pageCount = currentChapterTotalPages
 
         return HStack(spacing: 14) {
             Button(action: {
@@ -1204,31 +1225,36 @@ public struct ReaderView: View {
 
         if newMode == .pageByPage {
             // 1. Switching from Continuous Scroll to Page-by-Page:
-            var charPos = 0
-            for block in cur.blocks {
-                if block.id == currentReadingBlockId {
-                    break
-                }
-                charPos += block.text.count
-            }
-
-            var accumulated = 0
-            var targetPage = 0
-            for (pIdx, page) in cur.pages.enumerated() {
-                let pageCharCount = page.reduce(0) { $0 + $1.text.count }
-                if accumulated + pageCharCount > charPos {
+            if let typo = cur.typography {
+                currentPageIndex = typo.pageIndex(forCharOffset: scrollReadingCharOffset)
+            } else {
+                let charPos = currentChapterCharOffset()
+                var accumulated = 0
+                var targetPage = 0
+                for (pIdx, page) in cur.pages.enumerated() {
+                    let pageCharCount = page.reduce(0) { $0 + $1.text.count }
+                    if accumulated + pageCharCount > charPos {
+                        targetPage = pIdx
+                        break
+                    }
+                    accumulated += pageCharCount
                     targetPage = pIdx
-                    break
                 }
-                accumulated += pageCharCount
-                targetPage = pIdx
+                currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
             }
-            currentPageIndex = min(targetPage, max(0, cur.pages.count - 1))
             updateReadingBlockIdFromCurrentPage()
         } else {
             // 2. Switching from Page-by-Page to Continuous Scroll:
-            let charPos = currentChapterCharOffset()
-            scrollTargetCharPos = charPos
+            if let typo = cur.typography, currentPageIndex < typo.pageRanges.count {
+                let range = typo.pageRanges[currentPageIndex]
+                if range.lowerBound < typo.lines.count {
+                    scrollTargetCharPos = typo.lines[range.lowerBound].charRange.lowerBound
+                } else {
+                    scrollTargetCharPos = 0
+                }
+            } else {
+                scrollTargetCharPos = currentChapterCharOffset()
+            }
             scrollSessionId = UUID()
         }
         saveCurrentProgress()
