@@ -697,17 +697,29 @@ public struct ReaderView: View {
                     .frame(height: 0)
 
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // Top trigger to automatically attach previous chapter when scrolling up
+                        // Top pull-down indicator for previous chapter
                         if let firstLoaded = loadedChapters.first, firstLoaded.chapter.index > 0 {
-                            Color.clear
-                                .frame(height: 1)
-                                .id("chapter_top_trigger_\(firstLoaded.chapter.index)")
-                                .onAppear {
-                                    loadPreviousChapterForInfiniteScroll(before: firstLoaded.chapter.index)
+                            HStack(spacing: 8) {
+                                if isLoadingPrevChapter {
+                                    ProgressView()
+                                    Text("正在加载上一章: \(chapters[firstLoaded.chapter.index - 1].title)...")
+                                        .font(.caption2)
+                                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                                } else {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text("下拉加载上一章: \(chapters[firstLoaded.chapter.index - 1].title)")
+                                        .font(.system(size: 12))
                                 }
+                            }
+                            .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity)
+                            .id("chapter_top_indicator_\(firstLoaded.chapter.index)")
                         }
 
                         ForEach(loadedChapters) { loadedCh in
+                            let usableWidth = readerConfig.contentSize(for: readerContainerSize).width
                             VStack(alignment: .leading, spacing: 0) {
                                 // Chapter Title
                                 Text(loadedCh.chapter.title)
@@ -719,68 +731,65 @@ public struct ReaderView: View {
                                     .padding(.bottom, 14)
                                     .id("chapter_\(loadedCh.chapter.index)")
                                     .onAppear {
-                                        if currentChapterIndex != loadedCh.chapter.index {
+                                        if scrollToChapterId == nil && currentChapterIndex != loadedCh.chapter.index {
                                             currentChapterIndex = loadedCh.chapter.index
                                             BookStore.shared.updateProgress(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex, chapterTitle: loadedCh.chapter.title, chapterPos: currentChapterCharOffset())
                                             preCacheNeighbors(around: currentChapterIndex)
                                         }
                                     }
 
-                                // Chapter Paragraphs and Images
-                                VStack(alignment: .leading, spacing: readerConfig.paragraphSpacing) {
-                                    ForEach(loadedCh.blocks) { block in
-                                        if block.isImage, let urlStr = block.imageUrl {
-                                            let isFullImg = readerConfig.prefs.imageStyle == .full
-                                            ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
-                                                .padding(.leading, isFullImg ? 0 : readerConfig.paddingLeading)
-                                                .padding(.trailing, isFullImg ? 0 : readerConfig.paddingTrailing)
-                                                .id("block_\(loadedCh.chapter.index)_\(block.id)")
-                                                .background(
-                                                    GeometryReader { geo in
-                                                        Color.clear
-                                                            .preference(
-                                                                key: ReaderScrollPreferenceKey.self,
-                                                                value: [BlockFrameInfo(
-                                                                    chapterIndex: loadedCh.chapter.index,
-                                                                    blockId: block.id,
-                                                                    minY: geo.frame(in: .named("readerScrollCoordinate")).minY,
-                                                                    maxY: geo.frame(in: .named("readerScrollCoordinate")).maxY
-                                                                )]
-                                                            )
-                                                    }
-                                                )
-                                        } else {
-                                            let isAloud = isAloudSpeaking(chapterIndex: loadedCh.chapter.index, block: block)
-                                            Text(block.text)
-                                                .font(.system(size: readerConfig.fontSize))
-                                                .lineSpacing(readerConfig.lineSpacing)
-                                                .kerningWhenAvailable(readerConfig.letterSpacing)
-                                                .foregroundColor(isAloud ? .accentColor : readerConfig.theme.textColor)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .padding(.leading, readerConfig.paddingLeading)
-                                                .padding(.trailing, readerConfig.paddingTrailing)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 6)
-                                                        .fill(isAloud ? Color.accentColor.opacity(0.15) : Color.clear)
-                                                        .padding(.leading, max(0, readerConfig.paddingLeading - 6))
-                                                        .padding(.trailing, max(0, readerConfig.paddingTrailing - 6))
-                                                )
-                                                .id("block_\(loadedCh.chapter.index)_\(block.id)")
-                                                .background(
-                                                    GeometryReader { geo in
-                                                        Color.clear
-                                                            .preference(
-                                                                key: ReaderScrollPreferenceKey.self,
-                                                                value: [BlockFrameInfo(
-                                                                    chapterIndex: loadedCh.chapter.index,
-                                                                    blockId: block.id,
-                                                                    minY: geo.frame(in: .named("readerScrollCoordinate")).minY,
-                                                                    maxY: geo.frame(in: .named("readerScrollCoordinate")).maxY
-                                                                )]
-                                                            )
-                                                    }
-                                                )
-                                        }
+                                // Render pages using the exact same CoreText engine as slide mode:
+                                ForEach(Array(loadedCh.pages.enumerated()), id: \.offset) { pIdx, pageBlocks in
+                                    if pageBlocks.first?.isImage == true, let urlStr = pageBlocks.first?.imageUrl {
+                                        let isFullImg = readerConfig.prefs.imageStyle == .full
+                                        ChapterImageView(urlString: urlStr, referer: effectiveSource?.bookSourceUrl)
+                                            .padding(.leading, isFullImg ? 0 : readerConfig.paddingLeading)
+                                            .padding(.trailing, isFullImg ? 0 : readerConfig.paddingTrailing)
+                                            .id("block_\(loadedCh.chapter.index)_\(pageBlocks.first?.id ?? pIdx)")
+                                    } else {
+                                        let lines = pageBlocks.map { $0.text }
+                                        let isParagraphEnd = pageBlocks.map { $0.imageUrl == "p_end" }
+                                        let effectiveLineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
+                                        let gaps = CGFloat(isParagraphEnd.dropLast().filter { $0 }.count) * readerConfig.paragraphSpacing
+                                        let pageContentHeight = CGFloat(lines.count) * effectiveLineHeight + gaps
+                                        let isAloud = isAloudSpeaking(chapterIndex: loadedCh.chapter.index, lines: lines)
+
+                                        CoreTextPageView(
+                                            lines: lines,
+                                            isParagraphEnd: isParagraphEnd,
+                                            fontSize: readerConfig.fontSize,
+                                            lineSpacing: readerConfig.lineSpacing,
+                                            textColor: readerConfig.theme.textColor,
+                                            width: usableWidth,
+                                            height: pageContentHeight,
+                                            letterSpacing: readerConfig.letterSpacing,
+                                            paragraphSpacing: readerConfig.paragraphSpacing,
+                                            justify: readerConfig.prefs.textFullJustify
+                                        )
+                                        .frame(width: usableWidth, height: pageContentHeight, alignment: .topLeading)
+                                        .padding(.leading, readerConfig.paddingLeading)
+                                        .padding(.trailing, readerConfig.paddingTrailing)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(isAloud ? Color.accentColor.opacity(0.15) : Color.clear)
+                                                .padding(.leading, max(0, readerConfig.paddingLeading - 6))
+                                                .padding(.trailing, max(0, readerConfig.paddingTrailing - 6))
+                                        )
+                                        .id("block_\(loadedCh.chapter.index)_\(pageBlocks.first?.id ?? pIdx)")
+                                        .background(
+                                            GeometryReader { geo in
+                                                Color.clear
+                                                    .preference(
+                                                        key: ReaderScrollPreferenceKey.self,
+                                                        value: [BlockFrameInfo(
+                                                            chapterIndex: loadedCh.chapter.index,
+                                                            blockId: pageBlocks.first?.id ?? pIdx,
+                                                            minY: geo.frame(in: .named("readerScrollCoordinate")).minY,
+                                                            maxY: geo.frame(in: .named("readerScrollCoordinate")).maxY
+                                                        )]
+                                                    )
+                                            }
+                                        )
                                     }
                                 }
 
@@ -826,27 +835,12 @@ public struct ReaderView: View {
             }
             .clipped()
             .coordinateSpace(name: "readerScrollCoordinate")
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { minY in
-                let scrollY = -minY
-                handleScrollOffsetChanged(scrollY: scrollY)
-            }
             .onPreferenceChange(ReaderScrollPreferenceKey.self) { frames in
                 handleBlockFramesChanged(frames)
             }
-            #if os(macOS)
-            .onReceive(NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification)) { notification in
-                guard readerConfig.pageMode == .scroll else { return }
-                if let clipView = notification.object as? NSClipView {
-                    let scrollY = clipView.documentVisibleRect.origin.y
-                    handleScrollOffsetChanged(scrollY: scrollY)
-                }
-            }
-            #endif
             .id(scrollSessionId)
             .refreshable {
-                if let first = loadedChapters.first, first.chapter.index > 0 {
-                    loadPreviousChapterForInfiniteScroll(before: first.chapter.index)
-                }
+                await pullDownToLoadPreviousChapter()
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -891,7 +885,7 @@ public struct ReaderView: View {
     }
 
     private func handleBlockFramesChanged(_ frames: [BlockFrameInfo]) {
-        guard !frames.isEmpty else { return }
+        guard scrollToChapterId == nil, !frames.isEmpty else { return }
         if let active = frames.first(where: { $0.minY <= 140 && $0.maxY >= 20 }) ??
                         frames.min(by: { abs($0.minY - 50) < abs($1.minY - 50) }) {
             if self.currentChapterIndex != active.chapterIndex {
@@ -899,50 +893,6 @@ public struct ReaderView: View {
                 self.preCacheNeighbors(around: active.chapterIndex)
             }
             self.currentReadingBlockId = active.blockId
-        }
-    }
-
-    private func handleScrollOffsetChanged(scrollY: CGFloat) {
-        guard scrollY > 0, !loadedChapters.isEmpty else { return }
-        let width = max(240, readerContainerSize.width)
-        let usableWidth = max(200, width - 40)
-        let charsPerLine = max(10, Int(usableWidth / readerConfig.fontSize))
-        let lineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
-        let titleHeight = (readerConfig.fontSize + 4) * 1.3 + 30.0
-
-        let targetY = scrollY + 60.0
-        var currentY: CGFloat = 0
-
-        for loadedCh in loadedChapters {
-            currentY += titleHeight
-
-            for block in loadedCh.blocks {
-                let blockH: CGFloat
-                if block.isImage {
-                    blockH = 260.0
-                } else {
-                    let lines = max(1, Int(ceil(Double(block.text.count) / Double(charsPerLine))))
-                    blockH = CGFloat(lines) * lineHeight + (readerConfig.lineSpacing * 2.0 / 3.0)
-                }
-
-                if targetY >= currentY && targetY < currentY + blockH {
-                    if self.currentChapterIndex != loadedCh.chapter.index {
-                        self.currentChapterIndex = loadedCh.chapter.index
-                        self.preCacheNeighbors(around: loadedCh.chapter.index)
-                    }
-                    self.currentReadingBlockId = block.id
-                    return
-                }
-                currentY += blockH
-            }
-
-            currentY += 64.0
-            if targetY < currentY {
-                if self.currentChapterIndex != loadedCh.chapter.index {
-                    self.currentChapterIndex = loadedCh.chapter.index
-                }
-                return
-            }
         }
     }
 
@@ -1397,34 +1347,13 @@ public struct ReaderView: View {
     private func previousChapter() {
         guard currentChapterIndex > 0 else { return }
         let prevIndex = currentChapterIndex - 1
-        if readerConfig.pageMode == .scroll {
-            if loadedChapters.contains(where: { $0.chapter.index == prevIndex }) {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    scrollToChapterId = "chapter_\(prevIndex)"
-                }
-            } else {
-                jumpToChapter(prevIndex, toEnd: false)
-            }
-        } else {
-            jumpToChapter(prevIndex, toEnd: true)
-        }
+        jumpToChapter(prevIndex, toEnd: false)
     }
 
     private func nextChapter() {
         guard currentChapterIndex < chapters.count - 1 else { return }
         let nextIndex = currentChapterIndex + 1
-
-        if readerConfig.pageMode == .scroll {
-            if loadedChapters.contains(where: { $0.chapter.index == nextIndex }) {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    scrollToChapterId = "chapter_\(nextIndex)"
-                }
-            } else {
-                jumpToChapter(nextIndex, toEnd: false)
-            }
-        } else {
-            jumpToChapter(nextIndex, toEnd: false)
-        }
+        jumpToChapter(nextIndex, toEnd: false)
     }
 
     private func jumpToChapter(_ targetIndex: Int, toEnd: Bool = false) {
@@ -1997,43 +1926,52 @@ public struct ReaderView: View {
         }
     }
 
-    private func loadPreviousChapterForInfiniteScroll(before index: Int) {
-        let prevIndex = index - 1
-        guard prevIndex >= 0 else { return }
+    @MainActor
+    private func pullDownToLoadPreviousChapter() async {
+        guard let first = loadedChapters.first, first.chapter.index > 0 else { return }
+        let prevIndex = first.chapter.index - 1
         if loadedChapters.contains(where: { $0.chapter.index == prevIndex }) || isLoadingPrevChapter {
             return
         }
-
-        if let cached = chapterCache[prevIndex] {
-            self.loadedChapters.insert(cached, at: 0)
-            self.preCacheNeighbors(around: prevIndex)
-            return
-        }
+        isLoadingPrevChapter = true
 
         let prevChapter = chapters[prevIndex]
-        let prevNextUrl = chapters[index].url
-        let prevContext = processContext(for: prevChapter)
-        isLoadingPrevChapter = true
         let source = effectiveSource
+        let prevNextUrl = chapters[first.chapter.index].url
+        let prevContext = processContext(for: prevChapter)
 
-        Task { @MainActor in
-            do {
+        do {
+            let loaded: LoadedChapter
+            if let cached = chapterCache[prevIndex] {
+                loaded = cached
+            } else {
                 let content = try await BookContentService.shared.fetchChapterContent(
                     chapter: prevChapter, source: source,
                     nextChapterUrl: prevNextUrl, context: prevContext)
                 let blocks = parseContentBlocks(from: content)
                 let pages = paginate(blocks: blocks)
-                let loaded = LoadedChapter(chapter: prevChapter, content: content, blocks: blocks, pages: pages)
-
-                if !self.loadedChapters.contains(where: { $0.chapter.index == prevIndex }) {
-                    self.loadedChapters.insert(loaded, at: 0)
-                }
-                self.chapterCache[prevIndex] = loaded
-                self.isLoadingPrevChapter = false
-                self.preCacheNeighbors(around: prevIndex)
-            } catch {
-                self.isLoadingPrevChapter = false
+                loaded = LoadedChapter(chapter: prevChapter, content: content, blocks: blocks, pages: pages)
+                chapterCache[prevIndex] = loaded
             }
+
+            if !loadedChapters.contains(where: { $0.chapter.index == prevIndex }) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    loadedChapters.insert(loaded, at: 0)
+                    currentChapterIndex = prevIndex
+                    scrollToChapterId = "chapter_end_\(prevIndex)"
+                }
+            }
+            preCacheNeighbors(around: prevIndex)
+            isLoadingPrevChapter = false
+        } catch {
+            showControlHint("上一章获取失败：\(error.localizedDescription)")
+            isLoadingPrevChapter = false
+        }
+    }
+
+    private func loadPreviousChapterForInfiniteScroll(before index: Int) {
+        Task { @MainActor in
+            await pullDownToLoadPreviousChapter()
         }
     }
 
@@ -2460,6 +2398,19 @@ public struct ReaderView: View {
         let needle = audioService.currentParagraph.trimmingCharacters(in: .whitespacesAndNewlines)
         let haystack = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return needle == haystack || haystack.contains(needle) || needle.contains(haystack)
+    }
+
+    private func isAloudSpeaking(chapterIndex: Int, lines: [String]) -> Bool {
+        guard audioService.isActive,
+              currentChapterIndex == chapterIndex,
+              !audioService.currentParagraph.isEmpty else {
+            return false
+        }
+        let needle = audioService.currentParagraph.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lines.contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.isEmpty && (needle == trimmed || needle.contains(trimmed) || trimmed.contains(needle))
+        }
     }
 
     // MARK: - Selected Text Action
