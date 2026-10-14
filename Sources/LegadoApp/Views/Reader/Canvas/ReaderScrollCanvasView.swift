@@ -7,6 +7,47 @@ import LegadoCore
 #if os(iOS)
 import UIKit
 
+// MARK: - Shared Typography Image Loader
+
+/// Small memory-cached async loader for inline chapter images, shared by every canvas view
+/// so scrolling back to an already-seen chapter never re-downloads.
+public final class ChapterImageLoader {
+    public static let shared = ChapterImageLoader()
+
+    private let cache = NSCache<NSString, UIImage>()
+    private var inFlight: [String: [UIImageView]] = [:]
+
+    private init() {
+        cache.countLimit = 120
+    }
+
+    public func load(urlString: String, into imageView: UIImageView) {
+        let key = urlString as NSString
+        if let cached = cache.object(forKey: key) {
+            imageView.image = cached
+            return
+        }
+        imageView.image = nil
+
+        guard let url = URL(string: urlString) else { return }
+        inFlight[urlString, default: []].append(imageView)
+
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self = self, let data = data, let image = UIImage(data: data) else {
+                DispatchQueue.main.async { self?.inFlight[urlString]?.removeAll() }
+                return
+            }
+            self.cache.setObject(image, forKey: key)
+            DispatchQueue.main.async {
+                for view in self.inFlight[urlString] ?? [] {
+                    view.image = image
+                }
+                self.inFlight[urlString]?.removeAll()
+            }
+        }.resume()
+    }
+}
+
 // MARK: - Single Chapter Canvas View (Direct CoreText Drawing from Unified Typography)
 
 public final class ChapterCanvasLayerView: UIView {
@@ -24,6 +65,9 @@ public final class ChapterCanvasLayerView: UIView {
     public var isLastChapterInBook: Bool = false
     public var nextChapterTitle: String?
 
+    /// Typography-image views keyed by `TypographyImage.id`, so redraws reuse them.
+    private var imageViews: [Int: UIImageView] = [:]
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -33,6 +77,42 @@ public final class ChapterCanvasLayerView: UIView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Places one `UIImageView` per typography image at its shared `y`, reusing existing views
+    /// so scrolling never re-triggers a download.
+    private func layoutImageViews(for typo: ChapterTypography) {
+        // Remove views whose image no longer exists in this typography.
+        for (key, view) in imageViews where !typo.images.contains(where: { $0.id == key }) {
+            view.removeFromSuperview()
+            imageViews.removeValue(forKey: key)
+        }
+
+        for img in typo.images {
+            let frame = CGRect(
+                x: paddingLeading,
+                y: img.y,
+                width: max(100, bounds.width - paddingLeading - paddingTrailing),
+                height: img.height
+            )
+
+            if let existing = imageViews[img.id] {
+                existing.frame = frame
+                if existing.accessibilityIdentifier != img.urlString {
+                    existing.accessibilityIdentifier = img.urlString
+                    ChapterImageLoader.shared.load(urlString: img.urlString, into: existing)
+                }
+            } else {
+                let imageView = UIImageView(frame: frame)
+                imageView.contentMode = .scaleAspectFit
+                imageView.clipsToBounds = true
+                imageView.backgroundColor = .clear
+                imageView.accessibilityIdentifier = img.urlString
+                addSubview(imageView)
+                imageViews[img.id] = imageView
+                ChapterImageLoader.shared.load(urlString: img.urlString, into: imageView)
+            }
+        }
     }
 
     public override func draw(_ rect: CGRect) {
@@ -134,7 +214,11 @@ public final class ChapterCanvasLayerView: UIView {
             ctx.restoreGState()
         }
 
-        // 3. Draw Chapter End Transition Banner
+        // 3. Chapter images are rendered as real subviews (async loading + cache), placed at
+        //    the exact `y` the shared typography computed — same slot the text lines use.
+        layoutImageViews(for: typo)
+
+        // 4. Draw Chapter End Transition Banner
         let bannerY = typo.totalHeight - 72.0 + 20.0
         let bannerWidth = bounds.width - paddingLeading - paddingTrailing
 
@@ -354,7 +438,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         activeChapterIndex = loaded.chapter.index
 
-        let typography = buildTypography(for: loaded)
+        let typography = typeset(loaded.chapter, rawContent: loaded.content, cached: loaded.typography)
         typography.yOffset = 0
         chapterTypographies = [typography]
 
@@ -398,16 +482,19 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
     // MARK: - Typography Generation & Layout
 
-    private func buildTypography(for loaded: LoadedChapter) -> ChapterTypography {
-        if let existing = loaded.typography,
-           abs(existing.totalHeight) > 0.1,
-           existing.rawContent == loaded.content {
-            return existing
+    /// Typesets with the current style/viewport. `cached` lets callers reuse an existing
+    /// typography when the content has not changed.
+    private func typeset(_ chapter: BookChapter, rawContent: String,
+                         cached: ChapterTypography? = nil) -> ChapterTypography {
+        if let cached = cached,
+           abs(cached.totalHeight) > 0.1,
+           cached.rawContent == rawContent {
+            return cached
         }
 
         return TypographyEngine.typeset(
-            chapter: loaded.chapter,
-            content: loaded.content,
+            chapter: chapter,
+            content: rawContent,
             containerWidth: effectiveViewportWidth,
             containerHeight: effectiveViewportHeight,
             fontSize: fontSize,
@@ -451,11 +538,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         var newTypographies: [ChapterTypography] = []
 
         for typo in chapterTypographies {
-            let loaded = LoadedChapter(
-                chapter: typo.chapter,
-                content: typo.rawContent
-            )
-            let updated = buildTypography(for: loaded)
+            let updated = typeset(typo.chapter, rawContent: typo.rawContent)
             updated.yOffset = currentY
             newTypographies.append(updated)
 
@@ -470,6 +553,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
                 view.paddingLeading = paddingLeading
                 view.paddingTrailing = paddingTrailing
                 view.justify = justify
+                view.aloudParagraph = aloudParagraph
+                view.aloudIsActive = aloudIsActive
                 view.setNeedsDisplay()
             }
 
@@ -493,7 +578,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         }
 
         let viewWidth = effectiveViewportWidth
-        let prevTypo = buildTypography(for: loaded)
+        let prevTypo = typeset(loaded.chapter, rawContent: loaded.content, cached: loaded.typography)
         let addedHeight = prevTypo.totalHeight
 
         isPrependingChapter = true
@@ -532,7 +617,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         let viewWidth = effectiveViewportWidth
         let currentBottom = contentSize.height
-        let nextTypo = buildTypography(for: loaded)
+        let nextTypo = typeset(loaded.chapter, rawContent: loaded.content, cached: loaded.typography)
         nextTypo.yOffset = currentBottom
         chapterTypographies.append(nextTypo)
 

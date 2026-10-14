@@ -49,6 +49,14 @@ public struct TypographyImage: Identifiable {
     }
 }
 
+/// A slide-mode page: a slice of consecutive text lines, or a single full-page image.
+/// Both renderers read this one definition, so what 滑动 shows and 滚动 shows can
+/// never disagree about where a page boundary is.
+public enum TypographyPage: Equatable {
+    case lines(Range<Int>)
+    case image(Int)
+}
+
 public final class ChapterTypography: Identifiable {
     public var id: Int { chapter.index }
     public let chapter: BookChapter
@@ -63,8 +71,8 @@ public final class ChapterTypography: Identifiable {
     public let lines: [TypographyLine]
     public let images: [TypographyImage]
 
-    // Slide mode pages (slices of line indices into `lines`)
-    public let pageRanges: [Range<Int>]
+    // Slide mode pages: text-line slices and image pages in reading order
+    public let pages: [TypographyPage]
 
     // Scroll mode metrics
     public let totalHeight: CGFloat
@@ -78,7 +86,7 @@ public final class ChapterTypography: Identifiable {
         titleTotalHeight: CGFloat,
         lines: [TypographyLine],
         images: [TypographyImage],
-        pageRanges: [Range<Int>],
+        pages: [TypographyPage],
         totalHeight: CGFloat,
         yOffset: CGFloat = 0
     ) {
@@ -89,33 +97,52 @@ public final class ChapterTypography: Identifiable {
         self.titleTotalHeight = titleTotalHeight
         self.lines = lines
         self.images = images
-        self.pageRanges = pageRanges
+        self.pages = pages
         self.totalHeight = totalHeight
         self.yOffset = yOffset
     }
 
+    /// `pageRanges`-compatible view: line slice of a text page (nil for image pages).
+    public func lineRange(ofPage pageIndex: Int) -> Range<Int>? {
+        guard pageIndex >= 0 && pageIndex < pages.count else { return nil }
+        if case let .lines(range) = pages[pageIndex] { return range }
+        return nil
+    }
+
+    /// First line index rendered on a page; image pages fall back to their inserted id.
+    public func firstLineIndex(ofPage pageIndex: Int) -> Int? {
+        if let range = lineRange(ofPage: pageIndex) { return range.lowerBound }
+        if case let .image(imgId) = pageOrNil(pageIndex) { return imgId }
+        return nil
+    }
+
+    private func pageOrNil(_ pageIndex: Int) -> TypographyPage? {
+        guard pageIndex >= 0 && pageIndex < pages.count else { return nil }
+        return pages[pageIndex]
+    }
+
     /// Finds the slide page index containing a specific line index
     public func pageIndex(forLine lineIndex: Int) -> Int {
-        guard !pageRanges.isEmpty else { return 0 }
-        for (pIdx, range) in pageRanges.enumerated() {
-            if range.contains(lineIndex) {
-                return pIdx
-            }
+        guard !pages.isEmpty else { return 0 }
+        for (pIdx, page) in pages.enumerated() {
+            if case let .lines(range) = page, range.contains(lineIndex) { return pIdx }
         }
-        if let first = pageRanges.first, lineIndex < first.lowerBound { return 0 }
-        return pageRanges.count - 1
+        for (pIdx, page) in pages.enumerated() {
+            if case let .lines(range) = page, lineIndex < range.lowerBound { return pIdx }
+        }
+        return pages.count - 1
     }
 
     /// Finds the slide page index corresponding to a character offset
     public func pageIndex(forCharOffset charOffset: Int) -> Int {
-        guard !lines.isEmpty, !pageRanges.isEmpty else { return 0 }
+        guard !lines.isEmpty, !pages.isEmpty else { return 0 }
         for line in lines {
             if charOffset >= line.charRange.lowerBound && charOffset < line.charRange.upperBound {
                 return pageIndex(forLine: line.index)
             }
         }
         if let last = lines.last, charOffset >= last.charRange.upperBound {
-            return pageRanges.count - 1
+            return pages.count - 1
         }
         return 0
     }
@@ -206,6 +233,8 @@ public enum TypographyEngine {
                     let imgH: CGFloat = 260.0
                     images.append(TypographyImage(id: lineIndex, urlString: imgUrl, y: currentY, height: imgH))
                     currentY += imgH + paragraphSpacing
+                    // Reserve the slot so a following text line never reuses this id.
+                    lineIndex += 1
                 }
                 charCursor += pText.count + 1
                 continue
@@ -252,31 +281,58 @@ public enum TypographyEngine {
 
         let totalHeight = currentY + 72.0 // includes end banner
 
-        // 3. Slice the exact same lines into Slide Mode Pages
+        // 3. Slice the same content into Slide Mode Pages.
+        //    Images own a page (matching Android's standalone image block); text lines pack by
+        //    height, with the chapter title charged to page 0.
         let firstPageCapacity = max(100.0, usablePageHeight - titleTotalHeight)
-        var pageRanges: [Range<Int>] = []
+        var pages: [TypographyPage] = []
         var pageStart = 0
         var usedH: CGFloat = 0
         var currentCap = firstPageCapacity
 
-        for i in 0..<lines.count {
-            let l = lines[i]
-            let lH = l.height + (l.isParagraphEnd ? paragraphSpacing : 0)
+        func flushTextPage(until endExclusive: Int) {
+            if endExclusive > pageStart {
+                pages.append(.lines(pageStart..<endExclusive))
+            }
+        }
 
+        var i = 0
+        while i < lines.count {
+            let l = lines[i]
+
+            // An image slot sits before this text line → close the running text page and give
+            // the image its own page, exactly like the old `paginate()` did with `flushPage()`.
+            if images.contains(where: { $0.id == l.index }) {
+                flushTextPage(until: i)
+                if let img = images.first(where: { $0.id == l.index }) {
+                    pages.append(.image(img.id))
+                }
+                pageStart = i
+                usedH = 0
+                currentCap = usablePageHeight
+                continue
+            }
+
+            let lH = l.height + (l.isParagraphEnd ? paragraphSpacing : 0)
             if usedH + lH > currentCap && i > pageStart {
-                pageRanges.append(pageStart..<i)
+                flushTextPage(until: i)
                 pageStart = i
                 usedH = 0
                 currentCap = usablePageHeight
             }
             usedH += lH
+            i += 1
+        }
+        flushTextPage(until: lines.count)
+
+        // Images after the last text line (chapter ends with an illustration).
+        let lastLineId = lines.last.map { $0.index } ?? -1
+        for img in images where img.id > lastLineId {
+            pages.append(.image(img.id))
         }
 
-        if pageStart < lines.count {
-            pageRanges.append(pageStart..<lines.count)
-        }
-        if pageRanges.isEmpty {
-            pageRanges.append(0..<0)
+        if pages.isEmpty {
+            pages.append(.lines(0..<max(0, lines.count)))
         }
 
         return ChapterTypography(
@@ -287,7 +343,7 @@ public enum TypographyEngine {
             titleTotalHeight: titleTotalHeight,
             lines: lines,
             images: images,
-            pageRanges: pageRanges,
+            pages: pages,
             totalHeight: totalHeight,
             yOffset: 0
         )

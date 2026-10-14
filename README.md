@@ -3,10 +3,20 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.5.1-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.5.2-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+
+---
+
+## ✨ v0.2.5.2 新增
+
+阅读器排版模型终态收敛（Phase B）：滑动与滚动真正共享「一套排版、不同处截断」：
+
+- 📦 **`LoadedChapter.typography` 转为非可选**：章节数据不再携带 `blocks` / `pages` 冗余字段，排版结果随章节一次生成、随处可用，消灭「忘记重新排版」这类状态漂移。
+- 🖼 **`TypographyPage` 图文统一分页模型**：滑动模式的「页」由 `ChapterTypography.pages` 统一定义——`case .lines(Range<Int>)` 表示一段文字行，`case .image(Int)` 表示整页插图。滑块、状态栏页码、书签摘录、朗读起点、模式切换全部改读同一模型，滑动看到的分页与滚动渲染的行序严格一致。
+- 🖼 **滚动模式插图落地**：连续滚动下正文插图按排版算出的 `y` 与高度真实渲染（`UIImageView` + 共享内存缓存 `ChapterImageLoader`），跨章预载/回收不会重复下载，图文混排章节终于与滑动模式观感一致。
 
 ---
 

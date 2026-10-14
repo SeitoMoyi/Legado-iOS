@@ -6,6 +6,7 @@
 
 ## 目录
 - [版本总览](#版本总览)
+- [v0.2.5.2（排版模型终态收敛：TypographyPage 图文统一分页与非可选 typography）](#v0252排版模型终态收敛typographypage-图文统一分页与非可选-typography)
 - [v0.2.5.1（阅读器死代码清除与排版单一真理源收敛）](#v0251阅读器死代码清除与排版单一真理源收敛)
 - [v0.2.5（统一排版引擎架构、零漂移模式切换与长标题折行）](#v025统一排版引擎架构零漂移模式切换与长标题折行)
 - [v0.2.4（纵向长卷连续滚动重构、P0 遗留项清零与 iOS 15 兼容）](#v024纵向长卷连续滚动重构p0-遗留项清零与-ios-15-兼容)
@@ -21,6 +22,7 @@
 
 | 版本 | 定位 | 主要更新内容 |
 |---|---|---|
+| **v0.2.5.2** | 排版模型终态收敛（Phase B） | `LoadedChapter.typography` 非可选，彻底移除 `blocks`/`pages` 冗余字段；新增 `TypographyPage`（`.lines` / `.image`）图文统一分页模型，滑动分页与滚动行序共享同一真相源；滚动模式插图按排版坐标真实渲染并共享内存缓存 |
 | **v0.2.5.1** | 阅读器死代码清除与排版单一真理源收敛（Phase A） | 删除 SwiftUI 滚动时代残留的 PreferenceKeys / `scrollToChapterId` 字符串锚点；删除 `ReaderView` 中第二套 `ContentBlock` + `paginate` 重复排版实现；全仓正文排版收敛至 `ChapterTypography` 单一真理源，零行为变更 |
 | **v0.2.5** | 统一排版架构、零漂移切换与长标题折行 | 统一滑动与滚动模式为同一套 CoreText 排版引擎 (`ChapterTypography`)；彻底解决滑动与滚动互相切换时漂移数行、重置回换页前旧位置的 Bug；章节长标题自适应多行折行，杜绝截断；排版换行符全局保护 |
 | **v0.2.4** | 纵向长卷连续滚动重构、P0 遗留项清零与 iOS 15 兼容 | 纵向连续滚动排版重构与全自动无缝长卷阅读；常驻系统顶栏状态栏；顶栏换源/刷新一键快捷图标；章节内容编辑 (`EditContentSheet`)；WebDAV 进度双向同步与智能覆盖；滚动模式朗读段落高亮与自动平滑居中；修复 iOS 15 顶栏多按钮显示 |
@@ -28,6 +30,52 @@
 | **v0.2.2** | 缓存与离线可用性 | 目录缓存优先（TOC Cache）与 10 分钟静默刷新、离线失败态解死锁、续页总时长预算与截断保护、纯追加安全阀（`TocCache.isAppendOnly`）、朗读悬浮控制条 (`ReadAloudFloatingBar`)、听书状态自持、阅读面板归一 (`ReaderPanelChrome`)、设置页冗余项收敛、主动移除亮度调节与音量键翻页 |
 | **v0.2.1** | P0 核心阅读闭环 | 阅读页三级菜单与更多设置面板、配置持久化 (`ReaderStore`)、书签体系、整书/单章换源 (`ChapterMatcher`)、替换净化管线 (`ContentProcessor`)、朗读面板与后台音频、搜索历史与搜索范围、字符集自动嗅探与目录/正文续页 |
 | **v0.2.0** | 初始移植基线 | 基础书架、EPUB/TXT 阅读器、书源解析骨架、WebDAV 同步基础功能 |
+
+---
+
+## v0.2.5.2（排版模型终态收敛：TypographyPage 图文统一分页与非可选 typography）
+
+> 承 v0.2.5.1 的 Phase A（清死代码），本版完成 Phase B：**把「一套排版、不同处截断」落成类型系统层面的约束**，滑动与滚动再也不可能读到不同步的页码/行序。
+
+### 1. `LoadedChapter.typography` 非可选
+```swift
+public struct LoadedChapter: Identifiable {
+    public let chapter: BookChapter
+    public var content: String
+    public var typography: ChapterTypography      // ← 不再 Optional，不再有 blocks / pages
+}
+```
+- 章节加载时一次成型，消费侧无需 `if let typo = cur.typography` 兜底，摆脱「忘记重新排版 → 沿用旧页码」的整类 Bug。
+- `ReaderScrollCanvasView` 内部 `buildTypography(for: LoadedChapter)` 收敛为 `typeset(chapter:rawContent:cached:)`，重排（字号/边距/方向变化）与章节加载共用同一入口。
+
+### 2. `TypographyPage`：图文统一分页模型
+```swift
+public enum TypographyPage: Equatable {
+    case lines(Range<Int>)   // 一段连续文字行（索引指向 ChapterTypography.lines）
+    case image(Int)          // 整页插图（id 指向 ChapterTypography.images）
+}
+```
+- `TypographyEngine.typeset` 在按高度切页时，遇到插图槽位就 `flushPage()` 并单独产出一个 `.image` 页，行为对齐 Android `paginate()` 的「图片独立成块」。
+- 统一访问器：`lineRange(ofPage:)`、`firstLineIndex(ofPage:)`、`pageIndex(forLine:)`、`pageIndex(forCharOffset:)`。
+- 全部旧 `pageRanges` 消费点迁移到 `pages`：
+
+| 消费点 | 改动 |
+|---|---|
+| `pageByPageView` 页内容 / 图片页 | 读 `typography.pages[currentPageIndex]`，图片页走 `ChapterImageView`，文字页按 `lineRange(ofPage:)` 切片 |
+| `currentChapterTotalPages` | `typography.pages.count` |
+| `updateReadingBlockIdFromCurrentPage` | `firstLineIndex(ofPage:)` 取首行 `charRange.lowerBound` |
+| `handlePageModeChange` 双向切换 | 滚动→滑动 `pageIndex(forCharOffset:)`；滑动→滚动 `firstLineIndex(ofPage:)` 反查首字符 |
+| `currentChapterCharOffset` / `currentPageText` / `currentAloudStartPos` | 全部改走 `pages` / `lineRange(ofPage:)` |
+| `loadInitialChapter` 进度还原 | `loaded.typography.pages.count` 作为页数上界 |
+
+### 3. 滚动模式插图落地
+- `ChapterCanvasLayerView` 新增 `layoutImageViews(for:)`：按排版算出的 `y`/`height` 放置 `UIImageView`，`draw` 时按 `TypographyImage.id` 复用，跨章预载与回收不重复下载。
+- 新增 `ChapterImageLoader`（`NSCache` 上限 120 张 + in-flight 合并），正文插图与滑动模式共用一致的异步加载体验。
+
+### 验证
+- `swift test --skip LiveSourceTests`：220 项全部通过。
+- `xcodebuild -scheme LegadoApp`（iOS Simulator，arm64 + x86_64）：**BUILD SUCCEEDED**。
+- `ReaderView.swift` 行数：2893 → 2881；`ChapterTypography.swift`：295 → 357（新增分页模型与图片坐标）。
 
 ---
 

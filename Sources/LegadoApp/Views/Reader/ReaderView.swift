@@ -8,7 +8,13 @@ public struct LoadedChapter: Identifiable {
     public var id: Int { chapter.index }
     public let chapter: BookChapter
     public var content: String
-    public var typography: ChapterTypography? = nil
+    public var typography: ChapterTypography
+
+    public init(chapter: BookChapter, content: String, typography: ChapterTypography) {
+        self.chapter = chapter
+        self.content = content
+        self.typography = typography
+    }
 }
 
 extension View {
@@ -707,9 +713,8 @@ public struct ReaderView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         // If it's page 0, display Chapter Title at top
                         if currentPageIndex == 0, let cur = currentLoadedChapter {
-                            let titleLines = cur.typography?.titleLines ?? [cur.chapter.title]
                             VStack(alignment: .leading, spacing: 3) {
-                                ForEach(Array(titleLines.enumerated()), id: \.offset) { _, tLine in
+                                ForEach(Array(cur.typography.titleLines.enumerated()), id: \.offset) { _, tLine in
                                     Text(tLine)
                                         .font(.system(size: readerConfig.fontSize + 4, weight: .bold))
                                         .foregroundColor(readerConfig.theme.textColor)
@@ -722,18 +727,17 @@ public struct ReaderView: View {
 
                         // Page Content
                         if let cur = currentLoadedChapter,
-                           let typo = cur.typography,
-                           currentPageIndex < typo.pageRanges.count,
-                           let img = typo.images.first(where: { $0.id == typo.pageRanges[currentPageIndex].lowerBound }) {
+                           currentPageIndex < cur.typography.pages.count,
+                           case let .image(imgId) = cur.typography.pages[currentPageIndex],
+                           let img = cur.typography.images.first(where: { $0.id == imgId }) {
                             let isFullImg = readerConfig.prefs.imageStyle == .full
                             ChapterImageView(urlString: img.urlString, referer: effectiveSource?.bookSourceUrl)
                                 .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
                             let (lines, isParagraphEnd): ([String], [Bool]) = {
                                 if let cur = currentLoadedChapter,
-                                   let typo = cur.typography,
-                                   currentPageIndex < typo.pageRanges.count {
-                                    let slice = Array(typo.lines[typo.pageRanges[currentPageIndex]])
+                                   let range = cur.typography.lineRange(ofPage: currentPageIndex) {
+                                    let slice = Array(cur.typography.lines[range])
                                     return (slice.map { $0.text }, slice.map { $0.isParagraphEnd })
                                 }
                                 return ([], [])
@@ -806,24 +810,19 @@ public struct ReaderView: View {
     }
 
     private func updateReadingBlockIdFromCurrentPage() {
-        guard let cur = currentLoadedChapter else { return }
-        if let typo = cur.typography,
-           currentPageIndex < typo.pageRanges.count {
-            let range = typo.pageRanges[currentPageIndex]
-            if range.lowerBound < typo.lines.count {
-                let charPos = typo.lines[range.lowerBound].charRange.lowerBound
-                scrollReadingCharOffset = charPos
-                scrollTargetCharPos = charPos
-                book.durChapterPos = charPos
-            }
+        guard let cur = currentLoadedChapter,
+              let lineIndex = cur.typography.firstLineIndex(ofPage: currentPageIndex),
+              lineIndex < cur.typography.lines.count else {
+            return
         }
+        scrollReadingCharOffset = cur.typography.lines[lineIndex].charRange.lowerBound
+        scrollTargetCharPos = scrollReadingCharOffset
+        book.durChapterPos = scrollReadingCharOffset
     }
 
     private var currentChapterTotalPages: Int {
-        if let typo = currentLoadedChapter?.typography, !typo.pageRanges.isEmpty {
-            return typo.pageRanges.count
-        }
-        return 1
+        let pages = currentLoadedChapter?.typography.pages ?? []
+        return pages.isEmpty ? 1 : pages.count
     }
 
     // MARK: - Page Turn Handler (Once chapter ends, next chapter starts next page)
@@ -1057,7 +1056,7 @@ public struct ReaderView: View {
             // Reading Percentage / Page Info
             if !chapters.isEmpty {
                 let progressPercent = Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0
-                if readerConfig.pageMode == .pageByPage, currentLoadedChapter?.typography != nil {
+                if readerConfig.pageMode == .pageByPage, currentLoadedChapter != nil {
                     Text("\(currentPageIndex + 1)/\(currentChapterTotalPages) · \(String(format: "%.1f%%", progressPercent))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
@@ -1177,26 +1176,18 @@ public struct ReaderView: View {
 
         if newMode == .pageByPage {
             // 1. Switching from Continuous Scroll to Page-by-Page:
-            if let typo = cur.typography {
-                currentPageIndex = typo.pageIndex(forCharOffset: scrollReadingCharOffset)
-            }
+            currentPageIndex = cur.typography.pageIndex(forCharOffset: scrollReadingCharOffset)
             updateReadingBlockIdFromCurrentPage()
         } else {
             // 2. Switching from Page-by-Page to Continuous Scroll:
-            if let typo = cur.typography, currentPageIndex < typo.pageRanges.count {
-                let range = typo.pageRanges[currentPageIndex]
-                if range.lowerBound < typo.lines.count {
-                    let charPos = typo.lines[range.lowerBound].charRange.lowerBound
-                    scrollReadingCharOffset = charPos
-                    scrollTargetCharPos = charPos
-                } else {
-                    scrollReadingCharOffset = 0
-                    scrollTargetCharPos = 0
-                }
-            } else {
-                let charPos = currentChapterCharOffset()
+            if let lineIndex = cur.typography.firstLineIndex(ofPage: currentPageIndex),
+               lineIndex < cur.typography.lines.count {
+                let charPos = cur.typography.lines[lineIndex].charRange.lowerBound
                 scrollReadingCharOffset = charPos
                 scrollTargetCharPos = charPos
+            } else {
+                scrollReadingCharOffset = 0
+                scrollTargetCharPos = 0
             }
             scrollSessionId = UUID()
         }
@@ -1614,14 +1605,10 @@ public struct ReaderView: View {
                     ?? (index == self.book.durChapterIndex ? self.book.durChapterPos : 0)
 
                 // Restore position if durChapterPos is saved and opening the current chapter
-                let totalPages = max(1, loaded.typography?.pageRanges.count ?? 1)
+                let totalPages = max(1, loaded.typography.pages.count)
                 if targetPageIndex == 0 && restorePos > 0 {
                     if self.readerConfig.pageMode == .pageByPage {
-                        if let typo = loaded.typography {
-                            self.currentPageIndex = typo.pageIndex(forCharOffset: restorePos)
-                        } else {
-                            self.currentPageIndex = 0
-                        }
+                        self.currentPageIndex = loaded.typography.pageIndex(forCharOffset: restorePos)
                     } else {
                         self.scrollTargetCharPos = restorePos
                     }
@@ -1669,18 +1656,18 @@ public struct ReaderView: View {
             chapterCache[ch.chapter.index] = loadedChapters[i]
         }
 
-        if let cur = currentLoadedChapter, let typo = cur.typography {
-            currentPageIndex = typo.pageIndex(forCharOffset: charPos)
+        if let cur = currentLoadedChapter {
+            currentPageIndex = cur.typography.pageIndex(forCharOffset: charPos)
         }
         updateReadingBlockIdFromCurrentPage()
     }
 
     private func currentChapterCharOffset() -> Int {
         if readerConfig.pageMode == .pageByPage {
-            if let typo = currentLoadedChapter?.typography,
-               currentPageIndex < typo.pageRanges.count,
-               typo.pageRanges[currentPageIndex].lowerBound < typo.lines.count {
-                return typo.lines[typo.pageRanges[currentPageIndex].lowerBound].charRange.lowerBound
+            if let cur = currentLoadedChapter,
+               let lineIndex = cur.typography.firstLineIndex(ofPage: currentPageIndex),
+               lineIndex < cur.typography.lines.count {
+                return cur.typography.lines[lineIndex].charRange.lowerBound
             }
             return 0
         } else {
@@ -1704,10 +1691,11 @@ public struct ReaderView: View {
     /// Text captured with a new bookmark: the current page when paging, or the paragraph the
     /// reader is on when scrolling.
     private func currentPageText() -> String {
-        guard let cur = currentLoadedChapter, let typo = cur.typography else { return "" }
+        guard let cur = currentLoadedChapter else { return "" }
+        let typo = cur.typography
         let lineSlice: ArraySlice<TypographyLine>
-        if readerConfig.pageMode == .pageByPage, currentPageIndex < typo.pageRanges.count {
-            lineSlice = typo.lines[typo.pageRanges[currentPageIndex]]
+        if readerConfig.pageMode == .pageByPage, let range = typo.lineRange(ofPage: currentPageIndex) {
+            lineSlice = typo.lines[range]
         } else {
             // Continuous scroll: the paragraph the reading focus line sits in.
             let focus = typo.lines.first { line in
@@ -1822,11 +1810,13 @@ public struct ReaderView: View {
     /// the point: the block-summing offset used for `durChapterPos` does not count newlines or
     /// image lines, so feeding it to the speech queue would land on the wrong paragraph.
     private func currentAloudStartPos() -> Int {
-        guard let cur = currentLoadedChapter, let typo = cur.typography else { return 0 }
+        guard let cur = currentLoadedChapter else { return 0 }
+        let typo = cur.typography
         let anchorText: String
-        if readerConfig.pageMode == .pageByPage, currentPageIndex < typo.pageRanges.count {
-            let range = typo.pageRanges[currentPageIndex]
-            anchorText = range.lowerBound < typo.lines.count ? typo.lines[range.lowerBound].text : ""
+        if readerConfig.pageMode == .pageByPage,
+           let lineIndex = typo.firstLineIndex(ofPage: currentPageIndex),
+           lineIndex < typo.lines.count {
+            anchorText = typo.lines[lineIndex].text
         } else {
             anchorText = typo.lines.first { line in
                 scrollReadingCharOffset >= line.charRange.lowerBound
