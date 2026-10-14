@@ -90,6 +90,7 @@ public struct ReaderView: View {
     @State private var isLoadingInitial: Bool = true
     @State private var scrollSessionId: UUID = UUID()
     @State private var scrollToChapterId: String? = nil
+    @State private var scrollTargetCharPos: Int? = nil
     @State private var errorMessage: String? = nil
     /// Next step the user can actually take, shown under the failure text. The failure page
     /// used to state the error and offer a dead 重试 button, which read as an inescapable screen.
@@ -688,6 +689,7 @@ public struct ReaderView: View {
             chaptersMeta: chapters,
             currentChapterIndex: currentChapterIndex,
             scrollSessionId: scrollSessionId,
+            targetCharPos: scrollTargetCharPos,
             readerConfig: readerConfig,
             aloudParagraph: audioService.currentParagraph,
             aloudIsActive: audioService.isActive,
@@ -1184,6 +1186,7 @@ public struct ReaderView: View {
         currentPageIndex = 0
         currentReadingBlockId = 0
         scrollToChapterId = nil
+        scrollTargetCharPos = toEnd ? Int.max : nil
         scrollSessionId = UUID()
         loadInitialChapter(at: targetIndex, targetPageIndex: toEnd ? -1 : 0, scrollToTargetEnd: toEnd)
     }
@@ -1216,30 +1219,9 @@ public struct ReaderView: View {
             updateReadingBlockIdFromCurrentPage()
         } else {
             // 2. Switching from Page-by-Page to Continuous Scroll:
-            var charPos = 0
-            let limit = min(currentPageIndex, cur.pages.count)
-            for p in 0..<limit {
-                for block in cur.pages[p] {
-                    charPos += block.text.count
-                }
-            }
-
-            var accumulated = 0
-            var targetBlockId = cur.blocks.first?.id ?? 0
-            for block in cur.blocks {
-                if accumulated + block.text.count > charPos {
-                    targetBlockId = block.id
-                    break
-                }
-                accumulated += block.text.count
-                targetBlockId = block.id
-            }
-
-            currentReadingBlockId = targetBlockId
+            let charPos = currentChapterCharOffset()
+            scrollTargetCharPos = charPos
             scrollSessionId = UUID()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                scrollToChapterId = "block_\(currentChapterIndex)_\(targetBlockId)"
-            }
         }
         saveCurrentProgress()
     }

@@ -222,6 +222,33 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     private var isLoadingNext: Bool = false
     private var isPrependingChapter: Bool = false
 
+    private var lastLayoutWidth: CGFloat = 0
+
+    private var effectiveViewportWidth: CGFloat {
+        if bounds.width > 50 { return bounds.width }
+        #if os(iOS)
+        return UIScreen.main.bounds.width
+        #else
+        return 390
+        #endif
+    }
+
+    private var effectiveViewportHeight: CGFloat {
+        if bounds.height > 50 { return bounds.height }
+        #if os(iOS)
+        return UIScreen.main.bounds.height
+        #else
+        return 700
+        #endif
+    }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.width > 50 && abs(bounds.width - lastLayoutWidth) > 1 {
+            lastLayoutWidth = bounds.width
+            recalculateAllLayouts()
+        }
+    }
     public override init(frame: CGRect) {
         super.init(frame: frame)
         setupScrollView()
@@ -317,7 +344,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         }
     }
 
-    public func resetToChapter(loaded: LoadedChapter, toEnd: Bool = false) {
+    public func resetToChapter(loaded: LoadedChapter, toEnd: Bool = false, targetCharPos: Int? = nil) {
         // Clear all existing canvas views
         for (_, view) in chapterViews {
             view.removeFromSuperview()
@@ -331,15 +358,28 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         layout.yOffset = 0
         chapterLayouts = [layout]
 
-        contentSize = CGSize(width: bounds.width, height: layout.totalHeight)
+        let viewWidth = effectiveViewportWidth
+        let viewHeight = effectiveViewportHeight
+
+        contentSize = CGSize(width: viewWidth, height: layout.totalHeight)
 
         let chapterView = makeChapterView(for: layout)
         addSubview(chapterView)
         chapterViews[loaded.chapter.index] = chapterView
 
-        if toEnd {
-            // Position at end of chapter
-            let targetY = max(0, layout.totalHeight - bounds.height)
+        if let charPos = targetCharPos, charPos > 0 {
+            if let line = layout.lines.first(where: { line in
+                charPos >= line.charRange.lowerBound && charPos < line.charRange.upperBound
+            }) ?? layout.lines.first(where: { line in
+                line.charRange.lowerBound >= charPos
+            }) {
+                let targetY = max(0, min(layout.totalHeight - viewHeight, line.y - 30))
+                contentOffset = CGPoint(x: 0, y: targetY)
+            } else {
+                contentOffset = .zero
+            }
+        } else if toEnd {
+            let targetY = max(0, layout.totalHeight - viewHeight)
             contentOffset = CGPoint(x: 0, y: targetY)
         } else {
             contentOffset = .zero
@@ -358,7 +398,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     // MARK: - Layout Calculation Engine
 
     private func buildLayout(for loaded: LoadedChapter) -> ContinuousChapterLayout {
-        let usableWidth = max(100.0, bounds.width - paddingLeading - paddingTrailing)
+        let viewWidth = effectiveViewportWidth
+        let usableWidth = max(100.0, viewWidth - paddingLeading - paddingTrailing)
         let lineHeight = fontSize * 1.25 + lineSpacing
         let titleHeight = (fontSize + 3) * 1.4 + 28.0
 
@@ -463,7 +504,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     private func makeChapterView(for layout: ContinuousChapterLayout) -> ChapterCanvasLayerView {
-        let frame = CGRect(x: 0, y: layout.yOffset, width: bounds.width, height: layout.totalHeight)
+        let frame = CGRect(x: 0, y: layout.yOffset, width: effectiveViewportWidth, height: layout.totalHeight)
         let view = ChapterCanvasLayerView(frame: frame)
         view.layout = layout
         view.fontSize = fontSize
@@ -481,7 +522,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     private func recalculateAllLayouts() {
-        guard !chapterLayouts.isEmpty, bounds.width > 0 else { return }
+        guard !chapterLayouts.isEmpty, effectiveViewportWidth > 0 else { return }
 
         var currentY: CGFloat = 0
         var newLayouts: [ContinuousChapterLayout] = []
@@ -498,7 +539,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             newLayouts.append(updated)
 
             if let view = chapterViews[layout.chapter.index] {
-                view.frame = CGRect(x: 0, y: currentY, width: bounds.width, height: updated.totalHeight)
+                view.frame = CGRect(x: 0, y: currentY, width: effectiveViewportWidth, height: updated.totalHeight)
                 view.layout = updated
                 view.fontSize = fontSize
                 view.textColor = textColor
@@ -512,7 +553,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         }
 
         chapterLayouts = newLayouts
-        contentSize = CGSize(width: bounds.width, height: currentY)
+        contentSize = CGSize(width: effectiveViewportWidth, height: currentY)
     }
 
     // MARK: - Seamless Bidirectional Chapter Chaining
@@ -548,7 +589,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         chapterViews[loaded.chapter.index] = prevView
 
         // Update contentSize and ATOMICALLY shift contentOffset.y so user sees ZERO movement
-        contentSize = CGSize(width: bounds.width, height: contentSize.height + addedHeight)
+        let viewWidth = effectiveViewportWidth
+        contentSize = CGSize(width: viewWidth, height: contentSize.height + addedHeight)
         contentOffset = CGPoint(x: contentOffset.x, y: contentOffset.y + addedHeight)
 
         isPrependingChapter = false
@@ -577,7 +619,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         addSubview(nextView)
         chapterViews[loaded.chapter.index] = nextView
 
-        contentSize = CGSize(width: bounds.width, height: currentBottom + nextLayout.totalHeight)
+        let viewWidth = effectiveViewportWidth
+        contentSize = CGSize(width: viewWidth, height: currentBottom + nextLayout.totalHeight)
         isLoadingNext = false
 
         // Prune chapters if too many loaded
@@ -605,7 +648,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
                 chapterViews[last.chapter.index]?.removeFromSuperview()
                 chapterViews.removeValue(forKey: last.chapter.index)
                 chapterLayouts.removeLast()
-                contentSize = CGSize(width: bounds.width, height: last.yOffset)
+                contentSize = CGSize(width: effectiveViewportWidth, height: last.yOffset)
             } else {
                 break
             }
@@ -635,8 +678,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             }
         }
 
-        // 2. Check top boundary for loading previous chapter (within 350pt of top)
-        if offsetY < 350, let first = chapterLayouts.first, first.chapter.index > 0 {
+        // 2. Check top boundary: only load previous chapter when user actually scrolls UP past the top boundary!
+        if offsetY < -15, let first = chapterLayouts.first, first.chapter.index > 0 {
             Task { @MainActor in
                 await self.loadPreviousChapter()
             }
@@ -667,6 +710,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
     public let scrollSessionId: UUID
     public let readerConfig: ReaderConfig
     public let aloudParagraph: String
+    public let targetCharPos: Int?
     public let aloudIsActive: Bool
 
     public let onChapterChange: (Int, String) -> Void
@@ -679,6 +723,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         chaptersMeta: [BookChapter],
         currentChapterIndex: Int,
         scrollSessionId: UUID,
+        targetCharPos: Int? = nil,
         readerConfig: ReaderConfig,
         aloudParagraph: String,
         aloudIsActive: Bool,
@@ -693,6 +738,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         self.scrollSessionId = scrollSessionId
         self.readerConfig = readerConfig
         self.aloudParagraph = aloudParagraph
+        self.targetCharPos = targetCharPos
         self.aloudIsActive = aloudIsActive
         self.onChapterChange = onChapterChange
         self.onCharOffsetChange = onCharOffsetChange
@@ -713,7 +759,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
 
         context.coordinator.currentSessionId = scrollSessionId
         if let chapter = loadedChapter {
-            view.resetToChapter(loaded: chapter)
+            view.resetToChapter(loaded: chapter, targetCharPos: targetCharPos)
         }
         return view
     }
@@ -744,7 +790,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         if context.coordinator.currentSessionId != scrollSessionId {
             context.coordinator.currentSessionId = scrollSessionId
             if let chapter = loadedChapter {
-                uiView.resetToChapter(loaded: chapter)
+                uiView.resetToChapter(loaded: chapter, targetCharPos: targetCharPos)
             }
         }
     }
@@ -768,6 +814,7 @@ public struct ReaderScrollCanvasView: View {
         chaptersMeta: Any,
         currentChapterIndex: Int,
         scrollSessionId: UUID,
+        targetCharPos: Int? = nil,
         readerConfig: Any,
         aloudParagraph: String,
         aloudIsActive: Bool,
