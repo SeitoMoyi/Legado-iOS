@@ -291,6 +291,22 @@ public class WebDAVService {
         }
     }
 
+    /// Downloads reading progress for a single book from WebDAV (e.g. legado/bookProgress/name_author.json)
+    public func downloadBookProgress(book: Book, config: WebDAVConfig) async throws -> BookProgress? {
+        guard let dirUrl = config.directoryURL else { return nil }
+        let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
+        let cleanFileName = sanitizeFileName("\(book.name)_\(book.author).json")
+        let progFileUrl = progressDirUrl.appendingPathComponent(cleanFileName)
+        let progReq = makeRequest(url: progFileUrl, method: "GET", config: config)
+        let (data, response) = try await session.data(for: progReq)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 404 { return nil }
+            if http.statusCode == 401 || http.statusCode == 403 { throw WebDAVError.unauthorized }
+            guard (200...299).contains(http.statusCode) else { return nil }
+        }
+        return try? JSONDecoder().decode(BookProgress.self, from: data)
+    }
+
     /// Full payload restored from an Android/iOS Legado backup archive.
     public struct BackupRestorePayload {
         public var books: [Book]?

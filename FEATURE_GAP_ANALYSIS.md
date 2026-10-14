@@ -302,9 +302,9 @@
 | 项 | iOS |
 |---|---|
 | 添加书签 | ✅ | P0-3 |
-| 编辑内容（改写本章正文/标题，可保存·重置·拷贝） | ❌ | `ClickActionCode.editContent` 已可选但无实现 |
+| 编辑内容（改写本章正文/标题，可保存·重置·拷贝） | ✅ | `EditContentSheet` 支持标题与正文修改保存、重置与复制，接通 `ClickActionCode.editContent` 与溢出菜单 |
 | 翻页动画（本书） | ✅ | P0-1：样式面板内单选，写 `pageAnim` |
-| 拉取云端进度 / 覆盖云端进度 | ⚠️ iOS 有自动 WebDAV 进度同步，但无手动双向入口 |
+| 拉取云端进度 / 覆盖云端进度 | ✅ | WebDAV 进度双向同步（`downloadBookProgress` / `uploadBookProgress`），新进度自动拉取覆盖，接通 `ClickActionCode.syncProgress` 与溢出菜单 |
 | 反转内容 | ❌ |
 | 模拟追读（开关 + 开始日期 + 起始章节 + 日更章数） | ❌ |
 | 替换净化（可勾选） | ✅ | P0-5：`Book.useReplaceRule` + 菜单勾选 |
@@ -393,7 +393,7 @@
 | 多 TTS 引擎列表（系统引擎 + HttpTTS 网络引擎） | ✅ | `AudioBookService.selectedEngineName` + 朗读面板「引擎」菜单（系统原生 / 各 HttpTTS 引擎）；`HttpTTSStore.load()` 解析启用项 |
 | **HttpTTS 服务管理页**（名称/URL/内容类型/并发率/登录/请求头 CRUD + 导入导出） | ⚠️ | `HttpTTSListView` + 编辑器已上线（名称/URL/内容类型/请求头 + 导入导出 + 预装默认引擎）；**并发率、登录 URL / loginUi / loginCheckJs、查看·删除登录头 ❌** |
 | 逐段朗读 / 按页朗读 | ✅ | P0-6：段落队列 + `readAloudByPage` |
-| 当前朗读句高亮 | ⚠️ | 翻页模式可高亮；滚动模式未接 `currentCharPos` |
+| 当前朗读句高亮 | ✅ | 翻页模式与滚动模式均已支持朗读高亮（滚动模式支持实时背景高亮与随进度自动平滑居中滚动） |
 | 后台播放 + 锁屏 MediaSession + 通知栏控制 | ✅ | Info.plist `UIBackgroundModes: audio` + `MPRemoteCommandCenter` + `nowPlayingInfo`（无通知栏，iOS 锁屏即控制中心） |
 | 朗读悬浮控制条（不随菜单/面板收起而消失） | ✅ | v0.2.2：`ReadAloudFloatingBar` 三键 播放/暂停/结束，可见性绑播放状态而非 `showControls` |
 | 从**当前页**而非章节开头开始朗读 | ✅ | v0.2.2：`currentAloudStartPos()` 用 `ReadAloudText` 自己的偏移基准把屏幕首段映射进段落队列 |
@@ -1020,8 +1020,10 @@ iOS 这块是**做得最好的部分**（Android 兼容 zip、历史备份选择
 7. ✅ **搜索范围 + 搜索历史**（§7）
 8. ✅ **字符集自动识别 + `nextContentUrl`/`nextTocUrl`**（§21.3/§21.6）
 
-遗留（不影响「能用」，影响「对齐」）：滚动模式朗读高亮、`.editContent`/`.syncProgress` 两个动作码（`ClickActionCode` 可选但 `handleClickAction` 为 `break`）、顶栏换源/刷新图标（当前只在溢出菜单）。`progressBarBehavior` 接线已于 v0.2.3 完成。
-
+✅ **P0 遗留项已全部清零**：
+- 顶栏快捷操作：换源与刷新章节图标常驻顶栏
+- 动作码接通：`.editContent`（`EditContentSheet` 章节内容编辑、保存、重置、复制）与 `.syncProgress`（WebDAV 进度双向同步与智能覆盖）全部落地
+- 滚动模式朗读：连续滚动下朗读段落实时高亮与跟随语音播放进度自动平滑滚动居中
 > 说明：本清单早期版本引用 `plan.md §10 #N` / `§12.1`。v0.2.3 把 `plan.md` 重写为 Part 1-18 的实施设计与文件清单，原 §10「有意偏离 Android 的地方」与 §12「P0 实施状态」已归档，**内容迁移到 `UPDATE_LOG.md` 的「关键设计决策与 Android 偏离备忘」表**（#1–#16）；本文件的所有偏离引用已改指该表。历史版本仍可从 git 取：`git show 07d052c:plan.md`。
 
 ### P1 — 生态兼容与可维护性

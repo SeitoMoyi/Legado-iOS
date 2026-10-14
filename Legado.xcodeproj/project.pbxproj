@@ -593,6 +593,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>61BA3E5B0D82490610BC6CBB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Sheets/EditContentSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>62CAA263C56F8E41FC09582F</key>
 		<dict>
 			<key>fileRef</key>
@@ -841,6 +852,7 @@
 				<string>E6A5696F85EF7F1815D5F780</string>
 				<string>BA1F864FD654A78F1BB09449</string>
 				<string>1706C3B013F8374F869010B2</string>
+				<string>61BA3E5B0D82490610BC6CBB</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1146,6 +1158,7 @@
 				<string>FEC4ACB5B9620EDE0E938738</string>
 				<string>9428B1B564C516D1F8B62EEA</string>
 				<string>75F910926BC92D6C983565C5</string>
+				<string>C919DFE5AD10DCB6BCF17D16</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1358,6 +1371,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>D70806D0D2FC7AF0BEF01430</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>C919DFE5AD10DCB6BCF17D16</key>
+		<dict>
+			<key>fileRef</key>
+			<string>61BA3E5B0D82490610BC6CBB</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>

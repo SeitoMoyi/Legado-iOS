@@ -696,6 +696,20 @@ final class LegadoCoreTests: XCTestCase {
         XCTAssertEqual(srcVal, "src_v1")
     }
 
+    func testChapterCacheSaveAndClear() throws {
+        let bookUrl = "https://example.com/test-book-\(UUID().uuidString)"
+        let chapterIndex = 42
+        let sampleContent = "第一行正文\n第二行正文"
+
+        BookContentService.shared.saveCachedChapterContent(bookUrl: bookUrl, chapterIndex: chapterIndex, content: sampleContent)
+        let readBack = BookContentService.shared.getCachedChapterContent(bookUrl: bookUrl, chapterIndex: chapterIndex)
+        XCTAssertEqual(readBack, sampleContent)
+
+        BookContentService.shared.clearCachedChapter(bookUrl: bookUrl, chapterIndex: chapterIndex)
+        let cleared = BookContentService.shared.getCachedChapterContent(bookUrl: bookUrl, chapterIndex: chapterIndex)
+        XCTAssertNil(cleared)
+    }
+
 }
 
 class MockWebDAVURLProtocol: URLProtocol {

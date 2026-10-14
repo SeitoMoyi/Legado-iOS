@@ -107,6 +107,7 @@ public struct ReaderView: View {
     /// Guards against 自动换源 recursing when the replacement also fails.
     @State private var isAutoChangingSource: Bool = false
     @State private var showRangeDownload: Bool = false
+    @State private var showEditContentSheet: Bool = false
     @State private var editingBookmark: Bookmark?
     @State private var bookmarkIsNew: Bool = true
     @State private var panel: ReaderPanel = .none
@@ -265,10 +266,10 @@ public struct ReaderView: View {
         case .addBookmark: addBookmark()
         case .aloudPrevParagraph: audioService.prevParagraph()
         case .aloudNextParagraph: audioService.nextParagraph()
-        case .editContent, .syncProgress:
-            // Enabled by P0-3 / P0-6; the zones are selectable now so the layout work does
-            // not have to be redone later.
-            break
+        case .editContent:
+            showEditContentSheet = true
+        case .syncProgress:
+            performProgressSync()
         }
     }
 
@@ -422,6 +423,20 @@ public struct ReaderView: View {
                 source: effectiveSource,
                 currentChapterIndex: currentChapterIndex
             )
+        }
+        .sheet(isPresented: $showEditContentSheet) {
+            if currentChapterIndex < chapters.count {
+                EditContentSheet(
+                    title: chapters[currentChapterIndex].title,
+                    content: currentChapterContent,
+                    onSave: { newTitle, newContent in
+                        saveEditedChapter(newTitle: newTitle, newContent: newContent)
+                    },
+                    onReset: {
+                        resetEditedChapter()
+                    }
+                )
+            }
         }
         .sheet(item: $selectedWordForDict) { word in
             NavigationView {
@@ -721,14 +736,20 @@ public struct ReaderView: View {
                                                 }
                                             )
                                     } else {
+                                        let isAloud = isAloudSpeaking(chapterIndex: loadedCh.chapter.index, block: block)
                                         Text(block.text)
                                             .font(.system(size: readerConfig.fontSize))
                                             .lineSpacing(readerConfig.lineSpacing)
                                             .kerningWhenAvailable(readerConfig.letterSpacing)
-                                            .foregroundColor(readerConfig.theme.textColor)
+                                            .foregroundColor(isAloud ? .accentColor : readerConfig.theme.textColor)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .padding(.horizontal, 20)
                                             .padding(.vertical, readerConfig.lineSpacing / 3)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .fill(isAloud ? Color.accentColor.opacity(0.15) : Color.clear)
+                                                    .padding(.horizontal, 14)
+                                            )
                                             .id("block_\(loadedCh.chapter.index)_\(block.id)")
                                             .background(
                                                 GeometryReader { geo in
@@ -820,6 +841,15 @@ public struct ReaderView: View {
                             proxy.scrollTo(target, anchor: anchor)
                             scrollToChapterId = nil
                         }
+                    }
+                }
+            }
+            .onChange(of: audioService.currentIndex) { _ in
+                guard readerConfig.pageMode == .scroll, audioService.isActive else { return }
+                if let cur = currentLoadedChapter,
+                   let match = cur.blocks.first(where: { isAloudSpeaking(chapterIndex: cur.chapter.index, block: $0) }) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        proxy.scrollTo("block_\(cur.chapter.index)_\(match.id)", anchor: .center)
                     }
                 }
             }
@@ -1104,13 +1134,23 @@ public struct ReaderView: View {
                         .lineLimit(1)
                 }
             }
-            .frame(maxWidth: 240)
+            .frame(maxWidth: 180)
 
             Spacer()
 
             // Overflow menu. Android puts 换源/刷新/离线缓存 on the bar itself; those
             // arrive with the cache export, so the menu starts with what works today.
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
+                Button(action: { changeSourceMode = .wholeBook }) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 16))
+                }
+
+                Button(action: { reloadCurrentChapter() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 16))
+                }
+
                 Menu {
                     Section("书签") {
                         Button("添加书签", action: addBookmark)
@@ -1118,6 +1158,7 @@ public struct ReaderView: View {
                     }
 
                     Section("正文") {
+                        Button("编辑内容") { showEditContentSheet = true }
                         Button(book.useReplaceRule ?? readerConfig.prefs.replaceEnableDefault
                                ? "关闭净化" : "开启净化", action: toggleReplaceRule)
                         Button("净化与替换规则") { showEffectiveReplaces = true }
@@ -1153,6 +1194,7 @@ public struct ReaderView: View {
                         Button("离线下载章节...") { showRangeDownload = true }
                         Button("刷新本章") { reloadCurrentChapter() }
                         Button("更新目录") { Task { await refreshTOC(force: true, notice: .always) } }
+                        Button("同步云端进度", action: performProgressSync)
                         Button("清理本书缓存") { clearBookCache() }
                         Button(isAutoPageTurning ? "停止自动翻页" : "开启自动翻页") {
                             toggleAutoPageTurn()
@@ -1164,7 +1206,7 @@ public struct ReaderView: View {
                     }
             }
             .foregroundColor(readerConfig.theme.textColor)
-            .frame(width: 96, alignment: .trailing)
+            .frame(minWidth: 96, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -2244,6 +2286,95 @@ public struct ReaderView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Chapter Content Editing
+
+    private func saveEditedChapter(newTitle: String, newContent: String) {
+        guard currentChapterIndex < chapters.count else { return }
+        chapters[currentChapterIndex].title = newTitle
+        let blocks = parseContentBlocks(from: newContent)
+        let pages = paginate(blocks: blocks)
+        let loaded = LoadedChapter(chapter: chapters[currentChapterIndex], content: newContent, blocks: blocks, pages: pages)
+        chapterCache[currentChapterIndex] = loaded
+        if let idx = loadedChapters.firstIndex(where: { $0.chapter.index == currentChapterIndex }) {
+            loadedChapters[idx] = loaded
+        }
+        BookContentService.shared.saveCachedChapterContent(
+            bookUrl: book.bookUrl,
+            chapterIndex: currentChapterIndex,
+            content: newContent
+        )
+        showControlHint("章节内容已保存")
+    }
+
+    private func resetEditedChapter() {
+        guard currentChapterIndex < chapters.count else { return }
+        BookContentService.shared.clearCachedChapter(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex)
+        chapterCache[currentChapterIndex] = nil
+        reloadCurrentChapter()
+        showControlHint("已重置为书源原始内容")
+    }
+
+    // MARK: - WebDAV Progress Sync
+
+    private func performProgressSync() {
+        let config = WebDAVService.shared.loadConfig()
+        guard !config.url.isEmpty, !config.username.isEmpty else {
+            showControlHint("未配置 WebDAV，请先在设置中完成配置")
+            return
+        }
+        showControlHint("正在同步云端进度...")
+        Task { @MainActor in
+            do {
+                let remoteProg = try await WebDAVService.shared.downloadBookProgress(book: book, config: config)
+                let localTime = max(book.durChapterTime, book.lastCheckTime)
+                if let remote = remoteProg,
+                   (remote.durChapterTime ?? 0) > localTime,
+                   remote.durChapterIndex >= 0,
+                   remote.durChapterIndex < chapters.count {
+                    BookStore.shared.updateProgress(
+                        bookUrl: book.bookUrl,
+                        chapterIndex: remote.durChapterIndex,
+                        chapterTitle: remote.durChapterTitle ?? chapters[remote.durChapterIndex].title,
+                        chapterPos: remote.durChapterPos
+                    )
+                    book.durChapterIndex = remote.durChapterIndex
+                    book.durChapterPos = remote.durChapterPos
+                    book.durChapterTitle = remote.durChapterTitle
+                    book.durChapterTime = remote.durChapterTime ?? Int64(Date().timeIntervalSince1970 * 1000)
+                    currentChapterIndex = remote.durChapterIndex
+                    currentPageIndex = 0
+                    loadInitialChapter(at: remote.durChapterIndex, targetCharPos: remote.durChapterPos)
+                    showControlHint("已拉取云端最新进度: \(remote.durChapterTitle ?? chapters[remote.durChapterIndex].title)")
+                } else {
+                    saveCurrentProgress()
+                    if let updatedBook = BookStore.shared.bookshelf.first(where: { $0.bookUrl == book.bookUrl }) {
+                        try await WebDAVService.shared.uploadBookProgress(book: updatedBook, config: config)
+                    } else {
+                        try await WebDAVService.shared.uploadBookProgress(book: book, config: config)
+                    }
+                    showControlHint("当前阅读进度已上传至云端")
+                }
+            } catch {
+                showControlHint("进度同步失败: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Aloud Highlight Check in Scroll Mode
+
+    private func isAloudSpeaking(chapterIndex: Int, block: ContentBlock) -> Bool {
+        guard audioService.isActive,
+              currentChapterIndex == chapterIndex,
+              !block.isImage,
+              !block.text.isEmpty,
+              !audioService.currentParagraph.isEmpty else {
+            return false
+        }
+        let needle = audioService.currentParagraph.trimmingCharacters(in: .whitespacesAndNewlines)
+        let haystack = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return needle == haystack || haystack.contains(needle) || needle.contains(haystack)
     }
 
     // MARK: - Selected Text Action

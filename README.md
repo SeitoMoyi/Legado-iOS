@@ -16,6 +16,11 @@
 
 - 🛠 **修复 iOS 15 顶栏「更多」菜单按钮不显示**：在 iOS 15 上，由于 `NavigationView` 将 `ToolbarItemGroup(placement: .primaryAction)` 的语义限制为单个 Primary Action，导致书架页（`BookshelfView`）与订阅源列表（`RssViews`）右上角仅渲染首个按钮（搜索/收藏），二级菜单按钮（`⋯`）被系统丢弃。现统一收敛为单个 `ToolbarItem` 内嵌 `HStack` 规范结构，恢复书架多选批量管理、网格/列表切换、排序方式等全部二级菜单功能。
 - 🛠 **修复替换规则页 iOS 15 顶栏按钮冲突**：在 `ReplaceRuleListView` 中合并并列的 `.primaryAction` 声明，确保「编辑」与「添加/导入/导出」菜单按钮在 iOS 15 上正常并存显示。
+- 🎯 **P0 核心阅读遗留项全部补齐**：
+  - **顶栏换源与刷新**：阅读器顶栏常驻「换源」与「刷新」双图标，一键触发整书换源与本章重载。
+  - **章节编辑内容**：接通动作码 `ClickActionCode.editContent` 与正文菜单，新增 `EditContentSheet` 支持本章标题与正文自定义修改、即时生效落盘、一键重置及全量复制。
+  - **WebDAV 进度双向同步**：接通动作码 `ClickActionCode.syncProgress` 与离线菜单，自动比较本地与远端时间戳，实现拉取最新进度覆盖与当前阅读进度回传。
+  - **滚动朗读高亮与自动跟踪**：连续滚动模式下朗读段落实时动画高亮（柔和主色背景），并自动平滑滚动居中当前发音段落。
 
 ---
 

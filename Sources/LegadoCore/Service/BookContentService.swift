@@ -503,8 +503,13 @@ public class BookContentService {
         return dir
     }
 
-    private func chapterCacheFile(bookUrl: String, chapterIndex: Int) -> URL {
+    public func chapterCacheFile(bookUrl: String, chapterIndex: Int) -> URL {
         return chapterCacheDirectory(bookUrl: bookUrl).appendingPathComponent("\(chapterIndex).txt")
+    }
+
+    public func clearCachedChapter(bookUrl: String, chapterIndex: Int) {
+        let file = chapterCacheFile(bookUrl: bookUrl, chapterIndex: chapterIndex)
+        try? FileManager.default.removeItem(at: file)
     }
 
     public func getCachedChapterContent(bookUrl: String, chapterIndex: Int) -> String? {

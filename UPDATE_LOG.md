@@ -43,6 +43,11 @@
 | `RssViews.swift` | `ToolbarItemGroup` → `ToolbarItem` + `HStack(spacing: 12)` | 恢复 iOS 15 下订阅源列表页「收藏」与「新建/导入/导出 (⋯)」双按钮显示 |
 | `ReplaceRuleListView.swift` | 合并双 `ToolbarItem(.primaryAction)` 为单个 `ToolbarItem` + `HStack(spacing: 12)` | 消除 iOS 15 下「编辑」按钮与「添加/导入/导出 (⋯)」菜单按钮的冲突 |
 
+### P0 遗留交互全部清零
+1. **顶栏换源与刷新快捷图标**：阅读器顶栏常驻「换源」与「刷新本章」一键图标，与右侧 `⋯` 溢出菜单并存，对齐 Android 阅读器核心手感。
+2. **章节内容编辑 (`EditContentSheet`)**：接通动作码 `ClickActionCode.editContent` 与溢出菜单「编辑内容」，提供章节标题与正文字段编辑，支持实时修改保存落盘、一键重置为书源原始内容及全量文本拷贝。
+3. **WebDAV 进度双向同步 (`syncProgress`)**：新增 `WebDAVService.downloadBookProgress`，接通动作码 `ClickActionCode.syncProgress` 与溢出菜单「同步云端进度」；自动比对本地与云端进度时间戳，智能实现「新进度覆盖拉取」与「最新本地进度回传」。
+4. **连续滚动模式朗读高亮与自动跟踪**：接通滚动模式朗读句子高亮背景（`accentColor.opacity(0.15)`），并接入 `ScrollViewReader` 随段落发音进度自动平滑居中滚动。
 ---
 
 ## v0.2.3（书源 / 书架 / 规则工具链补齐，订阅与音频模块落地）
