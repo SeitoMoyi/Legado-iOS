@@ -3,10 +3,22 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.4-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.5-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+
+---
+
+## ✨ v0.2.5 新增
+
+本版重构阅读排版引擎架构，彻底统一滑动翻页与连续滚动模式，消除模式切换时的位置漂移与长标题截断问题：
+
+- 📐 **统一排版引擎 (`ChapterTypography`) 与零漂移切换**：
+  - **一套排版、不同处截断**：将滑动模式（Slide）与滚动模式（Scroll）收敛至同一套 CoreText 排版引擎，共用相同的行折行切片与字符范围映射，彻底杜绝两套排版计算偏差导致的行数累积漂移。
+  - **长标题智能多行折行**：章节标题统一引入基于可用宽度的动态排版与折行，完美支持两行或三行超长标题展示，彻底解决滚动模式下单行截断、后半段内容消失的问题。
+  - **时序竞争与页码还原修复**：消除面板切换翻页动画时触发的不必要重排（`onRepaginate`），每次滑动翻页即时更新阅读字符偏移量，确保滑动切滚动时精确对齐当前页第一行文字，滚动切滑动时精准定位至对应页码。
+  - **排版换行符完整保留**：重构布局重建机制，持久保留原始章节内容（`rawContent`），彻底根除首章刷新后丢失 `\n` 换行符、段落粘连且仅由缩进空格分隔的 Bug。
 
 ---
 
