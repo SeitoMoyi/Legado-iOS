@@ -3,25 +3,28 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.3.1-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.4-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
 
 ---
 
-## ✨ v0.2.3.1 新增
+## ✨ v0.2.4 新增
 
-本版为维护版本，针对 iOS 15 系统底层特性进行关键兼容性修复：
+本版重构纵向连续滚动阅读体验、补齐 P0 核心阅读遗留交互，并针对 iOS 15 顶栏多按钮渲染进行底层兼容性修复：
 
-- 🛠 **修复 iOS 15 顶栏「更多」菜单按钮不显示**：在 iOS 15 上，由于 `NavigationView` 将 `ToolbarItemGroup(placement: .primaryAction)` 的语义限制为单个 Primary Action，导致书架页（`BookshelfView`）与订阅源列表（`RssViews`）右上角仅渲染首个按钮（搜索/收藏），二级菜单按钮（`⋯`）被系统丢弃。现统一收敛为单个 `ToolbarItem` 内嵌 `HStack` 规范结构，恢复书架多选批量管理、网格/列表切换、排序方式等全部二级菜单功能。
-- 🛠 **修复替换规则页 iOS 15 顶栏按钮冲突**：在 `ReplaceRuleListView` 中合并并列的 `.primaryAction` 声明，确保「编辑」与「添加/导入/导出」菜单按钮在 iOS 15 上正常并存显示。
+- 📜 **纵向连续滚动排版重构**：
+  - **边距与展现空间统一**：段落与图片采用与滑动翻页完全一致的边距、内衬与段距设置，视觉比例和谐自然。
+  - **常驻通知栏/状态栏**：始终常驻系统顶栏（时间、电量、网络），字体图标跟随暗黑/浅色阅读主题自适应。
+  - **零点击无缝双向长卷阅读**：彻底移除顶部章节切换按钮，进入滚动模式时自动向前与向后预拼装章节（`[上一章, 本章, 下一章]`）；上滑直接无缝衔接上一章末尾正文，触顶自动触发异步向上追加，实现完全贯通的长卷滚动阅读手感。
 - 🎯 **P0 核心阅读遗留项全部补齐**：
   - **顶栏换源与刷新**：阅读器顶栏常驻「换源」与「刷新」双图标，一键触发整书换源与本章重载。
   - **章节编辑内容**：接通动作码 `ClickActionCode.editContent` 与正文菜单，新增 `EditContentSheet` 支持本章标题与正文自定义修改、即时生效落盘、一键重置及全量复制。
   - **WebDAV 进度双向同步**：接通动作码 `ClickActionCode.syncProgress` 与离线菜单，自动比较本地与远端时间戳，实现拉取最新进度覆盖与当前阅读进度回传。
   - **滚动朗读高亮与自动跟踪**：连续滚动模式下朗读段落实时动画高亮（柔和主色背景），并自动平滑滚动居中当前发音段落。
-  - **纵向连续滚动排版重构**：统一边距与展现空间（对齐滑动翻页）、常驻系统顶栏通知栏、修复「上一章」切换与章节过渡。
+- 🛠 **修复 iOS 15 顶栏「更多」菜单按钮不显示**：在 iOS 15 上，由于 `NavigationView` 将 `ToolbarItemGroup(placement: .primaryAction)` 的语义限制为单个 Primary Action，导致书架页（`BookshelfView`）与订阅源列表（`RssViews`）右上角仅渲染首个按钮（搜索/收藏），二级菜单按钮（`⋯`）被系统丢弃。现统一收敛为单个 `ToolbarItem` 内嵌 `HStack` 规范结构，恢复书架多选批量管理、网格/列表切换、排序方式等全部二级菜单功能。
+- 🛠 **修复替换规则页 iOS 15 顶栏按钮冲突**：在 `ReplaceRuleListView` 中合并并列的 `.primaryAction` 声明，确保「编辑」与「添加/导入/导出」菜单按钮在 iOS 15 上正常并存显示。
 
 ---
 
