@@ -27,6 +27,7 @@ public struct ContinuousImageItem {
 
 public final class ContinuousChapterLayout {
     public let chapter: BookChapter
+    public let rawContent: String
     public let lines: [ContinuousCTLine]
     public let images: [ContinuousImageItem]
     public let titleHeight: CGFloat
@@ -36,6 +37,7 @@ public final class ContinuousChapterLayout {
 
     public init(
         chapter: BookChapter,
+        rawContent: String,
         lines: [ContinuousCTLine],
         images: [ContinuousImageItem],
         titleHeight: CGFloat,
@@ -44,6 +46,7 @@ public final class ContinuousChapterLayout {
         yOffset: CGFloat = 0
     ) {
         self.chapter = chapter
+        self.rawContent = rawContent
         self.lines = lines
         self.images = images
         self.titleHeight = titleHeight
@@ -494,6 +497,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         return ContinuousChapterLayout(
             chapter: loaded.chapter,
+            rawContent: loaded.content,
             lines: lines,
             images: images,
             titleHeight: titleHeight,
@@ -528,10 +532,10 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         var newLayouts: [ContinuousChapterLayout] = []
 
         for layout in chapterLayouts {
-            // Re-build layout with current font size and usable width
+            // Re-build layout with current font size and usable width using original chapter content
             let loaded = LoadedChapter(
                 chapter: layout.chapter,
-                content: layout.lines.map { $0.text }.joined(separator: ""),
+                content: layout.rawContent,
                 blocks: []
             )
             let updated = buildLayout(for: loaded)
