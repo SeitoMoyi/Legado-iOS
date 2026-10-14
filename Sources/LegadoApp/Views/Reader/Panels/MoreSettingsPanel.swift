@@ -25,8 +25,6 @@ struct MoreSettingsPanel: View {
                 ReaderPanelHeader(title: "更多设置", config: config, onClose: onClose)
 
                 section("显示") {
-                    ReaderPanelSwitchRow(title: "隐藏状态栏", config: config,
-                                         isOn: pref(\.hideStatusBar))
                     ReaderPanelSwitchRow(title: "展示顶部工具栏附加区域", config: config,
                                          isOn: pref(\.showReadTitleAddition))
                     ReaderPanelSwitchRow(title: "文字两端对齐", config: config,

@@ -89,6 +89,7 @@ public struct ReaderView: View {
 
     @State private var isLoadingInitial: Bool = true
     @State private var isLoadingNextChapter: Bool = false
+    @State private var isLoadingPrevChapter: Bool = false
     @State private var scrollSessionId: UUID = UUID()
     @State private var scrollToChapterId: String? = nil
     @State private var errorMessage: String? = nil
@@ -375,7 +376,7 @@ public struct ReaderView: View {
         }
         #if os(iOS)
         .navigationBarHidden(true)
-        .statusBar(hidden: readerConfig.prefs.hideStatusBar && !showControls && panel == .none)
+        .statusBar(hidden: false)
         .preferredColorScheme(readerConfig.theme == .dark ? .dark : .light)
         #endif
         .sheet(isPresented: $showTOC) {
@@ -696,31 +697,18 @@ public struct ReaderView: View {
                     .frame(height: 0)
 
                     LazyVStack(alignment: .leading, spacing: 0) {
+                        // Top trigger to automatically attach previous chapter when scrolling up
+                        if let firstLoaded = loadedChapters.first, firstLoaded.chapter.index > 0 {
+                            Color.clear
+                                .frame(height: 1)
+                                .id("chapter_top_trigger_\(firstLoaded.chapter.index)")
+                                .onAppear {
+                                    loadPreviousChapterForInfiniteScroll(before: firstLoaded.chapter.index)
+                                }
+                        }
+
                         ForEach(loadedChapters) { loadedCh in
                             VStack(alignment: .leading, spacing: 0) {
-                                // Previous Chapter Button at Top
-                                if loadedCh.chapter.index > 0 {
-                                    Button(action: { previousChapter() }) {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "chevron.up")
-                                                .font(.system(size: 11, weight: .semibold))
-                                            Text("上一章: \(chapters[loadedCh.chapter.index - 1].title)")
-                                                .font(.system(size: 12))
-                                                .lineLimit(1)
-                                        }
-                                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 16)
-                                        .background(
-                                            Capsule()
-                                                .fill(readerConfig.theme.textColor.opacity(0.08))
-                                        )
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .center)
-                                    .padding(.top, 16)
-                                    .padding(.bottom, 8)
-                                }
-
                                 // Chapter Title
                                 Text(loadedCh.chapter.title)
                                     .font(.system(size: readerConfig.fontSize + 3, weight: .bold))
@@ -857,7 +845,7 @@ public struct ReaderView: View {
             .id(scrollSessionId)
             .refreshable {
                 if let first = loadedChapters.first, first.chapter.index > 0 {
-                    previousChapter()
+                    loadPreviousChapterForInfiniteScroll(before: first.chapter.index)
                 }
             }
             .contentShape(Rectangle())
@@ -1410,7 +1398,13 @@ public struct ReaderView: View {
         guard currentChapterIndex > 0 else { return }
         let prevIndex = currentChapterIndex - 1
         if readerConfig.pageMode == .scroll {
-            jumpToChapter(prevIndex, toEnd: false)
+            if loadedChapters.contains(where: { $0.chapter.index == prevIndex }) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    scrollToChapterId = "chapter_\(prevIndex)"
+                }
+            } else {
+                jumpToChapter(prevIndex, toEnd: false)
+            }
         } else {
             jumpToChapter(prevIndex, toEnd: true)
         }
@@ -1936,16 +1930,34 @@ public struct ReaderView: View {
                     self.currentReadingBlockId = loaded.pages[self.currentPageIndex].first?.id ?? 0
                 }
 
-                // If jumping to end in continuous scroll, also attach the next chapter right below it if available!
-                if readerConfig.pageMode == .scroll && scrollToTargetEnd && index < self.chapters.count - 1 {
-                    let nextIndex = index + 1
-                    if let nextCached = self.chapterCache[nextIndex] {
-                        self.loadedChapters = [loaded, nextCached]
-                    } else {
-                        self.loadedChapters = [loaded]
+                // In continuous scroll mode, automatically combine previous chapter, current chapter, and next chapter!
+                if readerConfig.pageMode == .scroll {
+                    var displayed: [LoadedChapter] = []
+                    if index > 0, let prevCached = self.chapterCache[index - 1] {
+                        displayed.append(prevCached)
+                    }
+                    displayed.append(loaded)
+                    if index < self.chapters.count - 1, let nextCached = self.chapterCache[index + 1] {
+                        displayed.append(nextCached)
+                    }
+                    self.loadedChapters = displayed
+
+                    // If previous wasn't in memory cache yet, fetch it asynchronously so it connects above:
+                    if index > 0 && !displayed.contains(where: { $0.chapter.index == index - 1 }) {
                         Task {
-                            if let nextLoaded = await self.getOrFetchChapter(at: nextIndex) {
-                                if !self.loadedChapters.contains(where: { $0.chapter.index == nextIndex }) {
+                            if let prevLoaded = await self.getOrFetchChapter(at: index - 1) {
+                                if !self.loadedChapters.contains(where: { $0.chapter.index == index - 1 }) {
+                                    self.loadedChapters.insert(prevLoaded, at: 0)
+                                }
+                            }
+                        }
+                    }
+
+                    // If next wasn't in memory cache yet, fetch it asynchronously so it connects below:
+                    if index < self.chapters.count - 1 && !displayed.contains(where: { $0.chapter.index == index + 1 }) {
+                        Task {
+                            if let nextLoaded = await self.getOrFetchChapter(at: index + 1) {
+                                if !self.loadedChapters.contains(where: { $0.chapter.index == index + 1 }) {
                                     self.loadedChapters.append(nextLoaded)
                                 }
                             }
@@ -1981,6 +1993,46 @@ public struct ReaderView: View {
                     self.errorGuidance = "这一章还没有本地缓存，需要联网获取。可重试、跳到别的章节，或返回书架。"
                 }
                 self.isLoadingInitial = false
+            }
+        }
+    }
+
+    private func loadPreviousChapterForInfiniteScroll(before index: Int) {
+        let prevIndex = index - 1
+        guard prevIndex >= 0 else { return }
+        if loadedChapters.contains(where: { $0.chapter.index == prevIndex }) || isLoadingPrevChapter {
+            return
+        }
+
+        if let cached = chapterCache[prevIndex] {
+            self.loadedChapters.insert(cached, at: 0)
+            self.preCacheNeighbors(around: prevIndex)
+            return
+        }
+
+        let prevChapter = chapters[prevIndex]
+        let prevNextUrl = chapters[index].url
+        let prevContext = processContext(for: prevChapter)
+        isLoadingPrevChapter = true
+        let source = effectiveSource
+
+        Task { @MainActor in
+            do {
+                let content = try await BookContentService.shared.fetchChapterContent(
+                    chapter: prevChapter, source: source,
+                    nextChapterUrl: prevNextUrl, context: prevContext)
+                let blocks = parseContentBlocks(from: content)
+                let pages = paginate(blocks: blocks)
+                let loaded = LoadedChapter(chapter: prevChapter, content: content, blocks: blocks, pages: pages)
+
+                if !self.loadedChapters.contains(where: { $0.chapter.index == prevIndex }) {
+                    self.loadedChapters.insert(loaded, at: 0)
+                }
+                self.chapterCache[prevIndex] = loaded
+                self.isLoadingPrevChapter = false
+                self.preCacheNeighbors(around: prevIndex)
+            } catch {
+                self.isLoadingPrevChapter = false
             }
         }
     }
