@@ -763,6 +763,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>79625ED23A42BE8D3CDEA9FF</key>
+		<dict>
+			<key>fileRef</key>
+			<string>D05A5BECB3D7ADF58263D2DE</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>7A65BFBF9DF1BA7ED70DF463</key>
 		<dict>
 			<key>isa</key>
@@ -853,6 +860,7 @@
 				<string>BA1F864FD654A78F1BB09449</string>
 				<string>1706C3B013F8374F869010B2</string>
 				<string>61BA3E5B0D82490610BC6CBB</string>
+				<string>D05A5BECB3D7ADF58263D2DE</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1159,6 +1167,7 @@
 				<string>9428B1B564C516D1F8B62EEA</string>
 				<string>75F910926BC92D6C983565C5</string>
 				<string>C919DFE5AD10DCB6BCF17D16</string>
+				<string>79625ED23A42BE8D3CDEA9FF</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1444,6 +1453,17 @@
 			<string>XCBuildConfiguration</string>
 			<key>name</key>
 			<string>Debug</string>
+		</dict>
+		<key>D05A5BECB3D7ADF58263D2DE</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Reader/Canvas/ReaderScrollCanvasView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>D1EF1C8C18FB34521D455AFE</key>
 		<dict>
