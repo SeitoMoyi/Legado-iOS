@@ -761,6 +761,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         view.onRequestChapter = onRequestChapter
 
         context.coordinator.currentSessionId = scrollSessionId
+        context.coordinator.renderedChapterIndex = loadedChapter?.chapter.index
         if let chapter = loadedChapter {
             view.resetToChapter(loaded: chapter, targetCharPos: targetCharPos)
         }
@@ -792,17 +793,36 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
             chaptersMeta: chaptersMeta
         )
 
-        if context.coordinator.currentSessionId != scrollSessionId {
-            context.coordinator.currentSessionId = scrollSessionId
-            if let chapter = loadedChapter {
+        // SwiftUI diffs a representable structurally, so a new `scrollSessionId` reaches
+        // `updateUIView` only when some other field also changed in that render pass. A chapter
+        // jump lands while `loadedChapter` is still the chapter being read (the parent moves
+        // `currentChapterIndex` first and rebuilds `loadedChapters` a network round trip
+        // later), so a session-id-only check would reset the canvas onto that stale chapter
+        // here, then find the id unchanged once the target arrives and never render it.
+        //
+        // Reset when the parent points at a chapter the canvas has not been asked to show
+        // yet, rather than when the canvas merely sits ahead of it: scrolling inside the
+        // canvas advances it without the parent reloading, and that must never be yanked back.
+        if let chapter = loadedChapter, chapter.chapter.index == currentChapterIndex {
+            if context.coordinator.currentSessionId != scrollSessionId
+                || context.coordinator.renderedChapterIndex != chapter.chapter.index {
+                context.coordinator.currentSessionId = scrollSessionId
+                context.coordinator.renderedChapterIndex = chapter.chapter.index
                 uiView.resetToChapter(loaded: chapter, targetCharPos: targetCharPos)
             }
+        } else if context.coordinator.currentSessionId != scrollSessionId {
+            // Chapter is still in flight; consume the id so its arrival is not mistaken for a
+            // second jump, and leave the canvas on what it already shows.
+            context.coordinator.currentSessionId = scrollSessionId
         }
     }
 
     public class Coordinator {
         var parent: ReaderScrollCanvasView
         var currentSessionId: UUID?
+        /// Chapter the canvas was last told to render, so a jump whose session-id diff was
+        /// dropped can still be detected here.
+        var renderedChapterIndex: Int?
 
         init(_ parent: ReaderScrollCanvasView) {
             self.parent = parent

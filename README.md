@@ -3,10 +3,19 @@
 [![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.5.2-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
+[![Release](https://img.shields.io/badge/Release-v0.2.5.3-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+
+---
+
+## ✨ v0.2.5.3 修复
+
+连续滚动模式的「目录」跳转修复：
+
+- 🐛 **修复滚动模式下目录点击章节后正文不切换**：底部信息栏已更新到目标章节、正文却仍停留在原章节。滚动画布的重置判定原先只比较 `scrollSessionId`，而该会话号在点击瞬间同步抬高、目标章节正文却要等异步取文返回才就位——于是重置信号被「旧章节」那一次渲染消费掉，正文真正到达时反而不再重置。现改为按**实际渲染的章节**判定，并在目标章节在途时只消费会话号、不动画布，确保正文到达后必然落地。
+- 🔒 **不影响章内滚动**：判据取父视图的当前章节索引，而非画布自身的活动章节——滚动时画布合理地跑在父视图前面，那种状态不会触发回拉。
 
 ---
 

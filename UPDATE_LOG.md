@@ -6,6 +6,7 @@
 
 ## 目录
 - [版本总览](#版本总览)
+- [v0.2.5.3（滚动模式目录跳转修复）](#v0253滚动模式目录跳转修复)
 - [v0.2.5.2（排版模型终态收敛：TypographyPage 图文统一分页与非可选 typography）](#v0252排版模型终态收敛typographypage-图文统一分页与非可选-typography)
 - [v0.2.5.1（阅读器死代码清除与排版单一真理源收敛）](#v0251阅读器死代码清除与排版单一真理源收敛)
 - [v0.2.5（统一排版引擎架构、零漂移模式切换与长标题折行）](#v025统一排版引擎架构零漂移模式切换与长标题折行)
@@ -22,6 +23,7 @@
 
 | 版本 | 定位 | 主要更新内容 |
 |---|---|---|
+| **v0.2.5.3** | 滚动模式目录跳转修复 | 修复连续滚动模式下在「目录」里点击章节后，底部信息栏已切换到目标章节、正文却仍停留在原章节的 Bug：滚动画布的重置判定由「仅比较会话号」改为「比较实际渲染的章节」，异步载入的正文到达后必然落地 |
 | **v0.2.5.2** | 排版模型终态收敛（Phase B） | `LoadedChapter.typography` 非可选，彻底移除 `blocks`/`pages` 冗余字段；新增 `TypographyPage`（`.lines` / `.image`）图文统一分页模型，滑动分页与滚动行序共享同一真相源；滚动模式插图按排版坐标真实渲染并共享内存缓存 |
 | **v0.2.5.1** | 阅读器死代码清除与排版单一真理源收敛（Phase A） | 删除 SwiftUI 滚动时代残留的 PreferenceKeys / `scrollToChapterId` 字符串锚点；删除 `ReaderView` 中第二套 `ContentBlock` + `paginate` 重复排版实现；全仓正文排版收敛至 `ChapterTypography` 单一真理源，零行为变更 |
 | **v0.2.5** | 统一排版架构、零漂移切换与长标题折行 | 统一滑动与滚动模式为同一套 CoreText 排版引擎 (`ChapterTypography`)；彻底解决滑动与滚动互相切换时漂移数行、重置回换页前旧位置的 Bug；章节长标题自适应多行折行，杜绝截断；排版换行符全局保护 |
@@ -30,6 +32,48 @@
 | **v0.2.2** | 缓存与离线可用性 | 目录缓存优先（TOC Cache）与 10 分钟静默刷新、离线失败态解死锁、续页总时长预算与截断保护、纯追加安全阀（`TocCache.isAppendOnly`）、朗读悬浮控制条 (`ReadAloudFloatingBar`)、听书状态自持、阅读面板归一 (`ReaderPanelChrome`)、设置页冗余项收敛、主动移除亮度调节与音量键翻页 |
 | **v0.2.1** | P0 核心阅读闭环 | 阅读页三级菜单与更多设置面板、配置持久化 (`ReaderStore`)、书签体系、整书/单章换源 (`ChapterMatcher`)、替换净化管线 (`ContentProcessor`)、朗读面板与后台音频、搜索历史与搜索范围、字符集自动嗅探与目录/正文续页 |
 | **v0.2.0** | 初始移植基线 | 基础书架、EPUB/TXT 阅读器、书源解析骨架、WebDAV 同步基础功能 |
+
+---
+
+## v0.2.5.3（滚动模式目录跳转修复）
+
+> 连续滚动模式下，在「目录」中点击章节后，底部信息栏与页内小标题已更新到目标章节，**正文却仍停留在原章节**。
+
+### 根因：重置信号被异步窗口吞掉
+
+滚动画布是 `UIViewRepresentable`，SwiftUI 只能通过字段差异驱动它。原实现把「是否重建画布」完全押在 `scrollSessionId` 上：
+
+```swift
+if context.coordinator.currentSessionId != scrollSessionId { /* resetToChapter */ }
+```
+
+而 `jumpToChapter` 是**同步**抬高 `scrollSessionId` 的，`loadedChapters` 却要等 `loadInitialChapter` 的异步取文返回后才替换。于是同一次跳转跨越两次渲染：
+
+| 渲染 | `scrollSessionId` | `loadedChapter` | 旧行为 |
+|---|---|---|---|
+| ① 点击瞬间 | 新值 | 仍是正在读的旧章节 | 消费会话号，**并把画布重置回旧章节** |
+| ② 正文到达后 | 同一新值 | 目标章节 | 会话号已消费 → **不再重置** |
+
+结果画布永远停在旧章节；底部信息栏读的是 `chapters[currentChapterIndex].title`，所以看起来「跳了」，实际没跳。
+
+### 修复：改按「实际渲染的章节」判定
+
+- `Coordinator` 新增 `renderedChapterIndex`，记录画布最近一次被要求渲染的章节。
+- 仅当 `loadedChapter.chapter.index == currentChapterIndex`（父视图确实指向这一章）且「会话号变化 **或** 已渲染章节不匹配」时才重置。
+- 目标章节尚在途中时只消费会话号、不动画布，避免正文到达后被误判为第二次跳转。
+- 判据取父视图的 `currentChapterIndex` 而**非**画布自身的 `activeChapterIndex`：滚动时画布合理地跑在父视图前面，那种状态绝不能触发回拉。
+
+单文件改动：`Sources/LegadoApp/Views/Reader/Canvas/ReaderScrollCanvasView.swift`。
+
+### 验证
+
+模拟器（iPhone 15 Pro / iOS 17.2）注入 6 章带哨兵标记的本地 TXT 书，全程无网络，用 `idb` 驱动真实 UI：
+
+- **修复前**：读第1章 → 目录 → 第5章 → 目录 → 第2章，头部/底栏显示「第2章」，正文仍渲染 `UNIQUE_SENTINEL_CHAPTER_4`。缺陷复现。
+- **修复后**：同一序列落于「第2章」，正文为 `UNIQUE_SENTINEL_CHAPTER_1`，标题、正文、底栏三者一致。
+- `swift test --skip LiveSourceTests`：220 例全通过。
+
+> **附**：`jumpToChapter` 同源的其它入口（点击区「上一章/下一章」、章节滑块、书签跳转）走同一代码路径，共享同一失效机理，本次未逐一实测。
 
 ---
 
