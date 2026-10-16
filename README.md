@@ -1,226 +1,281 @@
 # Legado iOS (开源阅读 iOS 版)
 
-[![iOS](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2015.0%2B-blue.svg)](https://developer.apple.com/ios/)
 [![Swift](https://img.shields.io/badge/Swift-5.0%2B-orange.svg)](https://swift.org)
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
-[![Release](https://img.shields.io/badge/Release-v0.2.5.3-green.svg)](https://github.com/SeitoMoyi/Legado-iOS/releases)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
-> **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。
+> **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。保持纯 Swift 开发，无重型第三方包装，提供流畅的原生阅读体验。
 
 ---
 
-## ✨ v0.2.5.3 修复
+## 🌟 核心功能特性
 
-连续滚动模式的「目录」跳转修复：
-
-- 🐛 **修复滚动模式下目录点击章节后正文不切换**：底部信息栏已更新到目标章节、正文却仍停留在原章节。滚动画布的重置判定原先只比较 `scrollSessionId`，而该会话号在点击瞬间同步抬高、目标章节正文却要等异步取文返回才就位——于是重置信号被「旧章节」那一次渲染消费掉，正文真正到达时反而不再重置。现改为按**实际渲染的章节**判定，并在目标章节在途时只消费会话号、不动画布，确保正文到达后必然落地。
-- 🔒 **不影响章内滚动**：判据取父视图的当前章节索引，而非画布自身的活动章节——滚动时画布合理地跑在父视图前面，那种状态不会触发回拉。
-
----
-
-## ✨ v0.2.5.2 新增
-
-阅读器排版模型终态收敛（Phase B）：滑动与滚动真正共享「一套排版、不同处截断」：
-
-- 📦 **`LoadedChapter.typography` 转为非可选**：章节数据不再携带 `blocks` / `pages` 冗余字段，排版结果随章节一次生成、随处可用，消灭「忘记重新排版」这类状态漂移。
-- 🖼 **`TypographyPage` 图文统一分页模型**：滑动模式的「页」由 `ChapterTypography.pages` 统一定义——`case .lines(Range<Int>)` 表示一段文字行，`case .image(Int)` 表示整页插图。滑块、状态栏页码、书签摘录、朗读起点、模式切换全部改读同一模型，滑动看到的分页与滚动渲染的行序严格一致。
-- 🖼 **滚动模式插图落地**：连续滚动下正文插图按排版算出的 `y` 与高度真实渲染（`UIImageView` + 共享内存缓存 `ChapterImageLoader`），跨章预载/回收不会重复下载，图文混排章节终于与滑动模式观感一致。
-
----
-
-## ✨ v0.2.5.1 新增
-
-阅读器代码清理与结构收敛（Phase A：死代码清除，零行为变更）：
-
-- 🧹 **删除冗余 PreferenceKeys 与坐标回传链路**：移除 SwiftUI `ScrollView` 时代残留的 `BlockFrameInfo`、`ReaderScrollPreferenceKey`、`ScrollOffsetPreferenceKey`，全面统一由原生 `UIScrollView` 委托直接驱动阅读游标。
-- 🧹 **删除失效的 `scrollToChapterId` 字符串锚点状态机**：彻底废弃 `"block_x_y"`、`"chapter_x"`、`"chapter_end_x"` 等无消费方的滚动锚点写入，章节跳转与模式切换统一由 `scrollSessionId` + `targetCharPos` 精确驱动。
-- 🧹 **删除重复的第二套排版实现**：从 `ReaderView` 中移除 `ContentBlock` 数据模型、`parseContentBlocks`、`trimTrailingWhitespace`、`splitParagraphIntoLines`、`buildPageBlocks`、`paginate`、`calculateLayoutMetrics` 等旧分页函数，全仓正文排版仅保留 `ChapterTypography` 单一真理源，杜绝未来再次出现双源漂移。
-- 🧹 **删除 `ChapterTypography` 死方法**：移除已无调用方的 `scrollY(forPage:)` 与 `pageIndex(forScrollY:)`，滑动/滚动索引切换只通过字符偏移（`forCharOffset` / `charRange`）单一路径完成。
+### 1. 全面兼容 Legado 3.0 书源生态
+- **多语法规则引擎**：深度支持 CSS 选择器、JSONPath（`$.data[*]`, `..`）、XPath（`//`, `/`, `|`, `[@attr]`, `[contains()]`, `[last()]`）、正则表达式（链式清洗 `##regex##repl`）、JavaScript 动态脚本（`<js>` / `@js:`）与模版变量（`{{key}}`, `{{page}}`）的混合解析。
+- **6-Tab 全字段书源编辑器**：对齐 Android 规范，提供 基本 / 搜索 / 发现 / 详情 / 目录 / 正文 6 大分区全规则字段可视化编辑；支持整源 JSON 拷贝与粘贴。
+- **四阶段实时调试台 (`SourceDebugSheet`)**：输入测试关键字即可实时流式执行「1. 搜索列表 → 2. 书籍详情 → 3. 目录解析 → 4. 首章正文」全链路调试，精确显示各阶段网络耗时与解析字段。
+- **书源管理与并发校验**：
+  - 实时名称、域名、注释过滤，支持 `group:分组名` 语法。
+  - 「全部 / 已启用 / 已禁用」三态分组胶囊栏。
+  - 右上角多选模式：支持批量启用、禁用、全选、反选、导出 JSON 及批量删除。
+  - 5 并发书源有效性校验：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时，源数据保持与 Android 100% 互通。
+- **书源导入与登录**：
+  - 支持从本地 `.json` 文件导入、网络 URL 下载导入、剪贴板粘贴导入。
+  - 注册 `legado://` 与 `yuedu://` URL Scheme，网页端一键点击直接调起应用下载导入书源。
+  - 支持内置 WebKit 浏览器交互登录，会话 Cookie 自动双向镜像至 `HTTPCookieStorage`。
 
 ---
 
-## ✨ v0.2.5 新增
-
-本版重构阅读排版引擎架构，彻底统一滑动翻页与连续滚动模式，消除模式切换时的位置漂移与长标题截断问题：
-
-- 📐 **统一排版引擎 (`ChapterTypography`) 与零漂移切换**：
-  - **一套排版、不同处截断**：将滑动模式（Slide）与滚动模式（Scroll）收敛至同一套 CoreText 排版引擎，共用相同的行折行切片与字符范围映射，彻底杜绝两套排版计算偏差导致的行数累积漂移。
-  - **长标题智能多行折行**：章节标题统一引入基于可用宽度的动态排版与折行，完美支持两行或三行超长标题展示，彻底解决滚动模式下单行截断、后半段内容消失的问题。
-  - **时序竞争与页码还原修复**：消除面板切换翻页动画时触发的不必要重排（`onRepaginate`），每次滑动翻页即时更新阅读字符偏移量，确保滑动切滚动时精确对齐当前页第一行文字，滚动切滑动时精准定位至对应页码。
-  - **排版换行符完整保留**：重构布局重建机制，持久保留原始章节内容（`rawContent`），彻底根除首章刷新后丢失 `\n` 换行符、段落粘连且仅由缩进空格分隔的 Bug。
-
----
-
-## ✨ v0.2.4 新增
-
-本版重构纵向连续滚动阅读体验、补齐 P0 核心阅读遗留交互，并针对 iOS 15 顶栏多按钮渲染进行底层兼容性修复：
-
-- 📜 **纵向连续滚动排版重构**：
-  - **边距与展现空间统一**：段落与图片采用与滑动翻页完全一致的边距、内衬与段距设置，视觉比例和谐自然。
-  - **常驻通知栏/状态栏**：始终常驻系统顶栏（时间、电量、网络），字体图标跟随暗黑/浅色阅读主题自适应。
-  - **零点击无缝双向长卷阅读**：彻底移除顶部章节切换按钮，进入滚动模式时自动向前与向后预拼装章节（`[上一章, 本章, 下一章]`）；上滑直接无缝衔接上一章末尾正文，触顶自动触发异步向上追加，实现完全贯通的长卷滚动阅读手感。
-- 🎯 **P0 核心阅读遗留项全部补齐**：
-  - **顶栏换源与刷新**：阅读器顶栏常驻「换源」与「刷新」双图标，一键触发整书换源与本章重载。
-  - **章节编辑内容**：接通动作码 `ClickActionCode.editContent` 与正文菜单，新增 `EditContentSheet` 支持本章标题与正文自定义修改、即时生效落盘、一键重置及全量复制。
-  - **WebDAV 进度双向同步**：接通动作码 `ClickActionCode.syncProgress` 与离线菜单，自动比较本地与远端时间戳，实现拉取最新进度覆盖与当前阅读进度回传。
-  - **滚动朗读高亮与自动跟踪**：连续滚动模式下朗读段落实时动画高亮（柔和主色背景），并自动平滑滚动居中当前发音段落。
-- 🛠 **修复 iOS 15 顶栏「更多」菜单按钮不显示**：在 iOS 15 上，由于 `NavigationView` 将 `ToolbarItemGroup(placement: .primaryAction)` 的语义限制为单个 Primary Action，导致书架页（`BookshelfView`）与订阅源列表（`RssViews`）右上角仅渲染首个按钮（搜索/收藏），二级菜单按钮（`⋯`）被系统丢弃。现统一收敛为单个 `ToolbarItem` 内嵌 `HStack` 规范结构，恢复书架多选批量管理、网格/列表切换、排序方式等全部二级菜单功能。
-- 🛠 **修复替换规则页 iOS 15 顶栏按钮冲突**：在 `ReplaceRuleListView` 中合并并列的 `.primaryAction` 声明，确保「编辑」与「添加/导入/导出」菜单按钮在 iOS 15 上正常并存显示。
+### 2. 沉浸式全屏阅读器
+- **统一排版引擎 (`ChapterTypography`)**：
+  - 滑动翻页与纵向连续长卷滚动收敛至同一套 CoreText 统一排版真理源，消灭两套排版计算偏差导致的模式切换漂移。
+  - 超长章节标题基于可用宽度自适应多行智能折行，彻底根除截断。
+  - 全局保留正文原始换行符（`rawContent`），排版重算永不丢失段落格式。
+- **多排版模式与图文统一**：
+  - 支持 覆盖 / 滑动 / 仿真（平滑降级）/ 连续滚动 / 无动画 5 档模式。
+  - `TypographyPage`（`.lines` / `.image`）图文统一分页模型，翻页模式下插图独立成页。
+  - 连续滚动模式原生支持双向长卷阅读：触底无缝拼装下一章，向下拉动无缝衔接上一章，并在断点间顺畅阅读；正文插图结合内存缓存（`ChapterImageLoader`）与排版坐标真实渲染。
+- **精细化排版与主题**：
+  - 内置 6 套纯色预设主题：默认白、复古羊皮纸、护眼草绿、夜间暗黑、水墨屏（E-Ink 纯黑白无彩色）及自定义配色（Hex 自由微调背景色与文字色）。
+  - 全局字体选择：系统默认（苹方）、楷体（`STKaiti`）、宋体（`Songti SC`）、圆体（`Yuanti SC`）。
+  - 字号、行距、字距（CoreText `kern`）、段距、首行缩进（0–4 字符）、左右边距、上下边距全参数实时微调并落盘持久化。
+  - 文字两端对齐（翻页与连续滚动双模式均生效）。
+- **交互与快捷工具**：
+  - **常驻系统状态栏**：始终常驻顶部时间、电量与网络状态，字体颜色随阅读主题深浅自适应。
+  - **顶栏一键快捷按钮**：常驻「换源」与「刷新本章」图标，配合右侧菜单秒级切换。
+  - **3×3 九宫格自定义点击区域**：支持 14 种动作配置（菜单、下一页、上一页、书签、听书、换源等），中央强制保留菜单入口防误锁死。
+  - **章节内容自定义编辑 (`EditContentSheet`)**：支持即时编辑本章标题与正文并持久化覆盖、一键重置为书源原始内容及全量复制。
+  - **章节离线下载**：支持滑动选择起止章节区间，或一键下载后续 50/100/全部章节，后台并发防爬限流抓取。
+  - **自动翻页**：支持 2–30 秒自由调速，常驻悬浮控制条随时暂停/继续。
 
 ---
 
-## ✨ v0.2.3 新增
-
-这一版把 Android 侧的**工具链**补齐：书源/书架/规则/订阅/音频五个模块全部打通，并让书源与书架的展示与 Android 数据保持**双向一致**（改 App，不改书源）。实施拆解见 [plan.md](plan.md) Part 1-18，逐项以 [FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md) 为准。
-
-- 🧩 **书源体系**：`EditSourceSheet` 升级为 **6-Tab 全字段编辑器**（基本/搜索/发现/详情/目录/正文 + 整源 JSON 粘贴导出），新增**四阶段实时调试台**（搜索→详情→目录→正文流式日志）；管理页支持名称/域名/`group:xx` 搜索、`全部/已启用/已禁用` 三态胶囊、多选批量启禁删导、5 并发**校验书源**。
-- 🗂 **书源分类噪声只在显示层过滤**：Android 的 `CheckSourceService` 会把校验判定词（`搜索目录失效` 等）和第三方合集的 `good` 标记写进 `bookSourceGroup`，此前会被当成分类显示。现在这些 token 只在**渲染分组胶囊时**隐藏，`bookSourceGroup` / `bookSourceComment` / `respondTime` **原样保存**，WebDAV 导回 Android 时数据一字不差。另修正两点：每轮校验的 `失效` 判定与实测耗时不再被启动同步覆盖；`respondTime ≥ 180000`（Android 的失败罚时，如内置 ESJ 的 `185203 = 180000 + 5203`）不再被当作速度显示。
-- 📚 **书架管理**：三列封面网格 / 列表切换、4 种排序（最近阅读/最近更新/书名/作者）、`⋯`→「选择」批量清缓存与移除；**分组体系**默认收敛为「全部 / 书源书籍 / 本地书籍」（旧默认组「养肥中 / 已完结」退役），支持自定义分组增删改与批量移入。
-- 📖 **书籍详情与目录**：书籍信息编辑（书名/作者/封面/简介）、整书换源、置顶、拷贝书籍与目录 URL；目录自动定位当前章、正倒序切换、已缓存标识。
-- ⚙️ **规则与互通**：`RuleAnalyzer` 支持 **XPath**（`//`、`[contains(@class,…)]`、`[last()]`、`/@href` 等）；WebDAV 备份扩到 **10 类**数据（新增 `txtTocRule`、`readRecord`、`rssSources`、`rssStar` 等）；`JSEngine` 接通 `book.getVariable / setVariable`；TXT 目录规则管理 + 一键重新切章。
-- 🔊 **朗读与音频**：HttpTTS 自定义引擎、在线有声书独立播放页（黑胶动效/倍速/定时/快进 15s）、条漫全屏预览、章节区间离线下载、阅读记录自动计时统计、字典规则与阅读器「查字典」。
-- 📰 **4-Tab 与订阅**：底部导航扩展为 书架 / 分类 / 订阅 / 设置，正式上线 **RSS 订阅**（订阅源管理、分类文章流、正文提取阅读、文章收藏）。
-- 🔗 **平台集成**：`legado://` 与 `yuedu://` URL Scheme 一键导入书源、主屏快捷操作（搜索书籍 / 继续阅读）、**局域网 WiFi 传书**（`Network.framework` 纯原生 HTTP 服务，网页上传 TXT/EPUB 直接入库）。
-- 🎨 **外观**：新增**水墨屏**主题（纯白底纯黑字，6 套主题）与阅读**字体选择器**（系统/楷体/宋体/圆体）。
+### 3. 换源与离线可用性
+- **整书换源与单章换源 (`ChangeSourceService`)**：
+  - 多源并发搜索，展示收录来源数、响应耗时与最新目录。
+  - 基于 Jaccard 相似度与中文数字章节号解析的智能目录匹配算法（`ChapterMatcher`），换源后自动无缝对齐当前阅读进度。
+  - 阅读器内置 `tryAutoChangeSource`：正文取回为空或书源失效时，后台自动静默换源重试，无需中断阅读。
+- **缓存优先与离线保障**：
+  - 打开书籍优先加载本地目录缓存（`TocCache`），离线状态下只要已缓存过目录即可秒开书籍；10 分钟节流后台静默刷新目录。
+  - 追更保护：纯追加更新保留原正文缓存，目录结构错位时主动重置防串章；被网络超时的未完成内容严禁落盘污染缓存。
+  - 目录加载失败时提供清晰重试与「返回书架」解死锁通道。
 
 ---
 
-## ✨ v0.2.2 新增（上一版）
-
-这一版按使用反馈做了三件事：**删掉两个有害功能**、**把打开书从"必联网"改成"缓存优先"**、**修掉离线卡死**。实施记录见 [UPDATE_LOG.md](UPDATE_LOG.md) 的「v0.2.2」小节与「关键设计决策与 Android 偏离备忘」表。
-
-- 🗑 **删除音量键翻页**：iOS 拦音量键只能借隐藏的 `MPVolumeView`，而它的 slider 一旦写入就**真的改系统音量** —— 实测每按一次音量被往下压一截直到 0。功能与 `volumeKeyPage` 等三个开关整体移除，改用系统手势与控制中心。
-- 🔊 **朗读悬浮控制条**：朗读期间常驻屏幕底部的 播放 / 暂停 / 结束 三键，**不随菜单与面板收起而消失**（可见性绑播放状态）。
-- 🔊 **从当前页首个字开始朗读**，不再从章节开头重读；跨章衔接时新章节从其首页开始。插图占位标记 `[image:…]` 不再被念出来。
-- 📚 **打开书籍改为缓存优先（对齐 Android）**：目录（TOC）此前**每次进阅读器都强制联网抓取**，是"打开要加载一会"的主因，也是离线打不开的原因。现在先读本地目录缓存、立即渲染，超过 10 分钟才在后台静默重爬；抓到新目录才回写缓存。抓到目录后章节正文原本就有磁盘缓存，两者合起来使**已缓存的书可以离线打开**。
-- 🧵 **追更**：读到倒数 3 章内自动后台刷新目录（Android `upToc` 的等价物）；目录有变化时用章节名相似度重定位，不会把读者甩回第一章；只有「纯追加」才保留按 index 存储的正文缓存，结构变化则清除，避免错位串章。
-- ⏱ **超时与截断保护**：请求超时从无限制的 60s 收紧到 30s；目录续页增加总时长预算（120s）与页数上限双闸。**被截断的目录或正文一律不写缓存**，避免"半本书"被当成完整缓存长期复用。
-- 🚪 **离线不再困住阅读器**：加载失败页新增「返回书架」；「重试」原来调用了一个在目录为空时直接 return 的函数（死按钮），现在会真正重走抓目录流程；失败视图也能点出菜单；错误提示补上了可操作的下一步。
-- 🛟 **章节失败不再盖住整页**：屏幕上已有可读内容时，某一章获取失败只在底部提示一次并保留当前页（Android 是当页文本渲染，不阻断阅读）。
-- ⚙️ **设置页**：删除「阅读器显示设置」块（阅读设置的唯一入口收敛到阅读页的「界面」/「更多设置」面板，避免两处各写一份而漂移）；板块顺序改为 书源管理 → 书架与存储 → 外观模式 → 数据与云备份 → 正文处理 → 关于。
-- 🧪 **测试分层**：5 个访问真实书源的用例移到 `LiveSourceTests`，主机不可达时**自动 skip 而非 fail**；CI 发布门槛改为 `swift test --skip LiveSourceTests`（224 个用例，其中确定性 219 例全通过，联网冒烟 5 例）。
-
----
-
-## ✨ v0.2.1 新增（上一版）
-
-本版把阅读页与搜索页补齐到 Android 的核心交互，详见 [FEATURE_GAP_ANALYSIS.md](FEATURE_GAP_ANALYSIS.md) 与实施记录 [plan.md](plan.md)。
-
-- 🧭 **阅读页三级菜单**
-  - 底部六键工具栏（目录 / 搜索 / 听书 / 净化 / 界面 / 更多）+ 顶栏溢出菜单。
-  - **3×3 可自定义点击区域**，14 种动作，与 Android 同一张表；保存时强制保留一个「菜单」区，防止把自己锁死。
-  - 翻页动画 4 档：覆盖 / 滑动 / 滚动 / 无动画（仿真暂降级为滑动）。
-  - 屏幕常亮档位、隐藏状态栏、文字两端对齐、首行缩进 0–4 字符、正文与页眉页脚边距。
-  - 「界面」与「更多设置」统一为同一张底部卡片（屏幕下半部，条目超出可滚动），全部跟随阅读主题配色。
-- 💾 **阅读配置持久化修复**：字号 / 行距 / 主题此前**冷启动即丢失**，现已按 Android 同名键落盘（`readConfig`）。
-- 🔖 **书签体系**：添加、编辑原文与备注、列表与搜索、跳转还原到**段内字符位置**、导出 JSON / Markdown。以「书名 + 作者」建索引，**换源后书签不丢**；键名兼容 Android `bookmark.json`。
-- 🔄 **换源**：整书换源、本章换源、**自动换源**（正文缺失时后台补全）。章节位置按比例估算 + 相邻窗口 Jaccard 相似度 + 章节号三重映射。入口目前在**阅读页**，详情页入口列入下一步。
-- 🧹 **替换净化**：规则增删改查、启停、排序、导入导出；正则 / 字面、作用于标题或正文、作用域与排除范围匹配语义对齐 Android 的 SQL `LIKE`；超时规则自动禁用；简繁转换（系统 `CFStringTransform`，零外部词典）；「起效的替换」列出本章命中规则。
-- 🔊 **朗读控制面板**：上一段 / 下一段（朗读单位为**段落**，与 Android 一致）、按页朗读、语速 0–45 档与 `(pref+5)/10` 换算、跟随系统语速、音调、定时停止 0–180 分钟；支持后台播放与锁屏 / 耳机线控。
-- 🔎 **搜索范围与历史**：全部书源 / 多分组（可多选）/ 单书源三态；**精准搜索**三桶排序（等值 → 包含 → 其余，各自按来源数降序）；跨源按「书名 + 作者」合并并统计 `origins`；搜索历史按使用时间排序、输入过滤、长按删除、一键清除，键名兼容 `searchHistory.json`；搜索可**停止 / 继续**。
-- 🌐 **抓取层兼容性**：**字符集自动识别**（BOM → 声明 → HTTP 头 → `<meta>` 嗅探 → Foundation 统计 → 候选严格解码打分），GBK / Big5 / EUC-KR 站点不再乱码；`nextContentUrl` 正文续页与 `nextTocUrl` 目录续页；5xx 与网络抛错自动重试。
-- 🗑 **移除 App 内亮度调节**：iOS 的系统控制中心更方便，应用内再做一条亮度条属重复功能。
-
-### 🐛 本版修掉的历史 bug
-
-| 位置 | 问题 |
-|---|---|
-| 设置页「清理阅读缓存」 | 只把提示语设成「缓存已成功清理」，**从不真正删除任何缓存文件** |
-| 阅读页字号 / 行距 / 主题 | 没有写盘逻辑，每次冷启动回到默认值 |
-| 「更多设置」/「朗读」面板 | `.frame(maxHeight:)` 加在了 `VStack { Spacer; panel }` 整体上并会居中，面板悬在屏幕中段而不是贴底 |
-| 「净化」按钮 | 图标 `eraser.pen` **不是有效 SF Symbol**，iOS 15 上渲染为空白（全 App 符号名已跑一遍校验，另修 3 个无效名） |
-| 听书暂停 | 状态完全等 `AVSpeechSynthesizer` 的 `didPause` 回调，而该回调不保证送达 → 按钮卡在「暂停」，再点只会重读同一段 |
-| 「朗读」面板若干行标签 | 未指定颜色，继承系统 primary，深色模式 + 浅色阅读主题时白字印在米色底上 |
+### 4. 朗读、听书与有声书播放器
+- **双 TTS 引擎架构**：
+  - 支持 iOS 原生离线语音合成（`AVSpeechSynthesizer`，默认 zh-CN）。
+  - 支持自定义网络 **HttpTTS 引擎**，可在朗读面板中一键无缝切换原生/网络发音人。
+- **朗读控制面板与常驻悬浮条**：
+  - 朗读以段落为单位，支持上一段 / 下一段、按页朗读、语速调节（0–45 档换算）、音调微调、0–180 分钟定时停止。
+  - 常驻底部的朗读悬浮条（播放/暂停/结束），可见性与播放状态自持，收起菜单后依然常驻。
+  - 从当前可视页面首字起读，自动跳过插图标记 `[image:...]`。
+  - 连续滚动模式下支持当前发音句子柔和背景高亮，并随播放进度平滑自动居中滚动。
+  - 支持后台常驻音频播放（`UIBackgroundModes: audio`）、锁屏控制中心（`MPRemoteCommandCenter` / `nowPlayingInfo`）及耳机线控。
+- **在线有声书独立播放器 (`AudioPlayView`)**：
+  - 书架与书籍详情页针对 `bookSourceType == 1` 或包含音频标签的书籍自动路由进入有声书播放器。
+  - 具备黑胶唱片旋转动效、`AVPlayer` 流媒体播放、快进/快退 15 秒、0.5x~2.0x 倍速调节、定时关闭与完整章节目录抽屉。
 
 ---
 
-## 🌟 核心特性
+### 5. 发现流与聚合搜索
+- **三级分类发现流 (`CategoryExploreView`)**：
+  - Level 1（快速换源）：顶栏横向胶囊单指轻点即换源。
+  - Level 2（分类标签与矩阵抽屉）：支持换行格式（`标题::URL`）、标准 JSON 数组及 `<js>` 动态脚本生成的分类树。
+  - Level 3（书籍信息流）：标准化书籍卡片流，支持下拉刷新与触底分页加载。
+- **高性能聚合搜索 (`SearchBookView`)**：
+  - 多源并发增量流式搜索（`AsyncStream` + `TaskGroup`），各源结果实时上涌。
+  - 按「书名 + 作者」自动去重合并，聚合统计 `origins` 来源数徽标。
+  - 搜索范围三态切换：全部书源 / 多分组勾选 / 单书源限定。
+  - 精准搜索三桶排序：完全匹配 > 包含匹配 > 其余候选。
+  - **书架已有匹配卡片**：搜索命中本地已有藏书时，输入框下方优先置顶快捷阅读入口。
+  - 搜索历史管理：记录使用时间与频次，支持输入过滤、长按单条删除与一键清空。
+  - 搜索控制：支持中途手动停止与断点继续。
 
-- 📚 **全面兼容 Legado 3.0 书源生态**
-  - 支持 CSS 选择器、JSONPath、XPath、正则表达式、JavaScript 动态脚本与模版语法的多重混合解析。
-  - 支持从**本地 `.json` 文件**、网络链接导入，或**粘贴整源 JSON 到剪贴板**导入；支持多选批量启用/禁用/导出，以及并发「校验书源」。
-  - 内置书源预设：机翻机器人书源全源发现流，ESJ Zone 书源统一命名规范。
-  - 支持内置 Web 浏览器交互式登录（适配复杂防爬或需要 Cookie 验证的书源，支持双域会话镜像）。
-  - 📖 详细规范请参阅：[**书源制作与兼容性规范指南 (BOOKSOURCE_GUIDE.md)**](BOOKSOURCE_GUIDE.md)。
+---
 
-- 📑 **全新“分类”发现流**
-  - **Level 1（快速换源）**：顶部胶囊栏单指轻点即切书源。
-  - **Level 2（预设分类）**：横向标签滚动栏搭配矩阵分类抽屉，快速筛选来源、类型、分级与排序。
-  - **Level 3（书籍信息流）**：标准书籍卡片流、自动下拉刷新、触底无限分页加载。
+### 6. 书架与书籍管理
+- **灵活视图与排序**：
+  - 支持标准列表视图与三列封面网格视图自由切换，状态持久化。
+  - 4 种排序规则：最近阅读、最近更新、书名排序、作者排序。
+- **分组体系 (`BookGroupStore`)**：
+  - 默认虚拟分组：「全部」、「书源书籍」（网络源）、「本地书籍」（TXT/EPUB）。
+  - 支持新建、重命名、删除自定义分组；多选批量管理支持一键移入指定分组。
+- **多选批量管理**：
+  - 右上角 `⋯` 菜单进入选择模式，底部浮出批量操作栏：全选、反选、批量清理章节缓存、批量移入分组、批量移除书籍。
+- **书籍详情与信息编辑 (`BookDetailView`)**：
+  - 支持编辑并持久化自定义书名、作者、封面 URL、内容简介。
+  - 目录列表支持输入过滤、正序/倒序一键翻转、已离线缓存章节绿色标识。
+  - 快捷操作：整书置顶、整书换源、拷贝书籍 URL、拷贝目录 URL、清理单书缓存。
+  - 变量弹窗：支持查看与编辑书源自定义变量及书籍绑定变量。
 
-- 📖 **沉浸式全屏阅读器**
-  - **无缝滚动阅读**：纵向连续滚动模式支持向下拉动无缝加载上一章，并在章节断点间丝滑阅读，不再重置回章节首页。
-  - **多排版模式**：覆盖 / 滑动 / 仿真 / 滚动 / 无动画五档翻页动画（仿真降级为滑动），互相切换完美保留阅读位置。
-  - **分卷连贯性**：彻底解决多卷小说因卷标导致的目录章节断连问题，各章节顺畅连贯翻阅。
-  - **原生全屏呈现**：所有入口（书籍详情页、目录跳转等）均以原生全屏视图进入阅读器，去除侵入性卡片交互。
-  - 内置默认白、复古羊皮纸、护眼草绿、夜间暗黑、水墨屏五套预设主题 + 自定义配色，可调节字号、行距、字距、段距、缩进与正文边距，并全部持久化。
-  - 支持离线正文缓存、单书一键清除缓存与全量清理。
+---
 
-- 🔍 **聚合搜索**
-  - 多源并发、流式增量返回、触底自动翻页。
-  - 搜索范围三态 + 精准搜索 + 跨源合并与来源数排序 + 搜索历史。
+### 7. 正文处理与规则系统
+- **正文替换净化管线 (`ContentProcessor`)**：
+  - 严格按照 7 步管线执行：去除与标题重复段落 → 系统级简繁转换（`ChineseConverter`）→ 逐行首尾修剪 → 按 order 升序执行替换规则 → 标题匹配规则 → 不间断空格清洗 → 规范首行缩进。
+  - 单书净化总开关与全局新书默认净化配置。
+  - 「起效的替换」实时查看器（`EffectiveReplacesSheet`），可从阅读菜单一键直达本章命中的规则并直接修改。
+  - 超时规则自动熔断与临时禁用机制，杜绝界面卡顿。
+- **独立规则管理中心（设置 Tab）**：
+  - **替换净化规则**：支持按分组管理、正则/字面匹配、作用于标题或正文、JSON 导入导出。
+  - **TXT 目录规则**：内置标准章回节卷、Chapter、纯数字、大写分卷等默认预设；本地 TXT 导入自动匹配切章，详情页可随时选择规则重新切章。
+  - **网络字典规则**：内置百度汉语、汉典等在线规则；阅读器搜索弹窗内置「查字典」Tab，快速解析关键字释义。
+  - **HttpTTS 引擎管理**：自定义网络语音合成接口，支持 Header 配置、测试与默认引擎一键恢复。
 
-- 🔄 **WebDAV 多端无缝互通 (对齐 Android Legado)**
-  - **标准 ZIP 备份**：完整支持 Android Legado 标准的 `backup${yyyy-MM-dd}-${deviceName}.zip` 打包格式，保留书籍元数据与精确阅读进度（`durChapterIndex`, `durChapterPos`, `durChapterTime`），并覆盖 **10 类**数据（书架 / 书源 / 书签 / 替换规则 / 搜索历史 / 阅读样式 / TXT目录规则 / 阅读记录 / 订阅源 / 文章收藏）。
-  - **多设备支持**：可自定义配置“设备名称”（默认自动识别为 iPhone / Mac 等），轻松识别不同设备的备份档案。
-  - **秒级极速备份**：彻底移除高耗时的串行网络循环，全量备份由原本的 30+ 秒降至 1 秒内完成。
-  - **云端历史备份选择**：支持一键检索并列出 WebDAV 远程所有历史备份归档（展示备份日期、文件体积），可自由挑选 Android 或 iOS 备份包进行合并恢复。
-  - 本地文件管理器亦可直接选取导入 Android 导出的 `backup*.zip`（配合 `bookProgress/` 进度目录）。
-  - 书签、替换规则、搜索历史均采用 Android 同名 JSON 键，可被 Android 端直接读回。
+---
 
-- 🌓 **全景暗黑模式**
-  - 原生支持跟随系统、浅色模式与深色模式，界面与组件即时切换。
+### 8. WebDAV 多端数据互通与备份
+- **标准 ZIP 打包格式**：
+  - 完全对齐 Android Legado 标准的 `backup<yyyy-MM-dd>-<设备>.zip` 打包格式。
+  - 完整覆盖 **10 类**核心数据跨端互通：
+    1. `bookshelf.json`（书架）
+    2. `bookSource.json`（书源）
+    3. `bookmark.json`（书签，按书名+作者索引，换源不丢失）
+    4. `replaceRule.json`（替换净化）
+    5. `searchHistory.json`（搜索历史）
+    6. `readConfig.json`（阅读样式与排版偏好）
+    7. `txtTocRule.json`（TXT 目录规则）
+    8. `readRecord.json`（书籍累计阅读时长统计）
+    9. `rssSources.json`（RSS 订阅源）
+    10. `rssStar.json`（RSS 文章收藏）
+    - 附加 `bookProgress/<书名>_<作者>.json` 进度目录。
+- **双向阅读进度同步 (`syncProgress`)**：
+  - 阅读器与详情页支持双向云端进度比对；根据时间戳智能判断拉取最新远端进度覆盖，或回传本地最新阅读位置。
+- **全站书签汇总管理 (`AllBookmarksView`)**：
+  - 设置页集中展示全站书签，按「书名 · 作者」分组呈现。
+  - 支持书签正文与备注关键字全局检索、单条编辑与左滑删除；支持将所有书签一键导出为标准 JSON 或 Markdown 格式至剪贴板。
+- **离线本地备份**：
+  - 无需配置 WebDAV 账户即可通过系统文件选择器直接导出或恢复离线 `backup*.zip`。
+
+---
+
+### 9. RSS 订阅模块
+- **独立订阅 Tab**：
+  - 订阅源列表管理（名称、分组胶囊、URL 预览、置顶、删除）。
+  - 分类胶囊栏解析（支持 `标题::URL` 格式分类）与文章信息流展示（缩略图、标题、时间、描述）。
+  - 文章正文阅读：基于 `ruleContent` 规则网络提取正文，离线 description 兜底，支持一键在 Safari 中打开原文。
+  - 文章收藏夹（`RssStar`），数据自动纳入 WebDAV 备份。
+
+---
+
+### 10. 本地文件与局域网传书
+- **本地格式解析**：
+  - **EPUB**：支持 EPUB3 nav 与 EPUB2 NCX 双目录标准，处理 spine 兜底，支持内嵌原画插图、锚点跳转与分卷连贯性识别。
+  - **TXT**：结合启用的 TXT 目录规则智能正则分章；内置 UTF-8 BOM 剥离、HTTP/HTML 编码探测及 GB18030 / Big5 候选解码打分，彻底杜绝乱码。
+- **局域网 WiFi 传书 (`LocalWebServer`)**：
+  - 基于 iOS `Network.framework` 纯原生 `NWListener` 实现轻量 HTTP 服务，无需任何第三方 HTTP 库依赖。
+  - 设置页一键开启服务，提示局域网地址（如 `http://192.168.1.100:1122`）。
+  - 电脑或手机浏览器打开网页门户，支持通过拖拽或文件选择直接上传 TXT、EPUB 文件，服务端自动接收解析并放入书架。
+- **主屏快捷操作 (App Shortcuts)**：
+  - 3D Touch / 长按 App 图标快速唤起「搜索书籍」（直达分类搜索）与「继续阅读」（自动打开最近阅读的书籍）。
+
+---
+
+## 📖 书源制作与兼容性规范指南
+
+Legado iOS 深度兼容 Android 版 **Legado (阅读 3.0)** 书源规范。标准书源为合法 JSON 对象或数组：
+
+### 1. 核心属性
+| 字段 | 类型 | 说明 | 示例 |
+|---|---|---|---|
+| `bookSourceName` | String | 书源名称 | `"示例书源"` |
+| `bookSourceUrl` | String | 书源基准 URL | `"https://example.com"` |
+| `bookSourceGroup`| String? | 书源分类分组 | `"日轻,网络小说"` |
+| `bookSourceType` | Int? | 类型：`0` 文本小说，`1` 音频，`2` 图片漫画 | `0` |
+| `enabled` | Bool? | 是否启用该源 | `true` |
+| `enabledExplore` | Bool? | 是否启用发现流 | `true` |
+| `header` | String? | 全局 HTTP 请求头 (JSON 字符串) | `{"User-Agent": "Mozilla/5.0..."}` |
+| `loginUrl` | String? | 账号登录交互 URL | `"https://example.com/login"` |
+| `loginUi` | String? | 交互式登录界面配置 (RowUi JSON) | `"[{\"name\":\"账号\",\"type\":\"text\"}]"` |
+
+### 2. 搜索规则 (`ruleSearch` & `searchUrl`)
+- `searchUrl`: 目标地址，支持 GET 与 POST：
+  - GET: `https://example.com/search?q={{key}}&page={{page}}`
+  - POST: `https://example.com/search,{"method":"POST","body":{"kw":"{{key}}","p":{{page}}}}`
+- `bookList`: 书籍列表选择器（如 `$.data.list[*]`、`div.book-item` 或 `//div[@class='book-item']`）。
+- `name` / `author` / `bookUrl` / `coverUrl` / `intro` / `kind` / `lastChapter` / `wordCount`: 对应书籍属性提取规则。
+
+### 3. 详情与目录规则 (`ruleBookInfo` & `ruleToc`)
+- 详情补充：`init`、`tocUrl`（若目录页与详情页分离）。
+- 目录解析：
+  - `chapterList`: 章节列表选择器（如 `$.chapters[*]` 或 `div.chapter-list a`）。
+  - `chapterName`: 章节标题（如 `$.title` 或 `text`）。
+  - `chapterUrl`: 章节正文请求地址（如 `$.url` 或 `href`，自动补全相对路径）。
+  - `nextTocUrl`: 分页目录下一页地址。
+
+### 4. 正文规则 (`ruleContent`)
+- `content`: 正文提取选择器。若为 HTML 内容建议使用 `@html`（如 `div#content@html`）。
+- **插图自动提取**：使用 `@html` 时，阅读器会自动抽取其中的 `<img src="...">` 标签并渲染为插图，自动携带 `Referer` 防盗链头。
+- `replaceRegex`: 正文清洗正则表达式，语法为 `正则##替换内容##正则##替换内容`。
+- `nextContentUrl`: 长章节跨页抓取下一页地址。
+
+### 5. 发现分类规则 (`exploreUrl`)
+支持以下 3 种写法：
+1. **标准 JSON 数组**：
+   ```json
+   [
+     {"title": "分类", "url": ""},
+     {"title": "玄幻", "url": "/sort/1?page={{page}}"},
+     {"title": "仙侠", "url": "/sort/2?page={{page}}"}
+   ]
+   ```
+2. **换行文本格式**：
+   ```text
+   玄幻::/sort/1?page={{page}}
+   仙侠::/sort/2?page={{page}}
+   ```
+3. **动态 JavaScript 脚本**：`<js>JSON.stringify([...])</js>`。
 
 ---
 
 ## 🏗️ 架构设计
 
-项目采用轻量模块化结构，将底层业务逻辑与上层 UI 视图彻底解耦：
+代码采用清晰的分层解耦架构，保证业务逻辑与 UI 视图彻底隔离：
 
 ```text
 Legado-iOS/
 ├── Sources/
-│   ├── LegadoCore/               # 独立核心框架（跨平台纯 Swift 逻辑）
+│   ├── LegadoCore/               # 跨平台纯 Swift 核心逻辑库
 │   │   ├── Engine/               # 规则引擎（JSEngine, RuleAnalyzer, RuleTokenizer）
-│   │   ├── Models/               # 数据模型（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels, RssModels）
-│   │   ├── Service/              # 核心服务（NetworkClient, BookContentService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser...）
-│   │   └── Utils/                # 工具库（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, CryptoUtils, JSONPath）
+│   │   ├── Models/               # 数据实体（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels, RssModels）
+│   │   ├── Service/              # 业务服务（NetworkClient, BookContentService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser...）
+│   │   └── Utils/                # 工具组件（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, CryptoUtils, JSONPath）
 │   └── LegadoApp/                # SwiftUI 交互层与应用入口
-│       ├── LegadoApp.swift       # @main 入口 + AppDelegate/SceneDelegate（快捷操作）+ MainTabView（书架/分类/订阅/设置 4 tab）+ legado:// URL 处理
-│       ├── Services/             # 状态容器（BookStore, SearchViewModel, AudioBookService, LaunchRouter）
+│       ├── LegadoApp.swift       # 应用入口 + AppDelegate/SceneDelegate（快捷操作桥接）+ MainTabView（4 Tab 根界面）+ URL Scheme 监听
+│       ├── Services/             # 应用状态管理（BookStore, SearchViewModel, AudioBookService, LaunchRouter）
 │       ├── Theme/                # 阅读主题与排版配置（ReaderConfig）
-│       └── Views/                # 界面视图
-│           ├── BookshelfView.swift       # 书架页（分组胶囊、三列网格/列表、4 种排序、批量管理）
-│           ├── CategoryExploreView.swift # 分类页（三级快速切换、预设分类流）
-│           ├── BookDetailView.swift      # 书籍详情页（目录、简介、换源、信息编辑、变量、缓存清理）
-│           ├── RssViews.swift            # 订阅模块（订阅源/文章流/正文阅读/收藏夹/源编辑）
-│           ├── AudioPlayView.swift       # 在线有声书独立播放页
-│           ├── SourceManagerView.swift   # 书源管理（搜索/三态胶囊/多选批量/并发校验/登录）
-│           ├── SourceDetailView.swift    # 书源详情页（登录/变量/信息）
-│           ├── SourceWebLoginView.swift  # 书源 WebView 登录
-│           ├── EditSourceSheet.swift     # 6-Tab 全字段书源编辑器 + 四阶段调试台
-│           ├── SearchBookView.swift      # 搜索页（多源并发、书架匹配、历史）
-│           ├── WebDAVSyncView.swift      # WebDAV 同步 + 本地备份包导出/导入
-│           ├── Reader/                   # 全屏阅读器
-│           │   ├── ReaderView.swift      # 阅读画布 / 顶栏 / 底栏 / 手势 / 缓存下载
-│           │   ├── Panels/               # 界面 / 更多设置 / 朗读 / 悬浮朗读条 + 共用卡片 + 点击区域
-│           │   └── Sheets/               # 书签 / 换源 / 起效的替换
+│       └── Views/                # 用户界面视图
+│           ├── BookshelfView.swift       # 书架（分组胶囊、三列网格/列表、4 种排序、批量管理）
+│           ├── CategoryExploreView.swift # 分类页（快速切源胶囊、预设分类流）
+│           ├── BookDetailView.swift      # 书籍详情（信息编辑、整书换源、变量弹窗、目录居中与反转）
+│           ├── RssViews.swift            # RSS 订阅（订阅源/文章流/正文提取/收藏夹/源编辑）
+│           ├── AudioPlayView.swift       # 在线有声书独立播放器（黑胶动效/倍速/定时/目录）
+│           ├── SourceManagerView.swift   # 书源管理（搜索/三态胶囊/批量启禁删导/并发校验）
+│           ├── SourceDetailView.swift    # 书源详情与信息展示
+│           ├── SourceWebLoginView.swift  # WebKit 书源交互式登录
+│           ├── EditSourceSheet.swift     # 6-Tab 全字段书源编辑器 + 四阶段流式调试台
+│           ├── SearchBookView.swift      # 搜索页（多源并发增量流、书架匹配、搜索历史）
+│           ├── WebDAVSyncView.swift      # WebDAV 备份恢复 + 本地备份包导出/导入
+│           ├── Reader/                   # 全屏沉浸式阅读器
+│           │   ├── ReaderView.swift      # 阅读画布顶层控制器、手势调度、常驻状态栏、底栏控制
+│           │   ├── Canvas/               # 统一排版与滚动画布（ChapterTypography 统一排版真理源, ReaderScrollCanvasView 原生长卷滚动画布）
+│           │   ├── Panels/               # 界面样式面板、更多设置、朗读控制、悬浮条、点击区域
+│           │   └── Sheets/               # 书签列表、整书/本章换源、章节内容编辑、起效的替换
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
-│           └── SettingsView.swift        # 设置页（书源/书架与存储/外观/云备份与局域网/正文处理/关于）+ TXT目录/字典/HttpTTS/所有书签/阅读记录
-├── Tests/LegadoCoreTests/        # 单元测试套件（224 例，含 5 例联网冒烟）
-├── tools/xcode_add_sources.py    # 把新增 Swift 文件登记进 Xcode 工程（无同步文件夹组）
-└── Legado.xcodeproj              # Xcode 工程文件
+│           └── SettingsView.swift        # 设置中心（书源/书架与存储/外观/数据与局域网服务/正文处理/关于）
+├── Tests/LegadoCoreTests/        # 跨模块自动化单元测试套件（225 例）
+├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
+└── Legado.xcodeproj              # Xcode 工程配置文件
 ```
-
-> 新增文件后需运行 `python3 tools/xcode_add_sources.py $(python3 tools/xcode_add_sources.py --check)`，否则 `xcodebuild` 会静默忽略它（SwiftPM 靠目录通配，`swift build` 不受影响）。
 
 ---
 
-## 🛠️ 编译与运行
+## 🛠️ 编译与测试门禁
 
-### 系统要求
+### 环境要求
 - macOS 12.0+
 - Xcode 14.0+
 - iOS 15.0+ 部署目标
@@ -231,32 +286,31 @@ Legado-iOS/
    git clone git@github.com:SeitoMoyi/Legado-iOS.git
    cd Legado-iOS
    ```
-2. 运行单元测试（使用 Swift Package Manager）：
+2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 只跑确定性单测，不依赖外网
-   swift test                          # 再加上打真实书源的冒烟用例
+   swift test --skip LiveSourceTests   # 运行 220 项确定性单元测试（零外部网络依赖）
+   swift test                          # 包含真实活体书源网络嗅探冒烟测试（共 225 例）
    ```
-   `LiveSourceTests` 会访问 `m.suixkan.com`、机翻机器人、`n.novelia.cc` 等真实站点，用来验证规则引擎对活站点的解析；目标站点不可达时它们**自动 skip 而不是 fail**，CI 发布门槛也不把它们算在内。
 3. 打开并运行 Xcode 工程：
    ```bash
    open Legado.xcodeproj
    ```
-   在 Xcode 中选择模拟器或真机目标设备，按 `Cmd + R` 即可运行。
+   在 Xcode 中选择模拟器或真机目标设备，按 `Cmd + R` 即可运行。新增文件后若需同步至 Xcode 工程文件，执行：
+   ```bash
+   python3 tools/xcode_add_sources.py $(python3 tools/xcode_add_sources.py --check)
+   ```
 
 ---
 
-## 📦 GitHub Actions 持续集成与发布
+## 📦 安装与侧载方式
 
-项目配置了自动化的 GitHub Actions 工作流：
-- **推送主分支 `main`** 会自动触发构建与测试，编译打包未签名 `Legado-v*.ipa`，并**自动发布到 GitHub Releases** 供侧载安装。
-- 版本号取自仓库根目录的 `VERSION` 文件，与 Xcode 工程的 `MARKETING_VERSION` 需一起更新。
-- **支持的侧载方式 (Sideloading)**：
-  - **TrollStore**（巨魔商店，推荐，免越狱免证书签名，永久有效）
-  - **AltStore / SideStore**（个人免费证书签名）
-  - **Sideloadly / 爱思助手**
+项目通过 GitHub Actions 自动化构建未签名 IPA，支持以下侧载工具进行安装：
+- **TrollStore**（巨魔商店，推荐，免越狱免重签，持久有效）
+- **AltStore / SideStore**（支持免费开发者证书 7 天自动循环签名）
+- **Sideloadly / 爱思助手**
 
 ---
 
 ## 📄 开源许可证
 
-本项目基于 [GPLv3](LICENSE) 许可证开源。遵循与原版 Legado 相同的开源精神。
+本项目基于 [GPLv3](LICENSE) 许可证开源，遵循与原版 Legado 相同的开源精神与社区规范。

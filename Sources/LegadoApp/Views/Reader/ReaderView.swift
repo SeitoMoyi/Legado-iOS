@@ -17,19 +17,6 @@ public struct LoadedChapter: Identifiable {
     }
 }
 
-extension View {
-    /// `.kerning` needs iOS 16 / macOS 13 while this project still deploys to iOS 15 and
-    /// macOS 12, so it is applied behind a runtime check. Paged text is kerned through
-    /// CoreText instead, which has no such constraint.
-    @ViewBuilder
-    func kerningWhenAvailable(_ value: CGFloat) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            self.kerning(value)
-        } else {
-            self
-        }
-    }
-}
 
 /// Which panel the reader shows over the canvas. Android opens these as separate dialogs;
 /// one enum keeps them mutually exclusive instead of letting two overlays stack.
@@ -102,8 +89,6 @@ public struct ReaderView: View {
     @State private var autoTurnIntervalSeconds: Double = 5.0
     @State private var autoTurnTask: Task<Void, Never>? = nil
 
-    // Text Selection & Dict Popup State
-    @State private var selectedWordForDict: String? = nil
 
     public var onDismiss: (() -> Void)? = nil
 
@@ -136,9 +121,6 @@ public struct ReaderView: View {
         return "\(chapters[currentChapterIndex].bookUrl)|\(currentChapterIndex)"
     }
 
-    private var effectiveRulesForCurrentChapter: [ReplaceRule] {
-        ContentProcessor.shared.result(forKey: currentChapterCacheKey)?.effectiveRules ?? []
-    }
 
     // MARK: - Panel and control state
 
@@ -155,10 +137,6 @@ public struct ReaderView: View {
         }
     }
 
-    /// The action bound to the middle of the tap map; scroll mode routes every tap here.
-    private var scrollTapAction: ClickActionCode {
-        readerConfig.clickActionList[4]
-    }
 
     private func setConverter(_ mode: Int) {
         var prefs = readerConfig.prefs
@@ -313,7 +291,7 @@ public struct ReaderView: View {
     public var body: some View {
         GeometryReader { outerGeo in
             ZStack {
-                readerConfig.theme.backgroundColor
+                readerConfig.effectiveBackgroundColor
                     .ignoresSafeArea()
 
                 // 1. Reading Canvas with Permanent Fixed Bottom Info Bar
@@ -414,16 +392,7 @@ public struct ReaderView: View {
                 )
             }
         }
-        .sheet(item: $selectedWordForDict) { word in
-            NavigationView {
-                DictResultPopupView(word: word)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("完成") { selectedWordForDict = nil }
-                        }
-                    }
-            }
-        }
+
         .task {
             await loadTOCAndStart()
         }
@@ -578,7 +547,7 @@ public struct ReaderView: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(readerConfig.theme.backgroundColor)
+                        .fill(readerConfig.effectiveBackgroundColor)
                         .shadow(color: Color.black.opacity(0.2), radius: 6, x: 0, y: 3)
                 )
                 .padding(.bottom, 32)
@@ -752,7 +721,7 @@ public struct ReaderView: View {
                                 isParagraphEnd: isParagraphEnd,
                                 fontSize: readerConfig.fontSize,
                                 lineSpacing: readerConfig.lineSpacing,
-                                textColor: readerConfig.theme.textColor,
+                                textColor: readerConfig.effectiveTextColor,
                                 width: usableWidth,
                                 height: pageContentHeight,
                                 letterSpacing: readerConfig.letterSpacing,
@@ -1000,7 +969,7 @@ public struct ReaderView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
-            readerConfig.theme.backgroundColor
+            readerConfig.effectiveBackgroundColor
                 .opacity(0.97)
                 .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
                 .ignoresSafeArea(edges: .top)
@@ -1027,7 +996,7 @@ public struct ReaderView: View {
         .padding(.top, 14)
         .padding(.bottom, 10)
         .background(
-            readerConfig.theme.backgroundColor
+            readerConfig.effectiveBackgroundColor
                 .opacity(0.97)
                 .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: -4)
                 .ignoresSafeArea(edges: .bottom)
@@ -1071,7 +1040,7 @@ public struct ReaderView: View {
         .padding(.top, 2)
         .padding(.bottom, 6)
         .frame(height: 26)
-        .background(readerConfig.theme.backgroundColor)
+        .background(readerConfig.effectiveBackgroundColor)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -1942,13 +1911,6 @@ public struct ReaderView: View {
     }
 
 
-    // MARK: - Selected Text Action
-    private func openDictForSelected(text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        selectedWordForDict = trimmed
-    }
-
     private func configureAudioContext() {
         audioService.nowPlayingTitle = book.name
         audioService.nowPlayingSubtitle = currentChapterIndex < chapters.count
@@ -2784,100 +2746,4 @@ public struct ChapterRangeDownloadSheet: View {
             }
         }
     }
-}
-
-// MARK: - DictResultPopupView (Word lookup Sheet)
-
-struct DictResultPopupView: View {
-    let word: String
-    @State private var definition: String? = nil
-    @State private var isLoading: Bool = true
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text(word)
-                    .font(.title2.bold())
-                    .foregroundColor(.primary)
-                Spacer()
-            }
-            .padding(.horizontal)
-            .padding(.top, 10)
-
-            Divider()
-
-            if isLoading {
-                Spacer()
-                ProgressView()
-                Text("正在查询字典...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-            } else if let def = definition {
-                ScrollView {
-                    Text(def)
-                        .font(.subheadline)
-                        .lineSpacing(5)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                Spacer()
-                Text("未查询到释义")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-        }
-        .navigationTitle("词典查词")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .onAppear {
-            fetchDefinition()
-        }
-    }
-
-    private func fetchDefinition() {
-        let rules = DictRuleStore.load().filter { $0.enabled }
-        guard let r = rules.first else {
-            isLoading = false
-            definition = "未启用任何字典规则"
-            return
-        }
-        let rendered = r.urlRule.replacingOccurrences(of: "{{key}}", with: word.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? word)
-        Task {
-            do {
-                guard let parsed = NetworkClient.parseLegadoUrl(rendered) else {
-                    await MainActor.run {
-                        isLoading = false
-                        definition = "无效的字典请求"
-                    }
-                    return
-                }
-                let resp = try await NetworkClient.shared.request(parsed: parsed)
-                let body = resp.bodyString
-                let result: String
-                if !r.showRule.isEmpty {
-                    let a = RuleAnalyzer(content: body, baseUrl: rendered)
-                    result = a.getString(r.showRule)
-                } else {
-                    result = BookContentService.cleanHtml(body)
-                }
-                await MainActor.run {
-                    isLoading = false
-                    definition = result.isEmpty ? "未找到关于 “\(word)” 的释义" : result
-                }
-            } catch {
-                await MainActor.run {
-                    isLoading = false
-                    definition = "查询异常: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-}
-
-extension String: Identifiable {
-    public var id: String { self }
 }

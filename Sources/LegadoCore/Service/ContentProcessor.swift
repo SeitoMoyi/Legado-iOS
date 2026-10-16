@@ -93,9 +93,6 @@ public final class ContentProcessor {
         results[key]
     }
 
-    public func clearResults() {
-        results.removeAll()
-    }
 
     private func record(_ result: ProcessedContent, for key: String) {
         // Reading forward through a long book would otherwise grow this without bound.

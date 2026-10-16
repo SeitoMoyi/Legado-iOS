@@ -100,17 +100,6 @@ public struct WebDAVConfig: Codable, Equatable {
         return URL(string: rawUrl)
     }
 
-    public var serverRootURL: URL? {
-        var rawUrl = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawUrl.isEmpty else { return nil }
-        if !rawUrl.hasPrefix("http://") && !rawUrl.hasPrefix("https://") {
-            rawUrl = "https://" + rawUrl
-        }
-        if !rawUrl.hasSuffix("/") {
-            rawUrl += "/"
-        }
-        return URL(string: rawUrl)
-    }
 
     public var basicAuthHeader: String {
         let credentials = "\(username):\(password)"
@@ -786,12 +775,6 @@ public class WebDAVService {
         }
 
         return result
-    }
-
-    /// Parses bookshelf.json, bookSource.json, and internal bookProgress from a ZIP archive
-    public func parseArchive(_ archive: Archive) throws -> (books: [Book]?, sources: [BookSource]?) {
-        let p = try parseArchivePayload(archive)
-        return (p.books, p.sources)
     }
 
     /// Parses all supported Legado JSON members (bookshelf, bookSource, bookmark, replaceRule, searchHistory, readConfig, bookProgress) from a ZIP archive

@@ -87,7 +87,8 @@ jobs:
             ### Legado iOS (开源阅读 iOS 版) ${{ steps.version_step.outputs.tag }}
 
             #### 🌟 更新内容
-            详细更新日志请参阅仓库内 [UPDATE_LOG.md](UPDATE_LOG.md) 与 [README.md](README.md)。
+            详细功能特性与实施规划请参阅仓库内 [README.md](README.md) 与 [Plan.md](Plan.md)。
+            - **v0.2.5.4**：全仓死代码清除与工程瘦身（Phase C）。清理 ReaderView 实验残留、无用属性与冗余扩展，打通自定义阅读主题有效色彩回路（effectiveTextColor / effectiveBackgroundColor），集中去重旧域名迁移逻辑；全仓多文档重构收敛为干净的 README.md 与 Plan.md 双文档体系。
             - **v0.2.5.3**：修复连续滚动模式下「目录」跳转失效。底部信息栏已切到目标章节、正文却停留在原章节——滚动画布的重置判定原先只比较会话号，而该会话号在点击瞬间同步抬高、目标章节正文要等异步取文返回才就位，重置信号被旧章节那一次渲染消费掉。现改按实际渲染的章节判定，目标章节在途时只消费会话号、不动画布，正文到达后必然落地。
             - **v0.2.5.2**：排版模型终态收敛（Phase B）。`LoadedChapter.typography` 非可选；新增 `TypographyPage`（`.lines` / `.image`）图文统一分页模型，滑动分页与滚动行序共享同一真相源；滚动模式正文插图按排版坐标真实渲染并共享内存缓存。
             - **v0.2.5.1**：阅读器死代码清除（Phase A）。删除 SwiftUI 滚动时代残留的 PreferenceKeys 与 scrollToChapterId 字符串锚点；删除 ReaderView 中第二套 ContentBlock + paginate 重复排版实现；全仓正文排版收敛至 ChapterTypography 单一真理源，零行为变更。

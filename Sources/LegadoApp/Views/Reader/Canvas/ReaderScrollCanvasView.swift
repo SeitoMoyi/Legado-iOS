@@ -697,11 +697,6 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
         }
     }
 
-    public func scrollToChapter(_ index: Int, animated: Bool = true) {
-        if let typo = chapterTypographies.first(where: { $0.chapter.index == index }) {
-            setContentOffset(CGPoint(x: 0, y: typo.yOffset), animated: animated)
-        }
-    }
 }
 
 // MARK: - SwiftUI Bridge Representable
@@ -783,7 +778,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
             paddingTrailing: readerConfig.paddingTrailing,
             paddingTop: readerConfig.paddingTop,
             paddingBottom: readerConfig.paddingBottom,
-            textColor: UIColor(readerConfig.theme.textColor),
+            textColor: UIColor(readerConfig.effectiveTextColor),
             accentColor: .systemBlue,
             justify: readerConfig.prefs.textFullJustify,
             imageStyle: readerConfig.prefs.imageStyle,

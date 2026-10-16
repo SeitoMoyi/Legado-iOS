@@ -73,16 +73,14 @@ public class BookStore: ObservableObject {
         // Migrate any legacy xkvi books and remove xkvi source
         var booksNeedSave = false
         for i in 0..<bookshelf.count {
-            if bookshelf[i].origin.contains("book.xkvi.top") {
-                bookshelf[i].origin = "https://n.novelia.cc"
-                booksNeedSave = true
-            }
-            if bookshelf[i].bookUrl.contains("book.xkvi.top") {
-                bookshelf[i].bookUrl = bookshelf[i].bookUrl.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
-                booksNeedSave = true
-            }
-            if bookshelf[i].tocUrl.contains("book.xkvi.top") {
-                bookshelf[i].tocUrl = bookshelf[i].tocUrl.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
+            let oldBook = bookshelf[i]
+            let newOrigin = normalizeLegacyUrl(oldBook.origin)
+            let newBookUrl = normalizeLegacyUrl(oldBook.bookUrl)
+            let newTocUrl = normalizeLegacyUrl(oldBook.tocUrl)
+            if newOrigin != oldBook.origin || newBookUrl != oldBook.bookUrl || newTocUrl != oldBook.tocUrl {
+                bookshelf[i].origin = newOrigin
+                bookshelf[i].bookUrl = newBookUrl
+                bookshelf[i].tocUrl = newTocUrl
                 booksNeedSave = true
             }
         }
@@ -275,17 +273,9 @@ public class BookStore: ObservableObject {
 
         if let newBooks = payload.books {
             for var b in newBooks {
-                // Normalize legacy xkvi URLs to novelia.cc directly at data level
-                if b.origin.contains("book.xkvi.top") {
-                    b.origin = "https://n.novelia.cc"
-                }
-                if b.bookUrl.contains("book.xkvi.top") {
-                    b.bookUrl = b.bookUrl.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
-                }
-                if b.tocUrl.contains("book.xkvi.top") {
-                    b.tocUrl = b.tocUrl.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
-                }
-
+                b.origin = normalizeLegacyUrl(b.origin)
+                b.bookUrl = normalizeLegacyUrl(b.bookUrl)
+                b.tocUrl = normalizeLegacyUrl(b.tocUrl)
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
                     bookshelf[idx] = b
                 } else {
@@ -406,27 +396,6 @@ public class BookStore: ObservableObject {
         return (booksCount, sourcesCount, bookmarksCount, rulesCount)
     }
 
-    // MARK: - Book Management
-    public func addBook(from searchResult: SearchBook) -> Book {
-        if let existing = bookshelf.first(where: { $0.bookUrl == searchResult.bookUrl }) {
-            return existing
-        }
-
-        let newBook = Book(
-            bookUrl: searchResult.bookUrl,
-            name: searchResult.name,
-            author: searchResult.author,
-            kind: searchResult.kind,
-            coverUrl: searchResult.coverUrl,
-            intro: searchResult.intro,
-            origin: searchResult.origin,
-            originName: searchResult.originName,
-            latestChapterTitle: searchResult.latestChapterTitle
-        )
-        bookshelf.insert(newBook, at: 0)
-        saveBookshelf()
-        return newBook
-    }
 
     @discardableResult
     public func saveOrUpdateBook(_ book: Book) -> Book {
@@ -617,9 +586,7 @@ public class BookStore: ObservableObject {
 
         var count = 0
         for var s in imported {
-            if s.bookSourceUrl == "https://book.xkvi.top" || s.bookSourceUrl == "http://book.xkvi.top" {
-                s.bookSourceUrl = "https://n.novelia.cc"
-            }
+            s.bookSourceUrl = normalizeLegacyUrl(s.bookSourceUrl)
             if let idx = sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl || $0.bookSourceName == s.bookSourceName }) {
                 sources[idx] = s
             } else {
@@ -790,12 +757,6 @@ public class BookStore: ObservableObject {
         saveSources()
     }
 
-    public func updateSourceHeader(sourceUrl: String, header: String) {
-        if let idx = sources.firstIndex(where: { $0.bookSourceUrl == sourceUrl }) {
-            sources[idx].loginHeader = header
-            saveSources()
-        }
-    }
 
     public func performLogin(source: BookSource, credentials: [String: String]) async throws -> String {
         guard let loginScript = source.loginUrl, !loginScript.isEmpty else {
@@ -1045,5 +1006,10 @@ public class BookStore: ObservableObject {
         } else {
             return try importEpub(from: fileUrl)
         }
+    }
+
+    private func normalizeLegacyUrl(_ url: String) -> String {
+        guard url.contains("book.xkvi.top") else { return url }
+        return url.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
     }
 }

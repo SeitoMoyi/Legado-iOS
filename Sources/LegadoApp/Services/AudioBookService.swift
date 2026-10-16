@@ -22,7 +22,6 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
 
     private let synthesizer = AVSpeechSynthesizer()
     private var audioPlayer: AVPlayer?
-    private var playerItemObserver: Any?
 
     @Published public private(set) var paragraphs: [String] = []
     @Published public private(set) var currentIndex: Int = 0
@@ -345,9 +344,6 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         timerTask = nil
     }
 
-    public func addTimerMinutes(_ delta: Int) {
-        timerMinutes = min(max(timerMinutes + delta, 0), 180)
-    }
 
     // MARK: - Session
 
