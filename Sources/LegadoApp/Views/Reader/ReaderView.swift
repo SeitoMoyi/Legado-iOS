@@ -87,6 +87,8 @@ public struct ReaderView: View {
 
     // Auto Page Turn State
     @State private var isAutoPageTurning: Bool = false
+    /// 夜间模式 FAB：记录进入夜间前的主题，便于一键切回。
+    @State private var preNightTheme: ReaderTheme = .white
     @State private var autoTurnIntervalSeconds: Double = 5.0
     @State private var autoTurnTask: Task<Void, Never>? = nil
 
@@ -582,6 +584,9 @@ public struct ReaderView: View {
             VStack(spacing: 0) {
                 Spacer()
                 if let hint = controlHint { hintBubble(hint) }
+                floatingActionButtonRow
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
                 bottomControlPanel
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1184,17 +1189,19 @@ public struct ReaderView: View {
         saveCurrentProgress()
     }
 
+    /// Android `view_read_menu` 底部四入口同构：目录 / 朗读（长按面板）/ 界面 / 设置。
+    /// 搜索、自动翻页、净化、夜间模式移入上方悬浮球组（Android fabSearch/fabAutoPage/
+    /// fabReplaceRule/fabNightTheme 对应物）。
     private var bottomActionRow: some View {
         HStack(spacing: 0) {
             readerBarButton(icon: "list.bullet", title: "目录") { showTOC = true }
-            readerBarButton(icon: "magnifyingglass", title: "搜索") { showSearch = true }
             readerBarButton(
                 icon: audioService.isPlaying ? "pause.circle.fill"
                      : (audioService.isPaused ? "play.circle.fill" : "headphones"),
-                title: audioService.isPlaying ? "暂停" : (audioService.isPaused ? "继续" : "听书"),
+                title: audioService.isPlaying ? "暂停" : (audioService.isPaused ? "继续" : "朗读"),
                 tinted: audioService.isActive
             ) {
-                toggleAloud()
+                aloudPlayOrResume()
             }
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.35).onEnded { _ in
@@ -1202,20 +1209,60 @@ public struct ReaderView: View {
                     openPanel(.aloud)
                 }
             )
-            readerBarButton(
-                icon: "wand.and.stars",
-                title: "净化",
-                tinted: book.useReplaceRule ?? readerConfig.prefs.replaceEnableDefault
-            ) {
-                toggleReplaceRule()
-            }
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.35).onEnded { _ in
-                    showEffectiveReplaces = true
-                }
-            )
             readerBarButton(icon: "textformat.size", title: "界面") { openPanel(.style) }
-            readerBarButton(icon: "slider.horizontal.3", title: "更多") { openPanel(.moreSettings) }
+            readerBarButton(icon: "slider.horizontal.3", title: "设置") { openPanel(.moreSettings) }
+        }
+    }
+
+    /// Android `ll_floating_button` 同构：菜单打开时**横向**一排四枚纯图标悬浮球
+    /// （搜索/自动翻页/净化/夜间），激活态高亮，无文字标签。
+    /// Android `ll_floating_button` 同构：页宽四等分横排四枚纯图标悬浮球（每球居中占一段，
+    /// 与底部 TabBar 间距节奏一致），整体置于与阅读主题同色的不透明胶囊容器内。
+    private var floatingActionButtonRow: some View {
+        HStack(spacing: 0) {
+            fabButton(icon: "magnifyingglass", active: false) { showSearch = true }
+                .frame(maxWidth: .infinity)
+            fabButton(icon: "forward.end.fill", active: isAutoPageTurning) { toggleAutoPageTurn() }
+                .frame(maxWidth: .infinity)
+            fabButton(icon: "wand.and.stars",
+                      active: book.useReplaceRule ?? readerConfig.prefs.replaceEnableDefault) {
+                showEffectiveReplaces = true
+            }
+                .frame(maxWidth: .infinity)
+            fabButton(icon: "moon.fill", active: readerConfig.theme == .dark) { toggleNightTheme() }
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 8)
+        .background(
+            Capsule().fill(readerConfig.effectiveBackgroundColor)
+        )
+        .overlay(
+            Capsule().stroke(readerConfig.theme.textColor.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+    }
+
+    private func fabButton(icon: String, active: Bool,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(active ? Color.white : readerConfig.theme.textColor)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle().fill(active ? Color.accentColor : readerConfig.theme.textColor.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Android `fabNightTheme`：一键切夜间主题，再点切回进入前的主题。
+    private func toggleNightTheme() {
+        if readerConfig.theme == .dark {
+            readerConfig.theme = preNightTheme == .dark ? .white : preNightTheme
+        } else {
+            preNightTheme = readerConfig.theme
+            readerConfig.theme = .dark
         }
     }
 
@@ -2448,6 +2495,60 @@ public struct ReaderSearchSheet: View {
 }
 
 // MARK: - CoreText Two-End Justified Page View (两端对齐与定高排版组件)
+enum CoreTextPageRenderer {
+    static func draw(
+        ctx: CGContext,
+        lines: [String],
+        isParagraphEnd: [Bool],
+        fontSize: CGFloat,
+        lineSpacing: CGFloat,
+        textColor: CGColor,
+        containerWidth: CGFloat,
+        letterSpacing: CGFloat,
+        paragraphSpacing: CGFloat,
+        justify: Bool
+    ) {
+        let ctFont = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
+        let effectiveLineHeight = fontSize * 1.25 + lineSpacing
+        let targetWidth = Double(max(100, containerWidth))
+
+        for (index, lineText) in lines.enumerated() {
+            guard !lineText.isEmpty else { continue }
+            var attrs: [CFString: Any] = [
+                kCTFontAttributeName: ctFont,
+                kCTForegroundColorAttributeName: textColor
+            ]
+            if letterSpacing != 0 { attrs[kCTKernAttributeName] = letterSpacing }
+            guard let attrStr = CFAttributedStringCreate(nil, lineText as CFString, attrs as CFDictionary) else { continue }
+            let typesetter = CTTypesetterCreateWithAttributedString(attrStr)
+            let ctLine = CTTypesetterCreateLine(typesetter, CFRange(location: 0, length: lineText.count))
+
+            let isEnd = (index < isParagraphEnd.count) ? isParagraphEnd[index] : false
+            let finalLine: CTLine
+            if justify && !isEnd && lineText.count > 5 {
+                finalLine = CTLineCreateJustifiedLine(ctLine, 1.0, targetWidth) ?? ctLine
+            } else {
+                finalLine = ctLine
+            }
+
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            CTLineGetTypographicBounds(finalLine, &ascent, &descent, &leading)
+
+            let ended = isParagraphEnd.prefix(index).filter { $0 }.count
+            let baselineY = CGFloat(index) * effectiveLineHeight + CGFloat(ended) * paragraphSpacing + ascent
+
+            ctx.saveGState()
+            ctx.textMatrix = .identity
+            ctx.translateBy(x: 0, y: baselineY)
+            ctx.scaleBy(x: 1.0, y: -1.0)
+            CTLineDraw(finalLine, ctx)
+            ctx.restoreGState()
+        }
+    }
+}
+
 #if os(macOS)
 import AppKit
 
@@ -2484,6 +2585,9 @@ public struct CoreTextPageView: NSViewRepresentable {
     }
 }
 
+/// 分页画布的唯一绘制实现 —— macOS `CoreTextNSView` 与 iOS `CoreTextUIView`
+/// 两个 Representable 变体共用，避免双份绘制逻辑漂移。
+
 public class CoreTextNSView: NSView {
     public var lines: [String] = []
     public var isParagraphEnd: [Bool] = []
@@ -2498,53 +2602,14 @@ public class CoreTextNSView: NSView {
 
     public override var isFlipped: Bool { true }
 
-    /// Cumulative 段距 contributed by every paragraph that ended above `index`.
-    func paragraphGapBefore(_ index: Int) -> CGFloat {
-        guard paragraphSpacing > 0, index > 0 else { return 0 }
-        let ended = isParagraphEnd.prefix(index).filter { $0 }.count
-        return CGFloat(ended) * paragraphSpacing
-    }
-
     public override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext, !lines.isEmpty else { return }
-
-        let ctFont = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
-        let effectiveLineHeight = fontSize * 1.25 + lineSpacing
-        let targetWidth = Double(max(100, containerWidth))
-
-        for (index, lineText) in lines.enumerated() {
-            guard !lineText.isEmpty else { continue }
-            var attrs: [CFString: Any] = [
-                kCTFontAttributeName: ctFont,
-                kCTForegroundColorAttributeName: textColor.cgColor
-            ]
-            if letterSpacing != 0 { attrs[kCTKernAttributeName] = letterSpacing }
-            guard let attrStr = CFAttributedStringCreate(nil, lineText as CFString, attrs as CFDictionary) else { continue }
-            let typesetter = CTTypesetterCreateWithAttributedString(attrStr)
-            let ctLine = CTTypesetterCreateLine(typesetter, CFRange(location: 0, length: lineText.count))
-
-            let isEnd = (index < isParagraphEnd.count) ? isParagraphEnd[index] : false
-            let finalLine: CTLine
-            if justify && !isEnd && lineText.count > 5 {
-                finalLine = CTLineCreateJustifiedLine(ctLine, 1.0, targetWidth) ?? ctLine
-            } else {
-                finalLine = ctLine
-            }
-
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            var leading: CGFloat = 0
-            CTLineGetTypographicBounds(finalLine, &ascent, &descent, &leading)
-
-            let baselineY = CGFloat(index) * effectiveLineHeight + paragraphGapBefore(index) + ascent
-
-            ctx.saveGState()
-            ctx.textMatrix = .identity
-            ctx.translateBy(x: 0, y: baselineY)
-            ctx.scaleBy(x: 1.0, y: -1.0)
-            CTLineDraw(finalLine, ctx)
-            ctx.restoreGState()
-        }
+        CoreTextPageRenderer.draw(
+            ctx: ctx, lines: lines, isParagraphEnd: isParagraphEnd,
+            fontSize: fontSize, lineSpacing: lineSpacing,
+            textColor: textColor.cgColor, containerWidth: containerWidth,
+            letterSpacing: letterSpacing, paragraphSpacing: paragraphSpacing,
+            justify: justify)
     }
 }
 #endif
@@ -2598,53 +2663,14 @@ public class CoreTextUIView: UIView {
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
 
-    /// Cumulative 段距 contributed by every paragraph that ended above `index`.
-    func paragraphGapBefore(_ index: Int) -> CGFloat {
-        guard paragraphSpacing > 0, index > 0 else { return 0 }
-        let ended = isParagraphEnd.prefix(index).filter { $0 }.count
-        return CGFloat(ended) * paragraphSpacing
-    }
-
     public override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext(), !lines.isEmpty else { return }
-
-        let ctFont = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
-        let effectiveLineHeight = fontSize * 1.25 + lineSpacing
-        let targetWidth = Double(max(100, containerWidth))
-
-        for (index, lineText) in lines.enumerated() {
-            guard !lineText.isEmpty else { continue }
-            var attrs: [CFString: Any] = [
-                kCTFontAttributeName: ctFont,
-                kCTForegroundColorAttributeName: textColor.cgColor
-            ]
-            if letterSpacing != 0 { attrs[kCTKernAttributeName] = letterSpacing }
-            guard let attrStr = CFAttributedStringCreate(nil, lineText as CFString, attrs as CFDictionary) else { continue }
-            let typesetter = CTTypesetterCreateWithAttributedString(attrStr)
-            let ctLine = CTTypesetterCreateLine(typesetter, CFRange(location: 0, length: lineText.count))
-
-            let isEnd = (index < isParagraphEnd.count) ? isParagraphEnd[index] : false
-            let finalLine: CTLine
-            if justify && !isEnd && lineText.count > 5 {
-                finalLine = CTLineCreateJustifiedLine(ctLine, 1.0, targetWidth) ?? ctLine
-            } else {
-                finalLine = ctLine
-            }
-
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            var leading: CGFloat = 0
-            CTLineGetTypographicBounds(finalLine, &ascent, &descent, &leading)
-
-            let baselineY = CGFloat(index) * effectiveLineHeight + paragraphGapBefore(index) + ascent
-
-            ctx.saveGState()
-            ctx.textMatrix = .identity
-            ctx.translateBy(x: 0, y: baselineY)
-            ctx.scaleBy(x: 1.0, y: -1.0)
-            CTLineDraw(finalLine, ctx)
-            ctx.restoreGState()
-        }
+        CoreTextPageRenderer.draw(
+            ctx: ctx, lines: lines, isParagraphEnd: isParagraphEnd,
+            fontSize: fontSize, lineSpacing: lineSpacing,
+            textColor: textColor.cgColor, containerWidth: containerWidth,
+            letterSpacing: letterSpacing, paragraphSpacing: paragraphSpacing,
+            justify: justify)
     }
 }
 #endif

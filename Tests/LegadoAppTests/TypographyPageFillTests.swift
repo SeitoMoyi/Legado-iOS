@@ -56,12 +56,6 @@ final class TypographyPageFillTests: XCTestCase {
         let pageCapacity = CGFloat(100) // 200 − 2×50
 
         XCTAssertGreaterThan(typo.pages.count, 1, "语料应跨多页，否则测试无效")
-        for (pi, page) in typo.pages.enumerated() {
-            if case let .lines(r) = page {
-                print("PAGE \(pi): lines \(r) usedH=\(usedHeight(of: r, in: typo, lineHeight: lineHeight, paragraphGap: paragraphGap))")
-            } else { print("PAGE \(pi): image") }
-        }
-        print("titleTotalHeight=\(typo.titleTotalHeight) totalLines=\(typo.lines.count)")
 
         // 每页容量：P0 扣除标题（firstPageCapacity 有 max(100) 下限），其余整页 180
         let usablePageHeight: CGFloat = 180

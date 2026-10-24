@@ -10,12 +10,30 @@
 	<string>54</string>
 	<key>objects</key>
 	<dict>
+		<key>D1A2B3C4E5F60718293A4B5C</key>
+		<dict>
+			<key>fileRef</key>
+			<string>D1A2B3C4E5F60718293A4B5D</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>00A53D3303BC693F605060C5</key>
 		<dict>
 			<key>fileRef</key>
 			<string>21249808583C1D4A47BFB15C</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>D1A2B3C4E5F60718293A4B5D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>folder.assetcatalog</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Assets.xcassets</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>011777C2F84E2970C0BA18A0</key>
 		<dict>
@@ -606,7 +624,9 @@
 			<key>buildActionMask</key>
 			<string>2147483647</string>
 			<key>files</key>
-			<array/>
+			<array>
+				<string>D1A2B3C4E5F60718293A4B5C</string>
+			</array>
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
@@ -704,7 +724,7 @@
 				<string>9CD1113D1A0440D90EF379BC</string>
 				<string>C92DD416700C675A2583C93A</string>
 				<string>5D678E4AC7BCF177A1D9373C</string>
-			</array>
+						</array>
 			<key>buildRules</key>
 			<array/>
 			<key>dependencies</key>

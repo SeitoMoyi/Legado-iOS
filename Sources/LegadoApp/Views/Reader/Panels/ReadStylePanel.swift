@@ -54,11 +54,12 @@ struct ReadStylePanel: View {
                             Button(choice.label) { config.paragraphIndent = choice.value; onRepaginate() }
                         }
                     }
-                    ReaderPanelMenuRow(title: "翻页", config: config, current: config.pageAnim.label) {
-                        ForEach(PageAnim.allCases) { anim in
-                            Button(anim.label) { config.setPageAnim(anim) }
-                        }
-                    }
+                    // Android `rg_page_anim` 同构：五等宽方块横置单选（覆盖/滑动/仿真/滚动/无动画）。
+                    blockSelector(title: "翻页",
+                                  options: PageAnim.allCases,
+                                  label: { $0.label },
+                                  isSelected: { config.pageAnim == $0 },
+                                  onSelect: { config.setPageAnim($0) })
 
                     ReaderPanelRow(title: "主题", config: config,
                                    labelWidth: ReaderPanelMetrics.shortLabelWidth) {
@@ -110,6 +111,44 @@ struct ReadStylePanel: View {
         }
     }
 
+    /// 方块横置单选组：小标题 + 一排等宽方块，选中项 accent 实心白字
+    /// （对应 Android RadioGroup + button=@null 的块状 RadioButton）。
+    private func blockSelector<T: Identifiable>(
+        title: String,
+        options: [T],
+        label: @escaping (T) -> String,
+        isSelected: @escaping (T) -> Bool,
+        onSelect: @escaping (T) -> Void
+    ) -> some View where T: Hashable {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(config.theme.textColor.opacity(0.6))
+            HStack(spacing: 6) {
+                ForEach(options, id: \.self) { option in
+                    let selected = isSelected(option)
+                    Button {
+                        onSelect(option)
+                    } label: {
+                        Text(label(option))
+                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                            .foregroundColor(selected ? Color.white : config.theme.textColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(selected ? Color.accentColor : config.theme.textColor.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// 纯色主题块（对齐 Android StyleAdapter 色块）：无文字，底色即主题背景色，
+    /// 内嵌 "文" 字样张显前景对比，选中 accent 描边。小屏不再出现省略号。
     private func themeButton(for theme: ReaderTheme) -> some View {
         let isSelected = (config.theme == theme)
         return Button(action: {
@@ -117,29 +156,23 @@ struct ReadStylePanel: View {
                 config.theme = theme
             }
         }) {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(theme.backgroundColor)
-                    .frame(width: 12, height: 12)
-                    .overlay(Circle().stroke(config.theme.textColor.opacity(0.25), lineWidth: 1))
-                Text(theme.rawValue)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity)
-            .background(
+            ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : config.theme.textColor.opacity(0.05))
-            )
+                    .fill(theme.backgroundColor)
+                Text("文")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(theme.textColor)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                    .stroke(isSelected ? Color.accentColor : config.theme.textColor.opacity(0.15),
+                            lineWidth: isSelected ? 1.5 : 0.5)
             )
         }
         .buttonStyle(.plain)
-        .foregroundColor(isSelected ? .accentColor : config.theme.textColor)
+        .accessibilityLabel(theme.rawValue)
     }
 
     private var indentLabel: String {

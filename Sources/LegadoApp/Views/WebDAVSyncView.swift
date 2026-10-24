@@ -107,7 +107,7 @@ public struct WebDAVSyncView: View {
             HStack {
                 Text("服务器地址")
                     .frame(width: 85, alignment: .leading)
-                TextField("https://dav.jianguoyun.com/dav/", text: $url)
+                TextField(WebDAVService.presetJianguoyunURL, text: $url)
                     #if os(iOS)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
@@ -157,7 +157,7 @@ public struct WebDAVSyncView: View {
                     .foregroundColor(.secondary)
                 HStack(spacing: 8) {
                     Button("坚果云") {
-                        url = "https://dav.jianguoyun.com/dav/"
+                        url = WebDAVService.presetJianguoyunURL
                         if remotePath.isEmpty { remotePath = "legado" }
                         saveConfig()
                     }
@@ -165,7 +165,7 @@ public struct WebDAVSyncView: View {
                     .font(.caption)
 
                     Button("InfiniCLOUD") {
-                        url = "https://teracloud.jp/dav/"
+                        url = WebDAVService.presetInfiniCLOUDURL
                         if remotePath.isEmpty { remotePath = "legado" }
                         saveConfig()
                     }

@@ -54,7 +54,7 @@ public struct WebDAVConfig: Codable, Equatable {
     }
 
     public init(
-        url: String = "https://dav.jianguoyun.com/dav/",
+        url: String = WebDAVService.presetJianguoyunURL,
         username: String = "",
         password: String = "",
         remotePath: String = "legado",
@@ -75,7 +75,7 @@ public struct WebDAVConfig: Codable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? "https://dav.jianguoyun.com/dav/"
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? WebDAVService.presetJianguoyunURL
         self.username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
         self.password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
         self.remotePath = try container.decodeIfPresent(String.self, forKey: .remotePath) ?? "legado"
@@ -150,6 +150,10 @@ public enum WebDAVError: LocalizedError {
 }
 
 public class WebDAVService {
+    /// 服务商预设地址（坚果云 / InfiniCLOUD），UI 快捷填入与默认配置共用。
+    public static let presetJianguoyunURL = "https://dav.jianguoyun.com/dav/"
+    public static let presetInfiniCLOUDURL = "https://teracloud.jp/dav/"
+
     public static let shared = WebDAVService()
     private let configKey = "legado_webdav_config_v1"
     private let session: URLSession

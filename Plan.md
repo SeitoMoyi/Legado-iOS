@@ -3,15 +3,16 @@
 > **基准说明**
 > - **Android 对标基线**：`/Users/peibinxu/Downloads/legado-master`（`app/` 813 个 Kotlin 文件，`app/` + `modules/` 合计 844；184 个 layout XML，完整功能版 3.x）。
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **71 个 Swift 文件 ≈ 26.3k 行**（LegadoCore 35 文件 9.0k 行 + LegadoApp 36 文件 17.3k 行；含 Tests 共 88 文件）。
-> - **单测门禁**：17 个测试文件共 **256 例单元测试**（249 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 249/249 通过）。
+> - **单测门禁**：17 个测试文件共 **258 例单元测试**（251 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 251/251 通过）。
+> - **应用图标**：Android Legado 512px 母版（`ic_launcher-web.png`）经 `Assets.xcassets/AppIcon` 单尺寸 1024 编译注入。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.7.5`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.7.6`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录
 - [一、 Android ↔ iOS 当前功能差距对比矩阵](#一-android--ios-当前功能差距对比矩阵)
 - [二、 关键设计决策与 Android 架构偏离备忘](#二-关键设计决策与-android-架构偏离备忘)
-- [三、 详细功能版面差距明细](#三-详细功能版面差距明细)
+- [三、 版本变更摘要与已固化的对齐语义](#三-版本变更摘要与已固化的对齐语义)
 - [四、 后续迭代演进路线图 (Future Roadmap)](#四-后续迭代演进路线图-future-roadmap)
   - [Phase 1: P2 核心生态与高频功能（近期重点）](#phase-1-p2-核心生态与高频功能近期重点)
   - [Phase 2: P2 进阶系统与数据完整性（中期推进）](#phase-2-p2-进阶系统与数据完整性中期推进)
@@ -77,95 +78,33 @@
 
 ---
 
-## 三、 详细功能版面差距明细
+## 三、 版本变更摘要与已固化的对齐语义
 
-### 1. 应用外壳与主界面
-- **已实现**：书架 / 分类 / 订阅 / 设置 4 Tab 架构；主屏快捷操作（`UIApplicationShortcutItems` → `LaunchRouter` 场景级分发）。
-- **待补齐**：Tab 自由显隐配置、自定义启动默认主页、书架待更新数量角标（BadgeView）、首次启动隐私协议弹窗、本地备份包密码加密（AES）。
+### v0.2.7.x 系列变更一览
+| 版本 | 内容 |
+|---|---|
+| v0.2.7.1 | 「我的」页按 `pref_main.xml` 重排（顶层六行 + 设置/其它分组）；翻页模式持久化修复；底部 Tab 对齐 `main_bnv.xml`（书架/发现/订阅/我的） |
+| v0.2.7.2 | （跳过） |
+| v0.2.7.3 | 自带书源与书源硬编码全部移除（`xkvi→novelia` 迁写、别名匹配、ESJ 专属 UI、测试凭证）；活体测试改用社区源列表；书架/详情/搜索页深度布局对齐（详情垂直头部 + `fl_action` 底栏 + 菜单顺序）；搜索历史流式胶囊 |
+| v0.2.7.4 | 书架下拉刷新元数据完整更新：合并书名/封面，章节列表落盘（对齐 Android `upBookInfo`） |
+| v0.2.7.5 | 分页自然度：段距记账对齐 Android（挂下一段首行、跨页重置），页底不再提前分割；`LegadoAppTests` 分页不变量回归锁 |
+| v0.2.7.6 | 阅读器菜单对齐（底栏四入口 + 悬浮球四键 + 界面面板方块化 + 纯色主题块）；应用图标（Android Legado 512px 母版）；审计去重 |
 
-### 2. 书架与书籍详情
-- **已实现**：三列网格与列表切换、4 种排序规则、系统与自定义分组管理（新建/删除，暂无重命名）、多选批量清理/移入/删除、书籍信息自定义编辑、整书与单章换源、置顶、拷贝 URL、目录自动居中与缓存标记。
-- **待补齐**：高级封面文字展示、分组封面选图、组内独立排序、网格模式拖拽（列表模式手动排序已实现）、远程书籍（WebDAV 浏览与直接加架）、书单导入导出（`bookshelf.json` 独立流程）。
-
-### 3. 全屏阅读器与排版
-- **已实现**：统一 CoreText 排版真理源（`ChapterTypography`）、超长标题自适应多行折行、滑动与连续滚动无缝衔接、`TypographyPage` 图文统一模型、滚动模式插图真实渲染、九宫格自定义点击区、章节内容自定义修改、区间离线下载、双TTS引擎与悬浮控制条、WebDAV 进度双向同步。
-- **待补齐**：
-  - 自动翻页进阶：连续滚动下的逐像素平滑滚动（目前按章衔接）。
-  - 文本长按选择层：CoreText 字符选择高亮、双把手拖拽、上下文动作菜单（复制/词典/书签/朗读/替换）。
-  - 样式编辑器：自定义阅读背景图片（内置 14 张图与相册选取）、自定义命名样式。
-
-### 4. 规则引擎与解析能力
-- **已实现**：CSS 选择器、JSONPath（含 `$..` 递归下降）、轻量 XPath 求值器（`//`、`/`、`|` 并集、`[@attr]`、`[contains()]`、`[N]`、`[last()]`、`..` 父节点）、正则清洗链、`<js>` / `@js:` 动态脚本、`book.getVariable` / `putVariable` 持久化读写、URL 选项的 `method` / `charset` / `retry` / `headers` / `body`。
-- **待补齐**：URL 选项剩余键（`js`、`webJs`、`type`、`webViewDelayTime`、`useWebView`）、`source.jsLib` / `rssSource.jsLib` 预加载库、`java` 桥接的加密扩展（现仅有 `md5Encode` / `base64Encode` / `base64Decode` / `timeFormat`，无 AES/RSA/HMAC）。
-
-### 5. 局域网服务与平台生态
-- **已实现**：纯原生 `NWListener` 实现的局域网 WiFi 传书门户（网页文件选择上传 TXT/EPUB，服务端按 `Content-Length` 收满整包、解出 multipart 文件字节后自动入库）、URL Scheme 一键导入。
-- **待补齐**：完整 REST/WebSocket API、静态管理后台 SPA、桌面 Widgets（书架封面墙/阅读进度）、Share Extension（外部分享加架）。
-
-### 6. 书源供应链清理（2026-10-24）
-- **自带书源全部移除**：删除 `Resources/bookSources.json`（机翻机器人 + ESJ 两条）及 `loadBundledSources` / 预装恢复 UI / 启动预载全链路，应用不再预装任何书源。
-- **书源相关硬编码全部移除**：
-  - `normalizeLegacyUrl` 的 `book.xkvi.top → n.novelia.cc` 域名迁移改写（导入、恢复、载入三处）。
-  - `findSource(for:)` 的 Novelia/xkvi/fishhawk/机翻 别名匹配与 ESJ 别名匹配（保留通用的 URL/名称/域名/子串匹配）。
-  - `updateSource` 的 novelia 域名特判、WebDAV 恢复的 xkvi 源过滤。
-  - `SourceWebLoginView` 的 ESJ 专属「one 站/cc 站」镜像切换按钮与 esjzone 域名 Cookie 兜底。
-  - 测试中的硬编码书源凭证（登录账号密码）随之删除。
-- **活体书源测试改用社区列表**：`LiveSourceTests` 改为从 `https://list.xkvi.top/legado/booksource.json`（n.novelia.cc 国内反代）在线拉取书源并全链路验证。
-
-### 7. 规则引擎请求头与登录态修复（2026-10-24，xkvi 书源接入实测驱动）
-对 xkvi 反代书源全链路联调时发现并修复四个引擎缺陷，全部对齐 Android 语义：
-1. **`getLoginHeader()` 语义错误**（`JSEngine.setupEnvironment`）：原先回退到静态 `header` 字段，导致书源 `<js>` 里 `level=${token ? 0 : 1}` 等登录态分支误判为「已登录」，用失效 Token 构造 level=0 请求全面 502。现仅返回登录捕获头（对齐 Android `CacheManager.get("loginHeader_<key>")`）。
-2. **`java.ajax` / `java.connect` 不携带书源请求头**：书源 exploreUrl 内 `java.ajax("/api/user/favored")` 裸发请求被反代拒之门外（502 → 「未知错误」占位）。现通过 `JavaShim.defaultHeaderProvider` 携带合并后的书源头（对齐 Android `AnalyzeUrl(url, source=)`）。
-3. **`BookExploreService` 请求头未求值**：`<js>` header 原样传入 `parseLegadoUrl` 被静默丢弃 → 分类请求无 Cookie 全部 502（即「分类功能残留 + HTTP 502」的主因）。
-4. **请求头合并语义错误**：`loginHeader ?? header` 是**替换**，而 Android `getHeaderMap(hasLoginHeader: true)` 是 header 求值后**叠加** loginHeader。xkvi 反代边界以 header 里的 `Cookie` 作网关放行、认证走 `Authorization: Bearer`，替换后登录态请求反而丢失 Cookie 全部 502。现统一收敛到 `JSEngine.resolvedSourceHeader(source, engine:, loginHeaderOverride:)`（搜索/详情/目录/正文/分类/RSS 全链路 + JS 引擎内部 ajax/connect）。
-
-修复后的行为矩阵（xkvi 书源实测）：
-- 未登录：`level=1` 游客搜索 20 本/页、分类浏览正常，分类栏显示「账号未登录」占位（书源自带共享 Cookie 过反代网关）。
-- 登录后（表单脚本登录 → `Authorization: Bearer <JWT>` 叠加共享 Cookie）：`level=0` 搜索 20 本/页、分类出现 阅读历史/默认收藏夹/R18 并可正常浏览。
-- 新增 `testXkviJifanLoginFlow`：登录 → 搜索 → 分类 → 浏览四步全链路（凭证走 `LEGADO_XKVI_USER`/`LEGADO_XKVI_PASS` 环境变量，不入库）。
-
-### 8. 代码清理（2026-10-24，v0.2.6 发布前）
-- **硬编码终检**：Sources 全目录域名扫描仅剩三类合法 URL——WebDAV 服务商预设（坚果云/TeraCloud）、RSS 预装订阅（少数派/V2EX 公共 Feed）、字典规则预设（百度汉语/汉典），均为产品功能而非站点耦合逻辑；书源站名（ESJ/Novelia/xkvi）仅存于解释 Android 行为的注释中。
-- **死代码移除**：SPM 模板残留 `LegadoCore.swift`（含 pbxproj 注册）；`RssService.fetchArticles` 兼容包装（调用方已全部迁移 `fetchArticlePage`）；`ArticlePage.isLastPage` 未使用计算属性；`BookStore.tocRefreshInterval` 未使用别名；`AudioBookService.punctuationOnlyPattern` 未使用正则常量；`BookExploreService` 中被 `extractJSScript` 覆盖后死亡的 `@js:` 分支。
-- **重复逻辑收敛**：`<js>…</js>` / `@js:` 脚本抽取五处重复实现收敛为 `JSEngine.extractJSScript(from:)`（搜索 URL 渲染、分类解析、请求头求值内部）；`SourceManagerView` 两份一致的 web 登录判定合并为单一静态方法。
-- `BookGroup` 的 `idAudio`/`idNetNone`/`idLocalNone`/`idError` 常量保留——它们是 Android `BookGroup` 伴生对象 ID 空间的对照文档（分组 ID 语义保真）。
-
-### 11. 书架/详情/搜索页深度布局对齐（2026-10-24，第四轮）
-- **详情页（activity_book_info 同构）**：头部从「左封面右信息卡」重排为 Android 垂直结构——居中 110×160 大封面（圆角 5 + 阴影）→ 居中书名（18sp）→ 居中 kind 标签行 → 竖排图标信息行（作者 / 来源+「换源」accent 小按钮 / 最新章节 / 分组+「设置分组」（confirmationDialog 选组） / 目录 N 章+「查看目录」直达目录列表）；底部操作栏改为 Android `fl_action` 等宽双格——左「放入书架/删除书籍」纯文本 + 右「阅读」accent 实心，平铺无圆角卡；工具栏菜单按 Android `book_info.xml` 顺序重排（编辑/刷新/置顶/换源/变量…）。
-- **书架页（main_bookshelf 同构）**：标题「我的书架」→「书架」；菜单顺序对齐——更新目录 → 添加本地 → 分组管理 → 书架布局（视图切换+排序方式子菜单）→ 选择；列表行作者 13sp、最新章节行带 book 图标 12sp（对齐 item_bookshelf_list 层级）。
-- **搜索页（activity_book_search 同构）**：标题「聚合搜索」→「搜索」；结果行补齐 Android item_search 的最新章节行与多源角标（源名 · N源，对齐 bv_originCount）。
-- **Tab 页标题**：书架/发现/订阅/我的 全部与 `main_bnv.xml` 一致。
-- **对齐后修正（用户反馈）**：详情页书名改为完整换行居中显示（去掉单行中部截断）；详情页展示期间隐藏底部 TabBar（iOS 16+ 用 `.toolbar(.hidden, for: .tabBar)`，iOS 15 回退查找窗口内 UITabBar 隐藏），避免底部双按钮操作栏与四个导航 Tab 叠放；搜索历史从 `LazyVGrid` 固定网格改为流式换行胶囊布局（iOS 15 兼容的 alignmentGuide FlowLayout），长按删除保留；详情页容器 `ignoresSafeArea(bottom)` 铺到物理底部、按钮栏净距按设备特征推导（有 Home 指示条设备留 8pt 视觉净距、无指示条设备贴底）——动态读窗口 inset 的方案在 TabBar 隐藏后不可靠（可能含占位且不触发重算），故以设备特征推导替代魔法数字。
-- **TabBar 返回透明 bug（用户报告）**：`.toolbar(.hidden, for: .tabBar)` pop 回根页后 SwiftUI 有时不还原背景材质。修复：App 启动时全局为 UITabBar 的 standard/scrollEdge 两种状态显式配置 `configureWithDefaultBackground()` 材质（一处声明，根因修复，非逐页补丁）。
-- **详情页 tags 只显示三个（用户报告）**：FlowLayout 的 alignmentGuide 实现中 ZStack 高度按未偏移子帧塌缩，多行内容被裁成一行（且无滚动——用户以为可拖动实则整体被裁）。重写为两阶段确定性排版：子项自报尺寸 → 按容器宽贪心折行 → 显式 position 定位、容器高度取行高之和；搜索历史同组件一并修复。tag 来源增加去重防 ForEach id 冲突。
-- **tags 仍只显示三个（用户复测，几何方案在此上下文依旧塌缩）**：放弃一切运行时几何测量，改为**估宽确定性分行**——CJK 15pt/字、ASCII 8pt/字、胶囊附加 30pt，按 330pt 行宽贪心分行后以普通 HStack/VStack 渲染。估宽偏大只会提前换行，永不裁切。搜索历史保留 FlowLayout（其上下文表现正常）。
-- **详情页双目录入口（用户反馈）**：移除头部下方的大号「目录」预览卡及其 61 行实现，对齐 Android 仅保留信息行「目录：共 N 章 + 查看目录」入口（直达目录列表）。
-- **tags 显示不全的真根因（computer-use 模拟器实测确认）**：渲染层三轮修改均无效——问题在**数据层**。Android `BookInfo.kt` 用 `getStringList(infoRule.kind)?.joinToString(",")` 取全部分类，iOS 误用 `getString()` 只取首个匹配；JSONPath 数组规则（如 `$.keywords`）下 iOS 永远只得一个 tag。已将详情与搜索两处 kind 解析对齐为 `getStringList().joined(",")`，并在模拟器实测通过。tags 行按用户要求回到单行横向滚动（Android LabelsBar 即 HorizontalScrollView 同构）。
-### 12. 阅读器分页自然度对齐（2026-10-24，第五轮）
-- **翻页页底空白/提前分割（用户报告）**：分页判定把段距记在段尾行上（`行高+段距` 一起判定），段尾行字形本可容纳却被整行推到下一页，页底留下整行空白。Android `TextChapterLayout` 的段距在整段排完后才累加（`durY += textHeight * paragraphSpacing / 10f`），页面断行只看本行行高。修复：段距改挂**下一段首行**前置记账（页首行不收段距，跨页重置，与 `CoreTextPageView` 不渲染页末段距的既有语义对齐）；仅影响滑动翻页的 `pages` 切分，滚动模式（连续 `line.y` 流）不受影响；进度按字符偏移存储自动重映射。
-- **回归锁（新 `LegadoAppTests` 测试目标）**：新增分页不变量测试——除末页外，被换开的行若为段内续行，该页必须连其行高都放不下；若为段首行，必须连 行高+段距 都放不下（与 Android `prepareNextPageIfNeed(durY + textHeight)` 的断行条件一致）。注意页容量按页区分：P0 用 `firstPageCapacity`（有 max(100) 下限且扣标题高），其余页为整页高。
-
-- **书架下拉刷新不更新已添加书籍的元数据（用户报告）**：解析修复（getStringList）已在 v0.2.7.3 生效并经活体测试验证——`fetchBookDetail` 返回完整 kind（实测 11 个 tag，断言 `contains(",")` 通过），`saveOrUpdateBook` 本就合并 kind；若设备上刷新后仍为 3 个 tag，请确认安装的是 v0.2.7.3 及以后的 IPA（旧包解析层仍是 getString）。本轮补齐刷新合并清单的两处真实缺口（对齐 Android `upBookInfo`）：① `saveOrUpdateBook` 增加书名/封面合并（书架身份是 bookUrl，改名安全）；② `refreshAllBooks` 将解析出的新章节列表 `saveChapters` 落盘——此前只更新元数据不存目录，阅读器仍读旧目录。
-- **v0.2.7.3 发布前全量核对**：① 硬编码扫描——Sources 无任何书源站域名逻辑引用，剩余 URL 均为产品预设（WebDAV 服务商/RSS 预装/字典规则）；② 重复收敛——`<js>`/`@js:` 规则拆分统一为 `JSEngine.splitJSRule`（RuleAnalyzer 两处同构块 + getString 分支 + extractJSScript 复用），`loginHeader ?? header` 替换式取头已全部收敛至 `resolvedSourceHeader`；③ getStringList 语义对齐核对——kind 用列表、name/author/intro 等单值字段保持 getString，与 Android BookInfo.kt/BookList.kt 一致。
-- **TabBar 还原延迟（用户报告，返回书架等半秒才出现）**：`.toolbar(.hidden, for: .tabBar)` 的还原绑定在 pop 转场**结束**之后（详情页完全离开层级才收回隐藏偏好），0.35s 转场 + 淡入即感知为半秒延迟。改为 UIKit 层显式显隐（新 `TabBarVisibility` 服务）：详情页 onAppear 隐藏；还原由**每个能推入详情页的来源页**（书架/搜索/发现/分类流）在自己的 onAppear 触发——pop 转场**开始**瞬间 TabBar 即随转场滑回，与原生一致。
-
-### 10. UI 布局对齐与翻页模式修复（2026-10-24，第三轮）
-- **翻页模式不记忆（用户报告）**：双重缺陷——`makeStyleConfig()` 保存快照时未写入当前 `pageAnim`，`apply(style:)` 恢复时也未读回，导致每次进入阅读器都回落到滚动模式。修复后 `pageAnim` 随样式快照（对齐 Android `readConfig.json` 的 `pageAnim` 字段）完整往返。
-- **「我的」页布局对齐 Android**：iOS 设置中心按 `pref_main.xml` 重排——顶层无分组六行（图标 + 标题 + caption 摘要 + 整行点击），顺序与文案完全一致（书源管理 / TXT 目录规则 / 替换净化 / 字典规则 / 主题模式 NameListPreference → Menu / Web 服务 Switch，运行时摘要显示局域网地址）；「设置」分组（备份与恢复 / 其它设置）；「其它」分组（书签 / 阅读记录 / 关于）。iOS 特有的 WiFi 传书详情页保留为 Web 服务下一行；无对应功能的入口（文件管理 / 退出 / 主题设置子页）省略而非占位。
-- **其它设置子页（新）**：收纳 Android `OTHER_CONFIG` 下的 iOS 已有项——正文处理（新书默认净化 / 简繁转换 / 图片样式）、朗读（HttpTTS 引擎）、缓存（清理阅读缓存）。
-- **关于子页（新）**：应用名称 / 当前版本 / 内核引擎 / 开源许可。
-- **底部 Tab 对齐**：`main_bnv.xml` 四项——书架 / 发现（图标换 safari 指南针，原「分类」）/ 订阅 / 我的（person 图标，原「设置」）；分类页标题同步改「发现」。
-
-### 9. 已实现功能对齐审查（2026-10-24，第二轮）
-- **听书翻页续读 bug（用户报告）**：暂停/结束后翻页再点播放，会从旧段落续读而非新页开头。根因：底栏听书、朗读面板、浮动条三个入口都直连 `togglePlayPause()`/`play()`，paused 分支一律 `resume()` 到过期的 `currentIndex`。修复：三入口统一收敛到 `ReaderView.aloudPlayOrResume()`——**可见段落 == 朗读段落且未换章**才 `resume()`（保留 HttpTTS 音频中段进度），否则以 `currentAloudStartPos()` 重新锚定到当前可见段开头（对齐 Android `getNowParagraph` 语义）；`AudioBookService` 新增 `loadedChapterText` 与 `paragraphIndex(containingCharPos:)` 支撑判定，`stop()` 同时清空已载文本。
-- **全书搜索跳转偏移基准错位**：命中偏移此前基于**原始缓存文本**计算，而阅读器排版的是净化后文本（去重标题/修剪/缩进均移位），跳转会落偏。修复：搜索改走 `fetchChapterContent(context:)` 同一条净化管线（阅读器经 `processContext` 注入逐章上下文），搜索文本与排版文本同基准；`source: nil` 时仅离线（缓存/本地文件），语义不变。
-- **分组视图拖拽排序错乱**：书架/书源/RSS 列表在分组或搜索过滤视图里拖拽时，可见项被重排为 0…n-1，与视图外条目的序号碰撞并打乱「全部」视图。修复：统一改为**置换子集自身既有的序号槽位**（书架 `Book.order`、书源 `customOrder`、RSS `customOrder`），视图外条目保持原位；全量视图时退化为普通 0…n-1 重排。
-
----
+### 已固化的对齐语义（后续开发必须遵守）
+1. **请求头合并**：一切书源请求头经 `JSEngine.resolvedSourceHeader(source, engine:, loginHeaderOverride:)`——header 规则求值后**叠加** loginHeader（Android `getHeaderMap(hasLoginHeader:)` 语义），严禁 `loginHeader ?? header` 替换式写法。
+2. **`getLoginHeader()`** 仅返回登录捕获头，不回退静态 `header`（登录态分支判定依赖此语义）。
+3. **`java.ajax/connect`** 经 `JavaShim.defaultHeaderProvider` 携带书源头。
+4. **`<js>`/`@js:` 拆分** 统一走 `JSEngine.splitJSRule` / `extractJSScript`；kind 类列表规则用 `getStringList`（对齐 Android `BookInfo.kt`），单值字段用 `getString`。
+5. **JSON 往返**：未建模字段一律进 `extra`（`JSONExtraPreserving`），encode 扁平化回写。
+6. **分页记账**：段距挂下一段首行、页首行不收段距、跨页重置（Android `prepareNextPageIfNeed(durY + textHeight)` 语义），不变量由 `TypographyPageFillTests` 锁定。
+7. **过滤视图拖拽排序**：置换可见子集自身序号槽位，不动视图外条目。
+8. **详情页 TabBar**：隐藏/还原走 `TabBarVisibility`（来源页 onAppear 还原，pop 开始瞬间生效）；TabBar 材质由 App 启动时全局 Appearance 声明。
+9. **听书启动/续读**统一走 `aloudPlayOrResume()`（可见段落==朗读段落才 resume，否则重锚定）。
+10. **全书搜索**偏移基于净化后文本（`fetchChapterContent(context:)` 同管线），跳转按字符偏移精准定位。
 
 ## 四、 后续迭代演进路线图 (Future Roadmap)
 
-当前工程已圆满达成 **P0（核心阅读闭环）** 与 **P1（高频生态与工具链）**，排版底层与连续长卷滚动架构已经终态收敛。后续研发全力推进 **P2（功能对齐）** 与 **P3（平台特性融合）**：
+P0（核心阅读闭环）与 P1（高频生态与工具链）已达成，排版底层与连续长卷滚动架构终态收敛。**下一版本 v0.2.8（中版本）目标：完成 Phase 1 剩余三项（Part 3/4/6）**，随后推进 Phase 2/3：
 
 ```mermaid
 graph TD
@@ -202,21 +141,10 @@ graph TD
 ### Phase 1: P2 核心生态与高频功能（近期重点）
 
 #### Part 1：RSS 订阅深度完善 ✅（已完成）
-- **目标**：将当前基础可用的订阅模块补齐至生产级。
-- **实施点**：
-  1. ✅ `RssSourceEditSheet` 全字段化：24 字段全量编辑（sourceName/sourceUrl/sourceIcon/sourceGroup/sourceComment/enabled/variableComment/loginUrl/loginUi/header/sortUrl/singleUrl/articleStyle/ruleArticles/ruleNextPage/ruleTitle/rulePubDate/ruleDescription/ruleImage/ruleLink/ruleContent/style/enableJs/loadWithBaseUrl/variable/customOrder）。
-  2. ✅ 新建 `RssSourceDebugSheet` 订阅源流式调试台（阶段 1 解析分类 → 阶段 2 文章列表 → 阶段 3 首篇正文，等宽日志实时滚动，标注 ruleNextPage 是否生效）。
-  3. ✅ 文章列表支持 3 种版式切换：左文右图（0）、无图模式（1）、双列网格（2）；选择持久化到源的 `articleStyle` 字段。
-  4. ✅ 支持基于 `ruleNextPage` 的触底翻页自动拼装（`RssService.fetchArticlePage` 返回 `ArticlePage{articles, nextPageUrl}`，含自环/回源保护与按 link 去重）。
-  5. ✅ 文章已读状态置灰标记与阅读历史记录落盘追踪（`RssStore` read-state + 500 条历史，超限裁剪；`RssServiceTests` 10 例覆盖翻页与已读逻辑）。
-- **遗留**：交互式登录 WebView 入口（`loginUrl` 已可编辑但无内置登录页）、订阅源并发校验。
+全字段编辑器（24 字段含 loginUrl/loginUi/variable）、三阶段流式调试台、文章 3 版式（articleStyle 持久化）、`ruleNextPage` 触底翻页（自环保护 + link 去重）、已读置灰与阅读历史落盘（500 条上限）。**遗留**：交互式登录 WebView、订阅源并发校验。
 
 #### Part 2：列表拖拽与手动排序 ✅（已完成）
-- **目标**：补齐所有管理类列表的长按拖拽交互。
-- **实施点**：
-  1. ✅ 书架视图：`Book.order` 建模并落盘 `bookshelf.json`（对齐 Android `Book.order`，新书取 `minOrder-1` 置顶）；排序菜单新增「手动排序（可拖拽）」，该模式下列表常驻编辑态出现拖拽把手，`.onMove` 后全量 `order` 重写为 0…n-1（分组过滤视图经 bookUrl 回映射）。网格模式拖拽仍缺（SwiftUI `LazyVGrid` 无 `.onMove`）。
-  2. ✅ 书源列表：新增「拖拽排序（优先级）」模式，编辑态拖拽重排后 `customOrder` 重写并按其重排全量数组（换源候选跟随新优先级）。
-  3. ✅ TXT 目录规则（重写 `serialNumber`）、字典规则（重写 `sortNumber`）、HttpTTS 引擎与 RSS 订阅源（重写 `customOrder`）四页补齐 `EditButton` + `.onMove` 拖拽排序。
+`Book.order` 建模落盘（新书 `minOrder-1` 置顶）+ 书架「手动排序（可拖拽）」；书源拖拽排序（`customOrder` 重排优先级）；TXT/字典/HttpTTS/RSS 四列表 `EditButton`+`.onMove`。过滤视图拖拽置换子集槽位。**遗留**：网格模式拖拽（`LazyVGrid` 无 `.onMove`）。
 
 #### Part 3：二维码全链路集成
 - **目标**：打通多端扫码导入与生成分享闭环。
@@ -238,12 +166,7 @@ graph TD
      - **创建替换规则**：以选中词为默认目标打开快速替换弹窗。
 
 #### Part 5：书内全书多章并发搜索 ✅（已完成）
-- **目标**：对齐 Android `SearchContentActivity`，提供秒级书内全文检索。
-- **实施点**：
-  1. ✅ 新增 `BookContentSearchService`（LegadoCore）：`AsyncStream` 流式产出 进度/命中/完成 三类事件；`withTaskGroup` 以 6 并发分块抓取，块内按章节序回吐保证结果有序；**缓存优先**（已缓存章节离线可搜），未缓存章节可选拉取（`includeUncached`）；单章命中封顶 3 条防刷屏；命中携带字符偏移与 ±20 字上下文；任务取消安全。
-  2. ✅ 新增 `SearchContentSheet`：关键字/正则切换（非法正则前置校验）、含未缓存章节开关、流式进度（x/y 章）、命中列表上下文高亮，点击经 `loadInitialChapter(targetCharPos:)` 精准跳转（翻页模式换算页码、滚动模式定位偏移）。
-  3. ✅ 入口：阅读器「搜索」弹窗顶部新增「全书搜索」直达卡片（避免底栏按钮过挤）。
-  4. ✅ `BookContentSearchServiceTests` 7 例：关键字/正则匹配、偏移正确性、单章封顶、缓存边界、空查询与非法正则降级。
+`BookContentSearchService`（AsyncStream 进度/命中/完成事件、6 并发分块、缓存优先 + 可选联网、单章命中封顶）+ `SearchContentSheet`（关键字/正则、命中高亮、字符偏移精准跳转、净化管线同基准）。入口：搜索弹窗顶部直达卡。
 
 #### Part 6：通用内置 WebKit 浏览器
 - **目标**：补齐非登录场景的网页浏览与 Cloudflare 智能过盾。
