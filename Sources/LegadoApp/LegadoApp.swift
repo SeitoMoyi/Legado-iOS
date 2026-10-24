@@ -62,7 +62,25 @@ public struct LegadoApp: App {
         }
     }
 
-    public init() {}
+    public init() {
+        configureTabBarAppearance()
+    }
+
+    #if os(iOS)
+    /// SwiftUI 的 `.toolbar(.hidden, for: .tabBar)` 在 pop 回根页面后有时不还原背景材质
+    /// （TabBar 变透明）。给 standard 与 scrollEdge 两种状态都显式配置不透明默认材质，
+    /// 一处全局声明，杜绝材质丢失。
+    private func configureTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        UITabBar.appearance().standardAppearance = appearance
+        if #available(iOS 15.0, *) {
+            UITabBar.appearance().scrollEdgeAppearance = appearance
+        }
+    }
+    #else
+    private func configureTabBarAppearance() {}
+    #endif
 
     public var body: some Scene {
         WindowGroup {

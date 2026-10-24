@@ -75,8 +75,11 @@ public class BookContentService {
             let introVal = analyzer.getString(infoRule.intro)
             if !introVal.isEmpty { updatedBook.intro = BookContentService.cleanHtml(introVal) }
 
-            let kindVal = analyzer.getString(infoRule.kind)
-            if !kindVal.isEmpty { updatedBook.kind = kindVal }
+            // Android `BookInfo.kt`: getStringList(...)?.joinToString(",") — the kind rule
+            // usually resolves to a LIST (e.g. `$.keywords`); getString() kept only the first
+            // element, which is why the detail page showed a fraction of Android's tags.
+            let kindList = analyzer.getStringList(infoRule.kind)
+            if !kindList.isEmpty { updatedBook.kind = kindList.joined(separator: ",") }
 
             let wordCountVal = analyzer.getString(infoRule.wordCount)
             if !wordCountVal.isEmpty { updatedBook.wordCount = wordCountVal }

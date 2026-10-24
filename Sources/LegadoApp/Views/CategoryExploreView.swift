@@ -75,6 +75,9 @@ public struct CategoryExploreView: View {
             }
             .navigationTitle("发现")
             #if os(iOS)
+            .onAppear { TabBarVisibility.setHidden(false) }
+            #endif
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {

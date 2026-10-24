@@ -94,7 +94,8 @@ public class BookSearchService {
 
             let coverUrl = itemAnalyzer.getString(searchRule.coverUrl, isUrl: true)
             let intro = itemAnalyzer.getString(searchRule.intro)
-            let kind = itemAnalyzer.getString(searchRule.kind)
+            // Android `BookList.kt`: getStringList(...).joinToString(",") — full tag list
+            let kind = itemAnalyzer.getStringList(searchRule.kind).joined(separator: ",")
             let lastChapter = itemAnalyzer.getString(searchRule.lastChapter)
             let wordCount = itemAnalyzer.getString(searchRule.wordCount)
 

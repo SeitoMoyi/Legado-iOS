@@ -201,18 +201,24 @@ public class JSEngine {
         setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
     }
 
-    /// Extracts the script body from a Legado rule that wraps it in `<js>…</js>` or prefixes it
-    /// with `@js:`; `nil` when the rule carries no script. The same extraction was copy-pasted
-    /// across search-URL rendering, explore categories, header evaluation and the rule engine.
-    public static func extractJSScript(from rule: String) -> String? {
-        if let start = rule.range(of: "<js>")?.upperBound,
-           let end = rule.range(of: "</js>")?.lowerBound, start <= end {
-            return String(rule[start..<end])
+    /// Splits a rule into its non-JS prefix (may be empty) and the `<js>…</js>` / `@js:`
+    /// script body (`nil` when the rule carries no script). RuleAnalyzer's JS sites and the
+    /// header/URL evaluators all shared this split copy-pasted.
+    public static func splitJSRule(_ rule: String) -> (prefix: String, script: String?) {
+        if let open = rule.range(of: "<js>"), let close = rule.range(of: "</js>"), open.upperBound <= close.lowerBound {
+            let prefix = String(rule[..<open.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (prefix, String(rule[open.upperBound..<close.lowerBound]))
         }
         if rule.hasPrefix("@js:") {
-            return String(rule.dropFirst(4))
+            return ("", String(rule.dropFirst(4)))
         }
-        return nil
+        return (rule, nil)
+    }
+
+    /// Extracts the script body from a Legado rule that wraps it in `<js>…</js>` or prefixes it
+    /// with `@js:`; `nil` when the rule carries no script.
+    public static func extractJSScript(from rule: String) -> String? {
+        splitJSRule(rule).script
     }
 
     /// Android `BaseSource.getHeaderMap(hasLoginHeader: true)`: evaluates the source's `header`

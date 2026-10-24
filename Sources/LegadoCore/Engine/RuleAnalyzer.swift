@@ -85,15 +85,7 @@ public class RuleAnalyzer {
         }
 
         // Handle JS scripts: with or without rule prefix
-        var rulePrefix = ""
-        var jsScript: String? = nil
-
-        if let jsStart = rule.range(of: "<js>"), let jsEnd = rule.range(of: "</js>") {
-            rulePrefix = String(rule[..<jsStart.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            jsScript = String(rule[jsStart.upperBound..<jsEnd.lowerBound])
-        } else if rule.starts(with: "@js:") {
-            jsScript = String(rule.dropFirst(4))
-        }
+        let (rulePrefix, jsScript) = JSEngine.splitJSRule(rule)
 
         if let script = jsScript {
             var targetContent: Any? = content
@@ -150,10 +142,7 @@ public class RuleAnalyzer {
                 return [isUrl ? resolveUrl(str) : str]
             }
             return []
-        } else if rule.contains("<js>") && rule.contains("</js>") {
-            let start = rule.range(of: "<js>")?.upperBound ?? rule.startIndex
-            let end = rule.range(of: "</js>")?.lowerBound ?? rule.endIndex
-            let script = String(rule[start..<end])
+        } else if let script = JSEngine.extractJSScript(from: rule) {
             let evalResult = jsEngine.eval(script: script, result: content)
             if let arr = evalResult as? [Any] {
                 return arr.map { "\(isUrl ? resolveUrl("\($0)") : "\($0)")" }
@@ -222,15 +211,7 @@ public class RuleAnalyzer {
             return []
         }
 
-        var rulePrefix = ""
-        var jsScript: String? = nil
-
-        if let jsStart = rule.range(of: "<js>"), let jsEnd = rule.range(of: "</js>") {
-            rulePrefix = String(rule[..<jsStart.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            jsScript = String(rule[jsStart.upperBound..<jsEnd.lowerBound])
-        } else if rule.starts(with: "@js:") {
-            jsScript = String(rule.dropFirst(4))
-        }
+        let (rulePrefix, jsScript) = JSEngine.splitJSRule(rule)
 
         if let script = jsScript {
             var targetContent: Any? = content

@@ -17,6 +17,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>011777C2F84E2970C0BA18A0</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Services/TabBarVisibility.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>016E5C04A36B9E44ADA45781</key>
 		<dict>
 			<key>children</key>
@@ -222,6 +233,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>DF2EEFF3E49DA4DE42FEB68E</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>1C7FF096F2C0F3F5581C414E</key>
+		<dict>
+			<key>fileRef</key>
+			<string>011777C2F84E2970C0BA18A0</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -882,6 +900,7 @@
 				<string>B38505A50314C9F0B2FF5CD8</string>
 				<string>F71089882BF468CCF7FF2A11</string>
 				<string>C8513E367BF14660F5AC2E1A</string>
+				<string>011777C2F84E2970C0BA18A0</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1192,6 +1211,7 @@
 				<string>126583DF804CBDA359021603</string>
 				<string>3034C702D6543D7DF1A0319A</string>
 				<string>15A5DB3AC78024EB3DE45CDF</string>
+				<string>1C7FF096F2C0F3F5581C414E</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>

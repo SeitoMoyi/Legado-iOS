@@ -5,7 +5,7 @@
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **71 个 Swift 文件 ≈ 26.3k 行**（LegadoCore 35 文件 9.0k 行 + LegadoApp 36 文件 17.3k 行；含 Tests 共 88 文件）。
 > - **单测门禁**：17 个测试文件共 **256 例单元测试**（249 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 249/249 通过）。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.7.1`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.7.3`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录
@@ -129,6 +129,20 @@
 - **死代码移除**：SPM 模板残留 `LegadoCore.swift`（含 pbxproj 注册）；`RssService.fetchArticles` 兼容包装（调用方已全部迁移 `fetchArticlePage`）；`ArticlePage.isLastPage` 未使用计算属性；`BookStore.tocRefreshInterval` 未使用别名；`AudioBookService.punctuationOnlyPattern` 未使用正则常量；`BookExploreService` 中被 `extractJSScript` 覆盖后死亡的 `@js:` 分支。
 - **重复逻辑收敛**：`<js>…</js>` / `@js:` 脚本抽取五处重复实现收敛为 `JSEngine.extractJSScript(from:)`（搜索 URL 渲染、分类解析、请求头求值内部）；`SourceManagerView` 两份一致的 web 登录判定合并为单一静态方法。
 - `BookGroup` 的 `idAudio`/`idNetNone`/`idLocalNone`/`idError` 常量保留——它们是 Android `BookGroup` 伴生对象 ID 空间的对照文档（分组 ID 语义保真）。
+
+### 11. 书架/详情/搜索页深度布局对齐（2026-10-24，第四轮）
+- **详情页（activity_book_info 同构）**：头部从「左封面右信息卡」重排为 Android 垂直结构——居中 110×160 大封面（圆角 5 + 阴影）→ 居中书名（18sp）→ 居中 kind 标签行 → 竖排图标信息行（作者 / 来源+「换源」accent 小按钮 / 最新章节 / 分组+「设置分组」（confirmationDialog 选组） / 目录 N 章+「查看目录」直达目录列表）；底部操作栏改为 Android `fl_action` 等宽双格——左「放入书架/删除书籍」纯文本 + 右「阅读」accent 实心，平铺无圆角卡；工具栏菜单按 Android `book_info.xml` 顺序重排（编辑/刷新/置顶/换源/变量…）。
+- **书架页（main_bookshelf 同构）**：标题「我的书架」→「书架」；菜单顺序对齐——更新目录 → 添加本地 → 分组管理 → 书架布局（视图切换+排序方式子菜单）→ 选择；列表行作者 13sp、最新章节行带 book 图标 12sp（对齐 item_bookshelf_list 层级）。
+- **搜索页（activity_book_search 同构）**：标题「聚合搜索」→「搜索」；结果行补齐 Android item_search 的最新章节行与多源角标（源名 · N源，对齐 bv_originCount）。
+- **Tab 页标题**：书架/发现/订阅/我的 全部与 `main_bnv.xml` 一致。
+- **对齐后修正（用户反馈）**：详情页书名改为完整换行居中显示（去掉单行中部截断）；详情页展示期间隐藏底部 TabBar（iOS 16+ 用 `.toolbar(.hidden, for: .tabBar)`，iOS 15 回退查找窗口内 UITabBar 隐藏），避免底部双按钮操作栏与四个导航 Tab 叠放；搜索历史从 `LazyVGrid` 固定网格改为流式换行胶囊布局（iOS 15 兼容的 alignmentGuide FlowLayout），长按删除保留；详情页容器 `ignoresSafeArea(bottom)` 铺到物理底部、按钮栏净距按设备特征推导（有 Home 指示条设备留 8pt 视觉净距、无指示条设备贴底）——动态读窗口 inset 的方案在 TabBar 隐藏后不可靠（可能含占位且不触发重算），故以设备特征推导替代魔法数字。
+- **TabBar 返回透明 bug（用户报告）**：`.toolbar(.hidden, for: .tabBar)` pop 回根页后 SwiftUI 有时不还原背景材质。修复：App 启动时全局为 UITabBar 的 standard/scrollEdge 两种状态显式配置 `configureWithDefaultBackground()` 材质（一处声明，根因修复，非逐页补丁）。
+- **详情页 tags 只显示三个（用户报告）**：FlowLayout 的 alignmentGuide 实现中 ZStack 高度按未偏移子帧塌缩，多行内容被裁成一行（且无滚动——用户以为可拖动实则整体被裁）。重写为两阶段确定性排版：子项自报尺寸 → 按容器宽贪心折行 → 显式 position 定位、容器高度取行高之和；搜索历史同组件一并修复。tag 来源增加去重防 ForEach id 冲突。
+- **tags 仍只显示三个（用户复测，几何方案在此上下文依旧塌缩）**：放弃一切运行时几何测量，改为**估宽确定性分行**——CJK 15pt/字、ASCII 8pt/字、胶囊附加 30pt，按 330pt 行宽贪心分行后以普通 HStack/VStack 渲染。估宽偏大只会提前换行，永不裁切。搜索历史保留 FlowLayout（其上下文表现正常）。
+- **详情页双目录入口（用户反馈）**：移除头部下方的大号「目录」预览卡及其 61 行实现，对齐 Android 仅保留信息行「目录：共 N 章 + 查看目录」入口（直达目录列表）。
+- **tags 显示不全的真根因（computer-use 模拟器实测确认）**：渲染层三轮修改均无效——问题在**数据层**。Android `BookInfo.kt` 用 `getStringList(infoRule.kind)?.joinToString(",")` 取全部分类，iOS 误用 `getString()` 只取首个匹配；JSONPath 数组规则（如 `$.keywords`）下 iOS 永远只得一个 tag。已将详情与搜索两处 kind 解析对齐为 `getStringList().joined(",")`，并在模拟器实测通过。tags 行按用户要求回到单行横向滚动（Android LabelsBar 即 HorizontalScrollView 同构）。
+- **v0.2.7.3 发布前全量核对**：① 硬编码扫描——Sources 无任何书源站域名逻辑引用，剩余 URL 均为产品预设（WebDAV 服务商/RSS 预装/字典规则）；② 重复收敛——`<js>`/`@js:` 规则拆分统一为 `JSEngine.splitJSRule`（RuleAnalyzer 两处同构块 + getString 分支 + extractJSScript 复用），`loginHeader ?? header` 替换式取头已全部收敛至 `resolvedSourceHeader`；③ getStringList 语义对齐核对——kind 用列表、name/author/intro 等单值字段保持 getString，与 Android BookInfo.kt/BookList.kt 一致。
+- **TabBar 还原延迟（用户报告，返回书架等半秒才出现）**：`.toolbar(.hidden, for: .tabBar)` 的还原绑定在 pop 转场**结束**之后（详情页完全离开层级才收回隐藏偏好），0.35s 转场 + 淡入即感知为半秒延迟。改为 UIKit 层显式显隐（新 `TabBarVisibility` 服务）：详情页 onAppear 隐藏；还原由**每个能推入详情页的来源页**（书架/搜索/发现/分类流）在自己的 onAppear 触发——pop 转场**开始**瞬间 TabBar 即随转场滑回，与原生一致。
 
 ### 10. UI 布局对齐与翻页模式修复（2026-10-24，第三轮）
 - **翻页模式不记忆（用户报告）**：双重缺陷——`makeStyleConfig()` 保存快照时未写入当前 `pageAnim`，`apply(style:)` 恢复时也未读回，导致每次进入阅读器都回落到滚动模式。修复后 `pageAnim` 随样式快照（对齐 Android `readConfig.json` 的 `pageAnim` 字段）完整往返。

@@ -170,7 +170,10 @@ public struct SearchBookView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("聚合搜索")
+        .navigationTitle("搜索")
+        #if os(iOS)
+        .onAppear { TabBarVisibility.setHidden(false) }
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -306,6 +309,17 @@ public struct SearchBookView: View {
 
     // MARK: - 搜索历史
 
+    /// 历史词条胶囊（长按删除）。
+    private func historyChip(_ word: String) -> some View {
+        FilterChip(title: word, isSelected: false) {
+            viewModel.searchQuery = word
+            viewModel.startSearch()
+        }
+        .contextMenu {
+            Button("删除") { bookStore.deleteSearchKeyword(word) }
+        }
+    }
+
     private var historyView: some View {
         let history = bookStore.searchHistory(matching: viewModel.searchQuery)
         return ScrollView {
@@ -364,18 +378,8 @@ public struct SearchBookView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 8)],
-                              alignment: .leading,
-                              spacing: 8) {
-                        ForEach(history) { item in
-                            FilterChip(title: item.word, isSelected: false) {
-                                viewModel.searchQuery = item.word
-                                viewModel.startSearch()
-                            }
-                            .contextMenu {
-                                Button("删除") { bookStore.deleteSearchKeyword(item.word) }
-                            }
-                        }
+                    FlowLayout(items: history.map { $0.word }, spacing: 8) { word in
+                        historyChip(word)
                     }
                 }
             }
@@ -390,6 +394,86 @@ public struct SearchBookView: View {
 }
 
 // MARK: - Filter Chip
+
+/// iOS 15 兼容的流式换行布局：两阶段确定性排版——每个子项先自报尺寸
+/// （background GeometryReader），再按容器宽度贪心折行、显式 position 定位，容器高度由
+/// 行高之和显式给定。取代 alignmentGuide 方案：后者 ZStack 高度按未偏移子帧塌缩，
+/// 多行内容被裁成一行（详情页 tags「只显示三个」的根因）。
+struct FlowLayout<Item: Hashable, Content: View>: View {
+    let items: [Item]
+    var spacing: CGFloat = 8
+    @ViewBuilder let content: (Item) -> Content
+
+    @State private var sizes: [Item: CGSize] = [:]
+    @State private var containerHeight: CGFloat = 0
+
+    /// 单项的摆放位置（相对容器左上角）。
+    private struct Placement {
+        var x: CGFloat
+        var y: CGFloat
+    }
+
+    /// sizes 未就绪（首帧）时返回空布局，尺寸回调后自动重排。
+    private func computeLayout(width: CGFloat) -> (placements: [Item: Placement], height: CGFloat) {
+        guard width > 0, items.allSatisfy({ sizes[$0] != nil }) else {
+            return ([:], 0)
+        }
+        var placements: [Item: Placement] = [:]
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for item in items {
+            let size = sizes[item] ?? .zero
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            placements[item] = Placement(x: x, y: y)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (placements, y + rowHeight)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let layout = computeLayout(width: geo.size.width)
+            ZStack(alignment: .topLeading) {
+                ForEach(items, id: \.self) { item in
+                    content(item)
+                        .background(
+                            GeometryReader { proxy -> Color in
+                                DispatchQueue.main.async {
+                                    let size = proxy.size
+                                    if sizes[item] != size {
+                                        sizes[item] = size
+                                    }
+                                }
+                                return Color.clear
+                            }
+                        )
+                        .position(
+                            x: (layout.placements[item]?.x ?? 0) + (sizes[item]?.width ?? 0) / 2,
+                            y: (layout.placements[item]?.y ?? 0) + (sizes[item]?.height ?? 0) / 2
+                        )
+                }
+            }
+            .frame(width: geo.size.width, height: layout.height, alignment: .topLeading)
+            .background(
+                GeometryReader { proxy -> Color in
+                    DispatchQueue.main.async {
+                        if containerHeight != proxy.size.height {
+                            containerHeight = proxy.size.height
+                        }
+                    }
+                    return Color.clear
+                }
+            )
+        }
+        .frame(height: containerHeight)
+    }
+}
 
 struct FilterChip: View {
     let title: String
@@ -462,7 +546,7 @@ public struct SearchResultRow: View {
                             .lineLimit(1)
                     }
 
-                    Text(item.originName)
+                    Text(item.originCount > 1 ? "\(item.originName) ·\(item.originCount)源" : item.originName)
                         .font(.caption2)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -475,6 +559,13 @@ public struct SearchResultRow: View {
                     Text(kind.replacingOccurrences(of: ",", with: " · "))
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                if let latest = item.latestChapterTitle, !latest.isEmpty {
+                    Text("最新：\(latest)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.9))
                         .lineLimit(1)
                 }
 

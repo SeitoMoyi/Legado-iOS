@@ -206,7 +206,10 @@ public struct BookshelfView: View {
                     .hidden()
                     .frame(width: 0, height: 0)
                 )
-                .navigationTitle("我的书架")
+                .navigationTitle("书架")
+                #if os(iOS)
+                .onAppear { TabBarVisibility.setHidden(false) }
+                #endif
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         if isSelecting {
@@ -223,55 +226,53 @@ public struct BookshelfView: View {
                                 }
 
                                 Menu {
+                                    // 顺序对齐 Android main_bookshelf.xml：更新目录 → 添加本地 →
+                                    // 分组管理 → 书架布局（视图+排序）→ 选择/导出（iOS 已有项）
                                     Button {
-                                        withAnimation {
-                                            isSelecting = true
-                                        }
+                                        Task { await bookStore.refreshAllBooks() }
                                     } label: {
-                                        Label("选择", systemImage: "checkmark.circle")
-                                    }
-
-                                    Button {
-                                        withAnimation {
-                                            isGridMode.toggle()
-                                        }
-                                    } label: {
-                                        Label(isGridMode ? "切换为列表视图" : "切换为三列网格",
-                                              systemImage: isGridMode ? "list.bullet" : "square.grid.3x2")
-                                    }
-
-                                    Menu("排序方式 (\(sortOrder.label))") {
-                                        ForEach(BookshelfSortOrder.allCases, id: \.rawValue) { order in
-                                            Button {
-                                                sortOrderRaw = order.rawValue
-                                            } label: {
-                                                if sortOrder == order {
-                                                    Label(order.label, systemImage: "checkmark")
-                                                } else {
-                                                    Text(order.label)
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Button {
-                                        showGroupManageSheet = true
-                                    } label: {
-                                        Label("书架分组管理", systemImage: "folder.badge.gearshape")
+                                        Label("更新目录", systemImage: "arrow.triangle.2.circlepath")
                                     }
 
                                     Button {
                                         showFileImporter = true
                                     } label: {
-                                        Label("导入本地书籍 (EPUB/TXT)", systemImage: "doc.badge.plus")
+                                        Label("添加本地 (EPUB/TXT)", systemImage: "doc.badge.plus")
                                     }
 
                                     Button {
-                                        Task {
-                                            await bookStore.refreshAllBooks()
-                                        }
+                                        showGroupManageSheet = true
                                     } label: {
-                                        Label("刷新全部目录", systemImage: "arrow.clockwise")
+                                        Label("分组管理", systemImage: "folder.badge.gearshape")
+                                    }
+
+                                    Menu("书架布局") {
+                                        Button {
+                                            withAnimation { isGridMode.toggle() }
+                                        } label: {
+                                            Label(isGridMode ? "列表视图" : "三列网格视图",
+                                                  systemImage: isGridMode ? "list.bullet" : "square.grid.3x2")
+                                        }
+
+                                        Menu("排序方式 (\(sortOrder.label))") {
+                                            ForEach(BookshelfSortOrder.allCases, id: \.rawValue) { order in
+                                                Button {
+                                                    sortOrderRaw = order.rawValue
+                                                } label: {
+                                                    if sortOrder == order {
+                                                        Label(order.label, systemImage: "checkmark")
+                                                    } else {
+                                                        Text(order.label)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } // 书架布局
+
+                                    Button {
+                                        withAnimation { isSelecting = true }
+                                    } label: {
+                                        Label("选择", systemImage: "checkmark.circle")
                                     }
                                 } label: {
                                     Image(systemName: "ellipsis.circle")
@@ -554,16 +555,20 @@ struct BookRow: View {
 
                 if !book.author.isEmpty && book.author != "未知作者" {
                     Text(book.author)
-                        .font(.caption)
+                        .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
 
                 if let latest = book.latestChapterTitle, !latest.isEmpty {
-                    Text("最新: \(latest)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 3) {
+                        Image(systemName: "book")
+                            .font(.system(size: 10))
+                        Text(latest)
+                            .font(.system(size: 12))
+                    }
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
                 }
 
                 HStack {

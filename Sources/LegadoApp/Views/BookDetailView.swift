@@ -27,6 +27,7 @@ public struct BookDetailView: View {
     @State private var showActionAlert: Bool = false
     @State private var actionAlertMessage: String = ""
     @State private var showChangeSource: Bool = false
+    @State private var showGroupDialog: Bool = false
     @State private var showEditBookSheet: Bool = false
     @State private var showBookVariableDialog: Bool = false
     @State private var showSourceVariableDialog: Bool = false
@@ -64,10 +65,11 @@ public struct BookDetailView: View {
 
     private var tags: [String] {
         guard let kind = currentBook.kind, !kind.isEmpty else { return [] }
+        var seen = Set<String>()
         return kind
             .components(separatedBy: CharacterSet(charactersIn: ",，/| "))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     private var displayIntro: String? {
@@ -82,23 +84,15 @@ public struct BookDetailView: View {
 
     public var body: some View {
         ZStack {
+            // ignoresSafeArea(bottom)：TabBar 隐藏后其占位安全区不一定即时回收，
+            // 直接把容器铺到物理底部，按钮栏自管 Home 指示条避让。
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Header: Cover + Title + Author + Badges
+                        // Header: 居中封面 + 书名 + kind 标签 + 信息行（Android activity_book_info 同构）
                         headerCard
                             .padding(.horizontal)
                             .padding(.top, 12)
-
-                        // Tags flow
-                        if !tags.isEmpty {
-                            tagsSection
-                                .padding(.horizontal)
-                        }
-
-                        // Directory / TOC preview card
-                        tocPreviewCard
-                            .padding(.horizontal)
 
                         // Intro section (Real story synopsis)
                         introSection
@@ -108,12 +102,14 @@ public struct BookDetailView: View {
                     }
                 }
 
-                // Fixed Bottom Action Bar (Add to shelf + Read Now)
+                // Fixed Bottom Action Bar (放入书架/删除书籍 + 阅读, Android fl_action 同构)
                 bottomActionBar
             }
+            .ignoresSafeArea(.container, edges: .bottom)
             .navigationTitle("书籍详情")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .modifier(TabBarHiddenModifier())
             #endif
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -206,6 +202,13 @@ public struct BookDetailView: View {
                             .foregroundColor(.primary)
                     }
                 }
+            }
+            .confirmationDialog("设置分组", isPresented: $showGroupDialog, titleVisibility: .visible) {
+                Button("未分组") { applyGroup(0) }
+                ForEach(BookGroupStore.load().filter { $0.groupId > 0 }) { group in
+                    Button(group.groupName) { applyGroup(group.groupId) }
+                }
+                Button("取消", role: .cancel) {}
             }
             .alert(actionAlertMessage, isPresented: $showActionAlert) {
                 Button("确定", role: .cancel) {}
@@ -382,121 +385,145 @@ public struct BookDetailView: View {
 
     // MARK: - Header Card
 
+    /// Android `activity_book_info` 同构头部：居中大封面 → 居中书名 → 居中 kind 标签流 →
+    /// 竖排图标信息行（作者 / 来源+换源 / 最新 / 分组+设置分组 / 目录+查看目录）。
     private var headerCard: some View {
-        HStack(alignment: .top, spacing: 16) {
-            // Book Cover Image
+        VStack(spacing: 10) {
+            coverImage
+                .frame(width: 110, height: 160)
+                .cornerRadius(5)
+                .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 4)
+                .padding(.top, 4)
+
+            Text(currentBook.name)
+                .font(.system(size: 18, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !tags.isEmpty {
+                tagsFlow
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                infoRow(icon: "person", text: authorText)
+                infoRow(icon: "globe", text: "来源：\(currentBook.originName.isEmpty ? currentBook.origin : currentBook.originName)") {
+                    if currentBook.origin != "local" {
+                        accentChip("换源") { showChangeSource = true }
+                    }
+                }
+                if let latest = latestText {
+                    infoRow(icon: "book", text: latest)
+                }
+                if isInBookshelf {
+                    infoRow(icon: "folder", text: "分组：\(groupName)") {
+                        accentChip("设置分组") { showGroupDialog = true }
+                    }
+                }
+                infoRow(icon: "list.bullet", text: "目录：共 \(chapters.isEmpty ? (currentBook.totalChapterNum) : chapters.count) 章") {
+                    accentChip("查看目录") { navigateToTOC = true }
+                }
+            }
+            .padding(.top, 6)
+        }
+    }
+
+    private var coverPlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.secondary.opacity(0.15))
+            Image(systemName: "book.closed")
+                .font(.system(size: 34))
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+    }
+
+    private var coverImage: some View {
+        Group {
             if let coverUrlStr = currentBook.coverUrl, let url = URL(string: coverUrlStr) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
+                        image.resizable().scaledToFill()
                     default:
                         coverPlaceholder
                     }
                 }
-                .frame(width: 100, height: 138)
-                .cornerRadius(8)
-                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                .clipped()
             } else {
                 coverPlaceholder
-                    .frame(width: 100, height: 138)
-                    .cornerRadius(8)
-                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(currentBook.name)
-                    .font(.title3.bold())
-                    .lineLimit(2)
-                    .foregroundColor(.primary)
-
-                HStack(spacing: 6) {
-                    Image(systemName: "person")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if !currentBook.author.isEmpty && currentBook.author != "未知作者" {
-                        Text(currentBook.author)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    } else if isLoadingDetails {
-                        Text("正在获取作者...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary.opacity(0.6))
-                    } else {
-                        Text("佚名")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    // Source Name Badge
-                    Text(currentBook.originName.isEmpty ? "网络书源" : currentBook.originName)
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.15))
-                        .foregroundColor(.accentColor)
-                        .cornerRadius(6)
-
-                    if currentBook.origin != "local" {
-                        Button {
-                            showChangeSource = true
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                Text("换源")
-                            }
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color.secondary.opacity(0.14))
-                            .foregroundColor(.primary)
-                            .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    if let wordCount = currentBook.wordCount, !wordCount.isEmpty {
-                        Text(wordCount)
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.secondary.opacity(0.12))
-                            .foregroundColor(.secondary)
-                            .cornerRadius(6)
-                    }
-                }
-
-                if currentBookshelfBook.durChapterIndex > 0,
-                   let durTitle = currentBookshelfBook.durChapterTitle {
-                    Text("上次读至：\(durTitle)")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
         }
-        .padding(14)
-        .background(Color.secondary.opacity(0.08))
-        .cornerRadius(12)
+        .clipped()
     }
 
-    private var coverPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(Color.accentColor.opacity(0.15))
-            .overlay(
-                Image(systemName: "book.closed")
-                    .font(.system(size: 36))
-                    .foregroundColor(.accentColor)
-            )
+    private var authorText: String {
+        if !currentBook.author.isEmpty && currentBook.author != "未知作者" {
+            return currentBook.author
+        }
+        if isLoadingDetails { return "正在获取作者..." }
+        return "佚名"
+    }
+
+    private var latestText: String? {
+        if isLoadingDetails && currentBook.latestChapterTitle == nil { return "最新：正在获取..." }
+        guard let latest = currentBook.latestChapterTitle, !latest.isEmpty else { return nil }
+        return "最新：\(latest)"
+    }
+
+    private var groupName: String {
+        let gid = currentBookshelfBook.group
+        if gid == 0 { return "未分组" }
+        return BookGroupStore.load().first(where: { $0.groupId == gid })?.groupName ?? "未分组"
+    }
+
+    /// 信息行：18pt 图标 + 13sp 次级文本 + 尾部 accent 小按钮（AccentBgTextView 对应物）。
+    private func infoRow<Trailing: View>(icon: String, text: String,
+                                         @ViewBuilder trailing: () -> Trailing = { EmptyView() }) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .frame(width: 20)
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            trailing()
+        }
+        .padding(.vertical, 3)
+    }
+
+    private func accentChip(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accentColor)
+                .cornerRadius(2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// kind 标签：单行横向滚动条（Android `LabelsBar` 即 HorizontalScrollView 同构）。
+    /// 数据完整性由 `getStringList` 解析保证（此前 getString 只取首个才是显示不全的根因）。
+    private var tagsFlow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(tags, id: \.self) { tag in
+                    Text(tag)
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.secondary.opacity(0.12))
+                        .foregroundColor(.secondary)
+                        .cornerRadius(12)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
     }
 
     // MARK: - Tags Section
@@ -515,67 +542,6 @@ public struct BookDetailView: View {
                 }
             }
         }
-    }
-
-    // MARK: - TOC Preview Card
-
-    private var tocPreviewCard: some View {
-        Button(action: {
-            navigateToTOC = true
-        }) {
-            HStack(spacing: 12) {
-                Image(systemName: "list.bullet")
-                    .font(.headline)
-                    .foregroundColor(.accentColor)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text("目录")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.primary)
-
-                        if isLoadingDetails {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                        } else if !chapters.isEmpty {
-                            Text("共 \(chapters.count) 章")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    if let latest = currentBook.latestChapterTitle, !latest.isEmpty {
-                        Text("最新：\(latest)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    } else if !chapters.isEmpty {
-                        Text("最新：\(chapters.last?.title ?? "")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    } else if isLoadingDetails {
-                        Text("正在拉取目录...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else if let error = errorMessage {
-                        Text("拉取目录失败: \(error)")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(14)
-            .background(Color.secondary.opacity(0.08))
-            .cornerRadius(12)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Intro Section
@@ -630,26 +596,31 @@ public struct BookDetailView: View {
 
     // MARK: - Bottom Action Bar
 
+    /// 按钮与屏幕物理底边的视觉净距：仅在有 Home 指示条的设备上留出小间距（指示条压在
+    /// 按钮背景上而非文字上），无 Home 条设备（SE 等）完全贴底。设备特征推导，非写死。
+    private var bottomClearance: CGFloat {
+        #if os(iOS)
+        let hasHomeIndicator = UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .first.map { $0.safeAreaInsets.bottom > 0 } ?? false
+        return hasHomeIndicator ? 8 : 0
+        #else
+        return 0
+        #endif
+    }
+
+    /// Android `fl_action` 同构底部操作栏：左侧「放入书架/删除书籍」纯文本按钮 +
+    /// 右侧「阅读」accent 实心按钮，等宽平铺。
     private var bottomActionBar: some View {
-        HStack(spacing: 14) {
-            // Add to Shelf Button
-            Button(action: {
-                toggleShelf()
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: isInBookshelf ? "checkmark.circle.fill" : "plus.circle")
-                    Text(isInBookshelf ? "移出书架" : "加入书架")
-                }
-                .font(.subheadline.bold())
-                .foregroundColor(isInBookshelf ? .secondary : .accentColor)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.secondary.opacity(0.12))
-                .cornerRadius(10)
+        HStack(spacing: 0) {
+            Button(action: { toggleShelf() }) {
+                Text(isInBookshelf ? "删除书籍" : "放入书架")
+                    .font(.system(size: 15))
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 50)
             }
             .buttonStyle(.plain)
 
-            // Read Now Button
             Button(action: {
                 if !isInBookshelf {
                     _ = bookStore.saveOrUpdateBook(currentBook)
@@ -657,21 +628,15 @@ public struct BookDetailView: View {
                 selectedChapterIndex = currentBookshelfBook.durChapterIndex
                 isReading = true
             }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "book.fill")
-                    Text(currentBookshelfBook.durChapterIndex > 0 ? "继续阅读" : "立即阅读")
-                }
-                .font(.subheadline.bold())
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor)
-                .cornerRadius(10)
+                Text("阅读")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.accentColor)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.bottom, bottomClearance)
         .background(
             Group {
                 #if os(iOS)
@@ -680,11 +645,20 @@ public struct BookDetailView: View {
                 Color.primary.colorInvert()
                 #endif
             }
-            .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: -2)
         )
+        .overlay(Rectangle().frame(height: 0.5).foregroundColor(Color.secondary.opacity(0.2)), alignment: .top)
     }
 
     // MARK: - Helper Actions
+
+    private func applyGroup(_ groupId: Int64) {
+        bookStore.moveBooks(bookUrls: [currentBook.bookUrl], toGroupId: groupId)
+        if let updated = bookStore.bookshelf.first(where: { $0.bookUrl == currentBook.bookUrl }) {
+            currentBook = updated
+        }
+        actionAlertMessage = groupId == 0 ? "已移出分组" : "已移入分组"
+        showActionAlert = true
+    }
 
     private func toggleShelf() {
         if isInBookshelf {
@@ -1068,3 +1042,15 @@ public struct VariableEditorSheet: View {
         }
     }
 }
+
+#if os(iOS)
+/// 详情页置顶期间隐藏 TabBar。还原不放在 onDisappear（那要等 pop 转场结束才触发，
+/// 正是「返回书架半秒后才出现 tabbar」的来源），而是由每个能推入详情页的来源页在自己的
+/// onAppear（pop 开始瞬间触发）调用 `TabBarVisibility.setHidden(false)` 立即恢复。
+struct TabBarHiddenModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.onAppear { TabBarVisibility.setHidden(true) }
+    }
+}
+#endif
+
