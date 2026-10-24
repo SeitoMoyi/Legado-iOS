@@ -313,14 +313,20 @@ public enum TypographyEngine {
                 continue
             }
 
-            let lH = l.height + (l.isParagraphEnd ? paragraphSpacing : 0)
-            if usedH + lH > currentCap && i > pageStart {
+            // Android `TextChapterLayout` parity: the page-break test charges THIS line's height
+            // only — the paragraph gap belongs to the NEXT paragraph's first line (it is rendered
+            // above it, and `CoreTextPageView` already skips the gap after a page's last line).
+            // Charging the gap to the paragraph-end line pushed whole lines to the next page
+            // whenever the glyphs themselves still fit, leaving bottom whitespace on dense pages.
+            let isParaStart = i == 0 || lines[i - 1].isParagraphEnd
+            let need = l.height + (isParaStart && i > pageStart ? paragraphSpacing : 0)
+            if usedH + need > currentCap && i > pageStart {
                 flushTextPage(until: i)
                 pageStart = i
                 usedH = 0
                 currentCap = usablePageHeight
             }
-            usedH += lH
+            usedH += need
             i += 1
         }
         flushTextPage(until: lines.count)

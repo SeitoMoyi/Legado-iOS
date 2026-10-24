@@ -5,7 +5,7 @@
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **71 个 Swift 文件 ≈ 26.3k 行**（LegadoCore 35 文件 9.0k 行 + LegadoApp 36 文件 17.3k 行；含 Tests 共 88 文件）。
 > - **单测门禁**：17 个测试文件共 **256 例单元测试**（249 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 249/249 通过）。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.7.4`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.7.5`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录
@@ -141,6 +141,10 @@
 - **tags 仍只显示三个（用户复测，几何方案在此上下文依旧塌缩）**：放弃一切运行时几何测量，改为**估宽确定性分行**——CJK 15pt/字、ASCII 8pt/字、胶囊附加 30pt，按 330pt 行宽贪心分行后以普通 HStack/VStack 渲染。估宽偏大只会提前换行，永不裁切。搜索历史保留 FlowLayout（其上下文表现正常）。
 - **详情页双目录入口（用户反馈）**：移除头部下方的大号「目录」预览卡及其 61 行实现，对齐 Android 仅保留信息行「目录：共 N 章 + 查看目录」入口（直达目录列表）。
 - **tags 显示不全的真根因（computer-use 模拟器实测确认）**：渲染层三轮修改均无效——问题在**数据层**。Android `BookInfo.kt` 用 `getStringList(infoRule.kind)?.joinToString(",")` 取全部分类，iOS 误用 `getString()` 只取首个匹配；JSONPath 数组规则（如 `$.keywords`）下 iOS 永远只得一个 tag。已将详情与搜索两处 kind 解析对齐为 `getStringList().joined(",")`，并在模拟器实测通过。tags 行按用户要求回到单行横向滚动（Android LabelsBar 即 HorizontalScrollView 同构）。
+### 12. 阅读器分页自然度对齐（2026-10-24，第五轮）
+- **翻页页底空白/提前分割（用户报告）**：分页判定把段距记在段尾行上（`行高+段距` 一起判定），段尾行字形本可容纳却被整行推到下一页，页底留下整行空白。Android `TextChapterLayout` 的段距在整段排完后才累加（`durY += textHeight * paragraphSpacing / 10f`），页面断行只看本行行高。修复：段距改挂**下一段首行**前置记账（页首行不收段距，跨页重置，与 `CoreTextPageView` 不渲染页末段距的既有语义对齐）；仅影响滑动翻页的 `pages` 切分，滚动模式（连续 `line.y` 流）不受影响；进度按字符偏移存储自动重映射。
+- **回归锁（新 `LegadoAppTests` 测试目标）**：新增分页不变量测试——除末页外，被换开的行若为段内续行，该页必须连其行高都放不下；若为段首行，必须连 行高+段距 都放不下（与 Android `prepareNextPageIfNeed(durY + textHeight)` 的断行条件一致）。注意页容量按页区分：P0 用 `firstPageCapacity`（有 max(100) 下限且扣标题高），其余页为整页高。
+
 - **书架下拉刷新不更新已添加书籍的元数据（用户报告）**：解析修复（getStringList）已在 v0.2.7.3 生效并经活体测试验证——`fetchBookDetail` 返回完整 kind（实测 11 个 tag，断言 `contains(",")` 通过），`saveOrUpdateBook` 本就合并 kind；若设备上刷新后仍为 3 个 tag，请确认安装的是 v0.2.7.3 及以后的 IPA（旧包解析层仍是 getString）。本轮补齐刷新合并清单的两处真实缺口（对齐 Android `upBookInfo`）：① `saveOrUpdateBook` 增加书名/封面合并（书架身份是 bookUrl，改名安全）；② `refreshAllBooks` 将解析出的新章节列表 `saveChapters` 落盘——此前只更新元数据不存目录，阅读器仍读旧目录。
 - **v0.2.7.3 发布前全量核对**：① 硬编码扫描——Sources 无任何书源站域名逻辑引用，剩余 URL 均为产品预设（WebDAV 服务商/RSS 预装/字典规则）；② 重复收敛——`<js>`/`@js:` 规则拆分统一为 `JSEngine.splitJSRule`（RuleAnalyzer 两处同构块 + getString 分支 + extractJSScript 复用），`loginHeader ?? header` 替换式取头已全部收敛至 `resolvedSourceHeader`；③ getStringList 语义对齐核对——kind 用列表、name/author/intro 等单值字段保持 getString，与 Android BookInfo.kt/BookList.kt 一致。
 - **TabBar 还原延迟（用户报告，返回书架等半秒才出现）**：`.toolbar(.hidden, for: .tabBar)` 的还原绑定在 pop 转场**结束**之后（详情页完全离开层级才收回隐藏偏好），0.35s 转场 + 淡入即感知为半秒延迟。改为 UIKit 层显式显隐（新 `TabBarVisibility` 服务）：详情页 onAppear 隐藏；还原由**每个能推入详情页的来源页**（书架/搜索/发现/分类流）在自己的 onAppear 触发——pop 转场**开始**瞬间 TabBar 即随转场滑回，与原生一致。

@@ -35,5 +35,8 @@ let package = Package(
         .testTarget(
             name: "LegadoCoreTests",
             dependencies: ["LegadoCore"]),
+        .testTarget(
+            name: "LegadoAppTests",
+            dependencies: ["LegadoApp"]),
     ]
 )
