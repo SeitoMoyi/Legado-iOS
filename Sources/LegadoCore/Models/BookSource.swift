@@ -1,6 +1,6 @@
 import Foundation
 
-public struct BookSource: Codable, Identifiable, Equatable {
+public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var id: String { bookSourceUrl }
 
     public var bookSourceUrl: String
@@ -34,6 +34,11 @@ public struct BookSource: Codable, Identifiable, Equatable {
     public var loginInfo: String?
     public var loginHeader: String?
     public var variable: String?
+
+    /// Android-only fields this model does not declare (`jsLib`, `concurrentRate`,
+    /// `enabledCookieJar`, `ruleReview` …), kept verbatim so import → export/backup round-trips
+    /// without loss. See `JSONExtraPreserving` and Plan §二 #15.
+    public var extra: [String: JSONValue] = [:]
 
     /// Android splits group lists with `AppPattern.splitGroupRegex = Regex("[,;，；]")`.
     /// `\n` is added because hand-edited source JSON frequently puts one group per line.
@@ -94,6 +99,16 @@ public struct BookSource: Codable, Identifiable, Equatable {
         let kept = groups.filter { !Self.groupNoiseTags.contains($0) }
         return kept.isEmpty ? nil : kept.joined(separator: ",")
     }
+
+    /// Every `CodingKeys` rawValue. `extra` itself is bookkeeping and must never serialize.
+    public static let modeledJSONKeys: Set<String> = [
+        "bookSourceUrl", "bookSourceName", "bookSourceGroup", "bookSourceType",
+        "bookUrlPattern", "customOrder", "enabled", "enabledExplore", "header",
+        "loginUrl", "loginUi", "loginCheckJs", "coverDecodeJs", "bookSourceComment",
+        "variableComment", "lastUpdateTime", "respondTime", "weight", "exploreUrl",
+        "exploreScreen", "searchUrl", "ruleExplore", "ruleSearch", "ruleBookInfo",
+        "ruleToc", "ruleContent", "loginInfo", "loginHeader", "variable"
+    ]
 
     public enum CodingKeys: String, CodingKey {
         case bookSourceUrl
@@ -216,5 +231,39 @@ public struct BookSource: Codable, Identifiable, Equatable {
         self.loginInfo = try container.decodeIfPresent(String.self, forKey: .loginInfo)
         self.loginHeader = try container.decodeIfPresent(String.self, forKey: .loginHeader)
         self.variable = try container.decodeIfPresent(String.self, forKey: .variable)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bookSourceUrl, forKey: .bookSourceUrl)
+        try container.encode(bookSourceName, forKey: .bookSourceName)
+        try container.encodeIfPresent(bookSourceGroup, forKey: .bookSourceGroup)
+        try container.encodeIfPresent(bookSourceType, forKey: .bookSourceType)
+        try container.encodeIfPresent(bookUrlPattern, forKey: .bookUrlPattern)
+        try container.encodeIfPresent(customOrder, forKey: .customOrder)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
+        try container.encodeIfPresent(enabledExplore, forKey: .enabledExplore)
+        try container.encodeIfPresent(header, forKey: .header)
+        try container.encodeIfPresent(loginUrl, forKey: .loginUrl)
+        try container.encodeIfPresent(loginUi, forKey: .loginUi)
+        try container.encodeIfPresent(loginCheckJs, forKey: .loginCheckJs)
+        try container.encodeIfPresent(coverDecodeJs, forKey: .coverDecodeJs)
+        try container.encodeIfPresent(bookSourceComment, forKey: .bookSourceComment)
+        try container.encodeIfPresent(variableComment, forKey: .variableComment)
+        try container.encodeIfPresent(lastUpdateTime, forKey: .lastUpdateTime)
+        try container.encodeIfPresent(respondTime, forKey: .respondTime)
+        try container.encodeIfPresent(weight, forKey: .weight)
+        try container.encodeIfPresent(exploreUrl, forKey: .exploreUrl)
+        try container.encodeIfPresent(exploreScreen, forKey: .exploreScreen)
+        try container.encodeIfPresent(searchUrl, forKey: .searchUrl)
+        try container.encodeIfPresent(ruleExplore, forKey: .ruleExplore)
+        try container.encodeIfPresent(ruleSearch, forKey: .ruleSearch)
+        try container.encodeIfPresent(ruleBookInfo, forKey: .ruleBookInfo)
+        try container.encodeIfPresent(ruleToc, forKey: .ruleToc)
+        try container.encodeIfPresent(ruleContent, forKey: .ruleContent)
+        try container.encodeIfPresent(loginInfo, forKey: .loginInfo)
+        try container.encodeIfPresent(loginHeader, forKey: .loginHeader)
+        try container.encodeIfPresent(variable, forKey: .variable)
+        try encodeJSONExtras(extra, to: encoder)
     }
 }

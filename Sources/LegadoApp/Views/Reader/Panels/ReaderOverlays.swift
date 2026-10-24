@@ -5,8 +5,10 @@ import LegadoCore
 
 /// A 3×3 grid of configurable tap zones, mirroring Android `ReadView.setRect9x()`.
 ///
-/// Only used by the paged reader. Overlaying this on the scrolling reader would steal the
-/// touches the `ScrollView` needs, so scroll mode keeps a single centre-zone tap.
+/// Used by the paged reader only. The scrolling reader cannot host this SwiftUI overlay without
+/// stealing the touches its `UIScrollView` needs, so `ContinuousScrollReaderUIView` implements the
+/// same nine-zone math in its own `UITapGestureRecognizer` instead — both read
+/// `ReaderConfig.clickActionList`, so the configured actions stay identical across modes.
 struct TapZoneOverlay: View {
     let actions: [ClickActionCode]
     let onAction: (ClickActionCode) -> Void

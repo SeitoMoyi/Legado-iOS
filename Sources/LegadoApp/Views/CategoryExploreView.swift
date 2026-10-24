@@ -14,6 +14,10 @@ public struct CategoryExploreView: View {
 
     @State private var selectedSourceUrl: String = ""
     @State private var categories: [ExploreCategory] = []
+    /// Which source `categories` was parsed from — the tab's @State outlives source
+    /// deletion/re-import, so categories must be re-parsed whenever the current source
+    /// changes underneath (otherwise stale categories from the old source linger and 502).
+    @State private var categoriesSourceUrl: String = ""
     @State private var selectedCategory: ExploreCategory? = nil
 
     @State private var books: [SearchBook] = []
@@ -296,7 +300,7 @@ public struct CategoryExploreView: View {
             Text("暂无可用分类书源")
                 .font(.headline)
                 .foregroundColor(.secondary)
-            Text("请在「设置 - 书源管理」中导入并启用支持预设分类的书源（如机翻机器人、ESJ Zone）")
+            Text("请在「设置 - 书源管理」中导入并启用支持预设分类的书源")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -361,7 +365,7 @@ public struct CategoryExploreView: View {
         if currentSource == nil && !availableSources.isEmpty {
             selectedSourceUrl = availableSources[0].bookSourceUrl
         }
-        if let src = currentSource, categories.isEmpty {
+        if let src = currentSource, categories.isEmpty || categoriesSourceUrl != src.bookSourceUrl {
             loadCategories(for: src)
         }
     }
@@ -374,6 +378,7 @@ public struct CategoryExploreView: View {
     }
 
     private func loadCategories(for source: BookSource) {
+        categoriesSourceUrl = source.bookSourceUrl
         let cats = BookExploreService.shared.parseExploreCategories(source: source)
         self.categories = cats
 

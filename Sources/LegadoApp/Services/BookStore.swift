@@ -38,113 +38,21 @@ public class BookStore: ObservableObject {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    private func getBundledSourcesUrl() -> URL? {
-        #if SWIFT_PACKAGE
-        if let url = Bundle.module.url(forResource: "bookSources", withExtension: "json") {
-            return url
-        }
-        #endif
-        if let url = Bundle.main.url(forResource: "bookSources", withExtension: "json") {
-            return url
-        }
-        return nil
-    }
-
     public func loadData() {
-        // Load sources
-        if let data = UserDefaults.standard.data(forKey: sourcesKey),
-           let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
-            self.sources = decoded
+        // Load sources (element-wise tolerant decode keeps undeclared Android fields in `extra`)
+        if let decodedSources = BookSource.decodeListWithExtras(
+            from: UserDefaults.standard.data(forKey: sourcesKey) ?? Data()), !decodedSources.isEmpty {
+            self.sources = decodedSources
         }
 
         replaceRules = ReplaceRuleStore.load()
         bookmarks = BookmarkStore.load()
         searchHistory = SearchHistoryStore.load()
 
-        // Merge or populate bundled default sources
-        loadBundledSources()
-
         // Load bookshelf
-        if let data = UserDefaults.standard.data(forKey: booksKey),
-           let decoded = try? JSONDecoder().decode([Book].self, from: data) {
-            self.bookshelf = decoded
-        }
-
-        // Migrate any legacy xkvi books and remove xkvi source
-        var booksNeedSave = false
-        for i in 0..<bookshelf.count {
-            let oldBook = bookshelf[i]
-            let newOrigin = normalizeLegacyUrl(oldBook.origin)
-            let newBookUrl = normalizeLegacyUrl(oldBook.bookUrl)
-            let newTocUrl = normalizeLegacyUrl(oldBook.tocUrl)
-            if newOrigin != oldBook.origin || newBookUrl != oldBook.bookUrl || newTocUrl != oldBook.tocUrl {
-                bookshelf[i].origin = newOrigin
-                bookshelf[i].bookUrl = newBookUrl
-                bookshelf[i].tocUrl = newTocUrl
-                booksNeedSave = true
-            }
-        }
-        if booksNeedSave {
-            saveBookshelf()
-        }
-
-        if sources.contains(where: { $0.bookSourceUrl.contains("book.xkvi.top") }) {
-            sources.removeAll(where: { $0.bookSourceUrl.contains("book.xkvi.top") })
-            saveSources()
-        }
-    }
-
-    public func loadBundledSources(forceReset: Bool = false) {
-        guard let url = getBundledSourcesUrl(),
-              let data = try? Data(contentsOf: url),
-              let defaultSources = try? JSONDecoder().decode([BookSource].self, from: data) else {
-            return
-        }
-
-        if forceReset || sources.isEmpty {
-            sources = defaultSources
-            saveSources()
-            return
-        }
-
-        var didChange = false
-        for s in defaultSources {
-            // Match existing source by URL, name, or ESJ alias
-            if let idx = sources.firstIndex(where: {
-                $0.bookSourceUrl == s.bookSourceUrl ||
-                $0.bookSourceName == s.bookSourceName ||
-                (s.bookSourceName == "ESJ" && ($0.bookSourceName == "ESJ Zone@zone" || $0.bookSourceName == "ESJ ZONE@zone"))
-            }) {
-                // Update rules and configuration from bundled version while preserving user login state and toggles
-                var updated = s
-                updated.loginHeader = sources[idx].loginHeader
-                updated.loginInfo = sources[idx].loginInfo
-                if let customOrder = sources[idx].customOrder {
-                    updated.customOrder = customOrder
-                }
-                if let enabled = sources[idx].enabled {
-                    updated.enabled = enabled
-                }
-                // 校验书源's verdict exists only on this device, so this sync used to erase the
-                // 「失效」 marker (and the measured time) on every launch — which is why the red
-                // marker could never stick. The bundled row still supplies the categories verbatim;
-                // only this app's own verdict is re-applied, the same way
-                // `markSourceValidationResult` writes it.
-                if sources[idx].respondTime != nil {
-                    updated.respondTime = sources[idx].respondTime
-                }
-                if sources[idx].groups.contains("失效"), !updated.groups.contains("失效") {
-                    updated.bookSourceGroup = (["失效"] + updated.groups).joined(separator: ",")
-                }
-                sources[idx] = updated
-                didChange = true
-            } else if !sources.contains(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
-                sources.append(s)
-                didChange = true
-            }
-        }
-        if didChange {
-            saveSources()
+        if let decodedBooks = Book.decodeListWithExtras(
+            from: UserDefaults.standard.data(forKey: booksKey) ?? Data()), !decodedBooks.isEmpty {
+            self.bookshelf = decodedBooks
         }
     }
 
@@ -273,9 +181,6 @@ public class BookStore: ObservableObject {
 
         if let newBooks = payload.books {
             for var b in newBooks {
-                b.origin = normalizeLegacyUrl(b.origin)
-                b.bookUrl = normalizeLegacyUrl(b.bookUrl)
-                b.tocUrl = normalizeLegacyUrl(b.tocUrl)
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
                     bookshelf[idx] = b
                 } else {
@@ -288,9 +193,6 @@ public class BookStore: ObservableObject {
 
         if let newSources = payload.sources {
             for s in newSources {
-                if s.bookSourceUrl.contains("book.xkvi.top") {
-                    continue
-                }
                 if let idx = self.sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
                     self.sources[idx] = s
                 } else {
@@ -582,11 +484,13 @@ public class BookStore: ObservableObject {
     // MARK: - Source Management
     public func importSources(json: String) throws -> Int {
         guard let data = json.data(using: .utf8) else { return 0 }
-        let imported = try JSONDecoder().decode([BookSource].self, from: data)
+        let imported = BookSource.decodeListWithExtras(from: data) ?? []
+        guard !imported.isEmpty else {
+            throw NSError(domain: "BookStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "未在 JSON 中发现有效书源"])
+        }
 
         var count = 0
-        for var s in imported {
-            s.bookSourceUrl = normalizeLegacyUrl(s.bookSourceUrl)
+        for s in imported {
             if let idx = sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl || $0.bookSourceName == s.bookSourceName }) {
                 sources[idx] = s
             } else {
@@ -679,7 +583,7 @@ public class BookStore: ObservableObject {
             return s
         }
 
-        // 3. Domain / Host Match (e.g. esjzone.cc / esjzone.one, novelia.cc / xkvi.top)
+        // 3. Domain / Host Match (book origin host == source host, covers mirror domains)
         let bookHost = URL(string: book.origin)?.host ?? URL(string: book.bookUrl)?.host ?? ""
         if !bookHost.isEmpty {
             for s in sources {
@@ -690,23 +594,7 @@ public class BookStore: ObservableObject {
             }
         }
 
-        // 4. Known aliases & proxies (Novelia <-> xkvi / fishhawk)
-        let isNoveliaBook = book.origin.contains("xkvi.top") || book.origin.contains("fishhawk.top") || book.origin.contains("novelia.cc") || book.bookUrl.contains("novelia.cc") || book.bookUrl.contains("xkvi.top")
-        if isNoveliaBook {
-            if let s = sources.first(where: { $0.bookSourceUrl.contains("novelia.cc") || $0.bookSourceUrl.contains("xkvi.top") || $0.bookSourceName.contains("机翻") }) {
-                return s
-            }
-        }
-
-        // 5. ESJ Zone aliases
-        let isEsjBook = book.origin.lowercased().contains("esj") || book.bookUrl.lowercased().contains("esj")
-        if isEsjBook {
-            if let s = sources.first(where: { $0.bookSourceUrl.lowercased().contains("esj") || $0.bookSourceName.lowercased().contains("esj") }) {
-                return s
-            }
-        }
-
-        // 6. Substring / URL contains matching
+        // 4. Substring / URL contains matching
         if let s = sources.first(where: {
             book.origin.contains($0.bookSourceUrl) ||
             $0.bookSourceUrl.contains(book.origin) ||
@@ -732,9 +620,7 @@ public class BookStore: ObservableObject {
         // Synchronize all books on the bookshelf that referenced the old source name or URL
         var bookshelfModified = false
         for i in 0..<bookshelf.count {
-            if bookshelf[i].origin == oldUrl ||
-               bookshelf[i].originName == oldName ||
-               (oldUrl.contains("novelia.cc") && (bookshelf[i].origin.contains("xkvi.top") || bookshelf[i].originName.contains("机翻"))) {
+            if bookshelf[i].origin == oldUrl || bookshelf[i].originName == oldName {
                 bookshelf[i].origin = newSource.bookSourceUrl
                 bookshelf[i].originName = newSource.bookSourceName
                 bookshelfModified = true
@@ -835,7 +721,6 @@ public class BookStore: ObservableObject {
     private var chaptersCache: [String: [BookChapter]] = [:]
     /// How long a cached TOC may be trusted before something should re-crawl it. The rules live
     /// in `TocCache` so they can be unit-tested without a reader on screen.
-    public static let tocRefreshInterval = TocCache.refreshInterval
 
     /// When this book's TOC was last successfully crawled. Kept in `UserDefaults` rather than
     /// inside `chapters_<md5>.json` so that file keeps the shape it always had.
@@ -1006,10 +891,5 @@ public class BookStore: ObservableObject {
         } else {
             return try importEpub(from: fileUrl)
         }
-    }
-
-    private func normalizeLegacyUrl(_ url: String) -> String {
-        guard url.contains("book.xkvi.top") else { return url }
-        return url.replacingOccurrences(of: "book.xkvi.top", with: "n.novelia.cc")
     }
 }

@@ -230,7 +230,7 @@ final class LegadoCoreTests: XCTestCase {
             ]
         ]
 
-        let analyzer = RuleAnalyzer(content: json, baseUrl: "https://book.xkvi.top")
+        let analyzer = RuleAnalyzer(content: json, baseUrl: "https://example.com")
         let elements = analyzer.getElements("items")
         XCTAssertEqual(elements.count, 1)
 
@@ -239,12 +239,12 @@ final class LegadoCoreTests: XCTestCase {
             return
         }
 
-        let itemAnalyzer = RuleAnalyzer(content: firstItem, baseUrl: "https://book.xkvi.top")
+        let itemAnalyzer = RuleAnalyzer(content: firstItem, baseUrl: "https://example.com")
         let name = itemAnalyzer.getString("<js>result.titleZh || result.titleJp</js>")
         XCTAssertEqual(name, "备胎女友")
 
         let bookUrl = itemAnalyzer.getString("/api/novel/{{$.providerId}}/{{$..novelId}}", isUrl: true)
-        XCTAssertEqual(bookUrl, "https://book.xkvi.top/api/novel/kakuyomu/12345678")
+        XCTAssertEqual(bookUrl, "https://example.com/api/novel/kakuyomu/12345678")
     }
 
     func testWebDAVConfigAndOperations() async throws {
@@ -462,19 +462,21 @@ final class LegadoCoreTests: XCTestCase {
     }
 
     func testExploreCategoriesParsing() throws {
-        let altUrl = URL(fileURLWithPath: "Sources/LegadoApp/Resources/bookSources.json")
-        let data = try Data(contentsOf: altUrl)
-        let sources = try JSONDecoder().decode([BookSource].self, from: data)
-        guard let robot = sources.first(where: { $0.bookSourceName == "机翻机器人" }) else {
-            XCTFail("Robot source not found")
-            return
+        // 标准探索分类三种写法中的 JSON 数组格式，确定性验证解析引擎。
+        let jsonStr = """
+        {
+            "bookSourceName": "示例源",
+            "bookSourceUrl": "https://example.com",
+            "exploreUrl": "[{\\"title\\":\\"玄幻\\",\\"url\\":\\"/sort/1?page={{page}}\\"},{\\"title\\":\\"仙侠\\",\\"url\\":\\"/sort/2?page={{page}}\\"}]"
         }
-        let cats = BookExploreService.shared.parseExploreCategories(source: robot)
+        """
+        let source = try JSONDecoder().decode(BookSource.self, from: jsonStr.data(using: .utf8)!)
+        let cats = BookExploreService.shared.parseExploreCategories(source: source)
         XCTAssertFalse(cats.isEmpty, "Categories should not be empty")
-        print("Parsed robot categories count: \(cats.count)")
         let titles = cats.map { $0.title }
-        print("Category titles: \(titles)")
-        XCTAssertTrue(titles.contains("阅读历史") || titles.contains("全部来源") || titles.contains("kakuyomu"))
+        XCTAssertTrue(titles.contains("玄幻"))
+        XCTAssertTrue(titles.contains("仙侠"))
+        XCTAssertEqual(cats[0].url, "/sort/1?page={{page}}")
     }
 
     func testAndroidLegadoZipBackupParsing() throws {

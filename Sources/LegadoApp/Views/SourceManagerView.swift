@@ -691,7 +691,8 @@ public struct SourceLoginSheet: View {
         let type: String
     }
 
-    private var isWebLoginDefault: Bool {
+    /// A plain http(s) loginUrl means web login; `<js>` / `@js:` scripts mean form login.
+    private static func isWebLoginDefault(_ source: BookSource) -> Bool {
         guard let loginUrl = source.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !loginUrl.isEmpty else {
             return false
         }
@@ -700,12 +701,11 @@ public struct SourceLoginSheet: View {
                !loginUrl.contains("@js:")
     }
 
+    private var isWebLoginDefault: Bool { Self.isWebLoginDefault(source) }
+
     public init(source: BookSource) {
         self.source = source
-        let isWeb = (source.loginUrl?.hasPrefix("http://") == true || source.loginUrl?.hasPrefix("https://") == true) &&
-                    source.loginUrl?.contains("<js>") == false &&
-                    source.loginUrl?.contains("@js:") == false
-        self._loginMode = State(initialValue: isWeb ? "web" : "form")
+        self._loginMode = State(initialValue: Self.isWebLoginDefault(source) ? "web" : "form")
     }
 
     public var body: some View {

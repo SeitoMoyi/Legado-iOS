@@ -15,8 +15,6 @@ public struct SettingsView: View {
 
     @AppStorage("legado_app_theme") private var appTheme: String = "system"
 
-    @State private var showRestoreAlert: Bool = false
-    @State private var restoreSuccessMessage: String? = nil
     @State private var showClearCacheAlert: Bool = false
     @State private var clearCacheMessage: String? = nil
 
@@ -39,17 +37,6 @@ public struct SettingsView: View {
                             Text("\(bookStore.sources.filter { $0.enabled != false }.count) / \(bookStore.sources.count) 个可用")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Button {
-                        showRestoreAlert = true
-                    } label: {
-                        HStack {
-                            Text("恢复预装默认书源")
-                            Spacer()
-                            Image(systemName: "arrow.clockwise")
-                                .foregroundColor(.accentColor)
                         }
                     }
                 }
@@ -216,15 +203,6 @@ public struct SettingsView: View {
                 }
             }
             .navigationTitle("设置")
-            .alert("恢复默认书源", isPresented: $showRestoreAlert) {
-                Button("取消", role: .cancel) {}
-                Button("确定恢复", role: .destructive) {
-                    bookStore.loadBundledSources(forceReset: true)
-                    restoreSuccessMessage = "已恢复预装书源"
-                }
-            } message: {
-                Text("确定要将书源列表恢复为预装默认状态吗？自定义导入的书源可能被覆盖。")
-            }
             .alert("清理阅读缓存", isPresented: $showClearCacheAlert) {
                 Button("取消", role: .cancel) {}
                 Button("确定清理", role: .destructive) {

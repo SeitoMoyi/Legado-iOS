@@ -626,7 +626,7 @@ public class WebDAVService {
                     throw WebDAVError.unauthorized
                 }
                 if (200...299).contains(httpBooks.statusCode) {
-                    if let decodedBooks = try? JSONDecoder().decode([Book].self, from: booksData) {
+                    if let decodedBooks = Book.decodeListWithExtras(from: booksData) {
                         payload.books = decodedBooks
                         if payload.backupName == nil { payload.backupName = "bookshelf.json" }
                     }
@@ -643,7 +643,7 @@ public class WebDAVService {
                     throw WebDAVError.unauthorized
                 }
                 if (200...299).contains(httpSources.statusCode) {
-                    if let decodedSources = try? JSONDecoder().decode([BookSource].self, from: sourcesData) {
+                    if let decodedSources = BookSource.decodeListWithExtras(from: sourcesData) {
                         payload.sources = decodedSources
                     }
                 }
@@ -794,13 +794,13 @@ public class WebDAVService {
 
         // 1. bookshelf.json
         if let data = extractData(named: "bookshelf.json"),
-           let decoded = try? JSONDecoder().decode([Book].self, from: data) {
+           let decoded = Book.decodeListWithExtras(from: data) {
             payload.books = decoded
         }
 
         // 2. bookSource.json
         if let data = extractData(named: "bookSource.json"),
-           let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
+           let decoded = BookSource.decodeListWithExtras(from: data) {
             payload.sources = decoded
         }
 

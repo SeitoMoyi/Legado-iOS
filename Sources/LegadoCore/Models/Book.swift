@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Book
 
-public struct Book: Codable, Identifiable, Equatable {
+public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var id: String { bookUrl }
 
     public var bookUrl: String
@@ -33,6 +33,11 @@ public struct Book: Codable, Identifiable, Equatable {
     public var customCoverUrl: String?
     /// Group ID bitmap or single group ID (matching Android `Book.group: Long`). Default 0 means ungrouped.
     public var group: Int64 = 0
+
+    /// Android-only fields this model does not declare (`customTag`, `customIntro`, `charset`,
+    /// `type`, `order`, `syncTime` …), kept verbatim so bookshelf round-trips through
+    /// import/export and WebDAV backup without loss. See `JSONExtraPreserving` and Plan §二 #15.
+    public var extra: [String: JSONValue] = [:]
 
     /// True when the book was imported from a local file (TXT/EPUB) rather than a network book source.
     ///
@@ -98,6 +103,15 @@ public struct Book: Codable, Identifiable, Equatable {
         case durChapterTitle, durChapterIndex, durChapterPos, durChapterTime, totalChapterNum, lastCheckTime
         case useReplaceRule, variable, customCoverUrl, group
     }
+
+    public static let modeledJSONKeys: Set<String> = [
+        "bookUrl", "name", "author", "kind", "coverUrl", "intro",
+        "origin", "originName", "tocUrl", "wordCount", "latestChapterTitle",
+        "durChapterTitle", "durChapterIndex", "durChapterPos", "durChapterTime",
+        "totalChapterNum", "lastCheckTime", "useReplaceRule", "variable",
+        "customCoverUrl", "group"
+    ]
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.bookUrl = (try? container.decode(String.self, forKey: .bookUrl)) ?? ""
@@ -121,6 +135,32 @@ public struct Book: Codable, Identifiable, Equatable {
         self.variable = try? container.decodeIfPresent(String.self, forKey: .variable)
         self.customCoverUrl = try? container.decodeIfPresent(String.self, forKey: .customCoverUrl)
         self.group = (try? container.decode(Int64.self, forKey: .group)) ?? 0
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bookUrl, forKey: .bookUrl)
+        try container.encode(name, forKey: .name)
+        try container.encode(author, forKey: .author)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(coverUrl, forKey: .coverUrl)
+        try container.encodeIfPresent(intro, forKey: .intro)
+        try container.encode(origin, forKey: .origin)
+        try container.encode(originName, forKey: .originName)
+        try container.encode(tocUrl, forKey: .tocUrl)
+        try container.encodeIfPresent(wordCount, forKey: .wordCount)
+        try container.encodeIfPresent(latestChapterTitle, forKey: .latestChapterTitle)
+        try container.encodeIfPresent(durChapterTitle, forKey: .durChapterTitle)
+        try container.encode(durChapterIndex, forKey: .durChapterIndex)
+        try container.encode(durChapterPos, forKey: .durChapterPos)
+        try container.encode(durChapterTime, forKey: .durChapterTime)
+        try container.encode(totalChapterNum, forKey: .totalChapterNum)
+        try container.encode(lastCheckTime, forKey: .lastCheckTime)
+        try container.encodeIfPresent(useReplaceRule, forKey: .useReplaceRule)
+        try container.encodeIfPresent(variable, forKey: .variable)
+        try container.encodeIfPresent(customCoverUrl, forKey: .customCoverUrl)
+        try container.encode(group, forKey: .group)
+        try encodeJSONExtras(extra, to: encoder)
     }
 
     /// Parses `variable` as a JSON key-value map (matching Android `Book.variableMap`).

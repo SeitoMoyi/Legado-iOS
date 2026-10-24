@@ -63,73 +63,177 @@ public final class LocalWebServer: ObservableObject {
         }
     }
 
+    /// Ceiling for one request. A browser upload is bounded by the file the user picked; without
+    /// a cap a client could stream until the app is killed.
+    private static let maxRequestBytes = 64 * 1024 * 1024
+    private static let headerTerminator = Data("\r\n\r\n".utf8)
+
     private func handleConnection(_ connection: NWConnection) {
         connection.start(queue: .global(qos: .userInitiated))
-        readRequest(connection: connection)
+        receiveRequest(connection: connection, buffer: Data())
     }
 
-    private func readRequest(connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 4, maximumLength: 65536) { [weak self] content, _, isComplete, _ in
-            guard let self = self, let data = content, !data.isEmpty else {
+    /// Reads until the declared `Content-Length` has arrived, then routes.
+    ///
+    /// A single `receive` only returns one TCP segment (at most `maximumLength` bytes), so a
+    /// 200 KB book arrived as the first 64 KB plus a truncated body — the file on disk was cut
+    /// short and the closing multipart boundary was never seen. Accumulating to the declared
+    /// length is what makes uploads of any realistic size correct.
+    private func receiveRequest(connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 16) { [weak self] content, _, isComplete, error in
+            guard let self = self else {
                 connection.cancel()
                 return
             }
 
-            if let requestString = String(data: data, encoding: .utf8) {
-                let lines = requestString.components(separatedBy: "\r\n")
-                guard let firstLine = lines.first else {
-                    connection.cancel()
-                    return
-                }
-
-                let tokens = firstLine.components(separatedBy: " ")
-                guard tokens.count >= 2 else {
-                    connection.cancel()
-                    return
-                }
-
-                let method = tokens[0]
-                let path = tokens[1]
-
-                if method == "GET" && (path == "/" || path.hasPrefix("/index")) {
-                    self.sendHTMLResponse(connection: connection, html: self.uploadPortalHTML())
-                } else if method == "POST" && path.hasPrefix("/upload") {
-                    // Extract uploaded multipart or raw body
-                    self.handleUploadPost(connection: connection, requestData: data, headerLines: lines)
-                } else if method == "GET" && path.hasPrefix("/books") {
-                    self.sendJSONResponse(connection: connection, json: self.bookshelfJSON())
-                } else {
-                    self.sendHTMLResponse(connection: connection, html: "<h3>404 Not Found</h3>", statusCode: 404)
-                }
-            } else {
-                connection.cancel()
+            var buffer = buffer
+            if let content = content, !content.isEmpty {
+                buffer.append(content)
             }
+
+            if buffer.count > Self.maxRequestBytes {
+                self.sendHTMLResponse(connection: connection,
+                                      html: "<h3>413 Payload Too Large</h3>", statusCode: 413)
+                return
+            }
+
+            if let headerEnd = buffer.range(of: Self.headerTerminator) {
+                let head = String(decoding: buffer[buffer.startIndex..<headerEnd.lowerBound], as: UTF8.self)
+                let expected = Self.contentLength(inHead: head)
+                let bodyStart = headerEnd.upperBound
+                let receivedBody = buffer.distance(from: bodyStart, to: buffer.endIndex)
+
+                if receivedBody >= expected {
+                    self.route(connection: connection, head: head,
+                               body: Data(buffer[bodyStart..<buffer.index(bodyStart, offsetBy: expected)]))
+                    return
+                }
+            }
+
+            if isComplete || error != nil {
+                connection.cancel()
+                return
+            }
+            self.receiveRequest(connection: connection, buffer: buffer)
         }
     }
 
-    private func handleUploadPost(connection: NWConnection, requestData: Data, headerLines: [String]) {
-        // Find double CRLF delimiter separating HTTP headers from body
-        let crlfDelimiter = Data([0x0D, 0x0A, 0x0D, 0x0A])
-        guard let delimiterRange = requestData.range(of: crlfDelimiter) else {
-            sendHTMLResponse(connection: connection, html: "400 Bad Request", statusCode: 400)
+    private static func contentLength(inHead head: String) -> Int {
+        for line in head.components(separatedBy: "\r\n") {
+            let pair = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2,
+                  pair[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" else { continue }
+            return max(0, Int(pair[1].trimmingCharacters(in: .whitespaces)) ?? 0)
+        }
+        return 0
+    }
+
+    private func route(connection: NWConnection, head: String, body: Data) {
+        let lines = head.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else {
+            connection.cancel()
+            return
+        }
+        let tokens = requestLine.components(separatedBy: " ")
+        guard tokens.count >= 2 else {
+            connection.cancel()
             return
         }
 
-        let bodyData = requestData.subdata(in: delimiterRange.upperBound..<requestData.count)
+        let method = tokens[0]
+        let path = tokens[1].components(separatedBy: "?").first ?? tokens[1]
 
-        // Find boundary from Content-Type if multipart
-        var filename = "upload_\(Int(Date().timeIntervalSince1970)).txt"
-        for line in headerLines {
-            if line.lowercased().contains("filename=") {
-                if let r = line.range(of: "filename=\"([^\"]+)\"", options: .regularExpression) {
-                    let matched = String(line[r])
-                    filename = matched.replacingOccurrences(of: "filename=", with: "").replacingOccurrences(of: "\"", with: "")
-                }
+        switch (method, path) {
+        case ("GET", let p) where p == "/" || p.hasPrefix("/index"):
+            sendHTMLResponse(connection: connection, html: uploadPortalHTML())
+        case ("POST", let p) where p.hasPrefix("/upload"):
+            handleUploadPost(connection: connection, headers: lines, body: body)
+        case ("GET", let p) where p.hasPrefix("/books"):
+            sendJSONResponse(connection: connection, json: bookshelfJSON())
+        default:
+            sendHTMLResponse(connection: connection, html: "<h3>404 Not Found</h3>", statusCode: 404)
+        }
+    }
+
+    struct MultipartPart {
+        let filename: String?
+        let data: Data
+    }
+
+    /// Splits a `multipart/form-data` body into its parts.
+    ///
+    /// The previous version handed the raw body to the importer, so every uploaded book began
+    /// with `------WebKitFormBoundary…` / `Content-Disposition:` and ended with the closing
+    /// boundary — unparseable as TXT or EPUB.
+    static func parseMultipart(body: Data, boundary: String) -> [MultipartPart] {
+        let delimiter = Data("--\(boundary)".utf8)
+        let nextMarker = Data("\r\n--\(boundary)".utf8)
+        let partHeaderTerminator = Data("\r\n\r\n".utf8)
+
+        var parts: [MultipartPart] = []
+        var cursor = body.startIndex
+
+        while let delimiterRange = body.range(of: delimiter, in: cursor..<body.endIndex) {
+            var contentCursor = delimiterRange.upperBound
+            // A trailing `--` after the delimiter closes the body.
+            if body[contentCursor...].starts(with: Data("--".utf8)) { break }
+            if body[contentCursor...].starts(with: Data("\r\n".utf8)) {
+                contentCursor = body.index(contentCursor, offsetBy: 2)
             }
+
+            guard let headerEnd = body.range(of: partHeaderTerminator, in: contentCursor..<body.endIndex) else { break }
+            let partHead = String(decoding: body[contentCursor..<headerEnd.lowerBound], as: UTF8.self)
+            let contentStart = headerEnd.upperBound
+
+            guard let nextRange = body.range(of: nextMarker, in: contentStart..<body.endIndex) else { break }
+            let payload = Data(body[contentStart..<nextRange.lowerBound])
+            parts.append(MultipartPart(filename: filename(inPartHead: partHead), data: payload))
+            cursor = body.index(nextRange.lowerBound, offsetBy: 2)
+        }
+
+        return parts
+    }
+
+    private static func filename(inPartHead head: String) -> String? {
+        for line in head.components(separatedBy: "\r\n") where line.lowercased().hasPrefix("content-disposition") {
+            guard let match = line.range(of: #"filename="([^"]+)""#, options: .regularExpression) else { continue }
+            let quoted = String(line[match])
+            return quoted.replacingOccurrences(of: "filename=", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+        return nil
+    }
+
+    private static func boundary(inHead headers: [String]) -> String? {
+        for line in headers where line.lowercased().hasPrefix("content-type:") {
+            guard let range = line.range(of: #"boundary="?([^";]+)"?"#, options: .regularExpression) else { continue }
+            let value = String(line[range])
+                .replacingOccurrences(of: "boundary=", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    private func handleUploadPost(connection: NWConnection, headers: [String], body: Data) {
+        var filename = "upload_\(Int(Date().timeIntervalSince1970)).txt"
+        var payload = body
+
+        if let boundary = Self.boundary(inHead: headers),
+           let part = Self.parseMultipart(body: body, boundary: boundary).first(where: { $0.filename != nil }) {
+            filename = part.filename ?? filename
+            payload = part.data
+        }
+
+        // Strip any path components a browser may have attached (old IE sent full paths).
+        filename = (filename as NSString).lastPathComponent
+        guard !filename.isEmpty, !payload.isEmpty else {
+            sendHTMLResponse(connection: connection,
+                             html: "<h3>400 Bad Request：未收到文件内容</h3>", statusCode: 400)
+            return
         }
 
         DispatchQueue.main.async {
-            self.onBookUploaded?(filename, bodyData)
+            self.onBookUploaded?(filename, payload)
         }
 
         sendHTMLResponse(connection: connection, html: """
@@ -143,7 +247,14 @@ public final class LocalWebServer: ObservableObject {
     }
 
     private func sendHTMLResponse(connection: NWConnection, html: String, statusCode: Int = 200) {
-        let statusText = (statusCode == 200) ? "OK" : "Not Found"
+        let statusText: String
+        switch statusCode {
+        case 200: statusText = "OK"
+        case 400: statusText = "Bad Request"
+        case 404: statusText = "Not Found"
+        case 413: statusText = "Payload Too Large"
+        default: statusText = "Error"
+        }
         let response = """
         HTTP/1.1 \(statusCode) \(statusText)\r
         Content-Type: text/html; charset=utf-8\r
@@ -201,16 +312,46 @@ public final class LocalWebServer: ObservableObject {
             <div class="card">
                 <h1>📚 Legado iOS - WiFi 传书服务</h1>
                 <p>将电脑或手机中的 TXT / EPUB 小说直接传至 iOS App 书架</p>
-                <form action="/upload" method="post" enctype="multipart/form-data">
-                    <label class="upload-box" onclick="document.getElementById('f').click()">
+                <form id="form" action="/upload" method="post" enctype="multipart/form-data">
+                    <label class="upload-box" id="box" onclick="document.getElementById('f').click()">
                         <div style="font-size: 36px; margin-bottom: 10px;">📄</div>
                         <div style="color: #007aff; font-weight: 500;">点击选择或拖拽 TXT/EPUB 文件</div>
-                        <input id="f" type="file" name="file" onchange="document.getElementById('fn').innerText = this.files[0].name">
+                        <input id="f" type="file" name="file" onchange="showName(this.files[0])">
                     </label>
                     <div id="fn" style="margin-top: 15px; font-size: 14px; color: #333; font-weight: 500;"></div>
                     <button type="submit">立即上传到手机</button>
                 </form>
             </div>
+            <script>
+                // The box advertises drag-and-drop, so it has to accept a drop: assign the
+                // dropped file to the real <input> and submit the form normally.
+                var box = document.getElementById('box');
+                var input = document.getElementById('f');
+                function showName(file) {
+                    document.getElementById('fn').innerText = file ? file.name : '';
+                }
+                ['dragenter', 'dragover'].forEach(function (type) {
+                    box.addEventListener(type, function (e) {
+                        e.preventDefault();
+                        box.style.background = '#dcecff';
+                    });
+                });
+                ['dragleave', 'drop'].forEach(function (type) {
+                    box.addEventListener(type, function (e) {
+                        e.preventDefault();
+                        box.style.background = '';
+                    });
+                });
+                box.addEventListener('drop', function (e) {
+                    var files = e.dataTransfer && e.dataTransfer.files;
+                    if (!files || files.length === 0) { return; }
+                    var dt = new DataTransfer();
+                    dt.items.add(files[0]);
+                    input.files = dt.files;
+                    showName(files[0]);
+                    document.getElementById('form').submit();
+                });
+            </script>
         </body>
         </html>
         """

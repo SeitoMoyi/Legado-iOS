@@ -113,16 +113,12 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
-		<key>1371514C562DA9EF8C55FC78</key>
+		<key>126583DF804CBDA359021603</key>
 		<dict>
+			<key>fileRef</key>
+			<string>B38505A50314C9F0B2FF5CD8</string>
 			<key>isa</key>
-			<string>PBXFileReference</string>
-			<key>lastKnownFileType</key>
-			<string>sourcecode.swift</string>
-			<key>path</key>
-			<string>Sources/LegadoCore/LegadoCore.swift</string>
-			<key>sourceTree</key>
-			<string>&lt;group&gt;</string>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>149DEA6DB8341E6DEE05137C</key>
 		<dict>
@@ -578,9 +574,7 @@
 			<key>buildActionMask</key>
 			<string>2147483647</string>
 			<key>files</key>
-			<array>
-				<string>F8605495CCFB2EF6EFFA85E6</string>
-			</array>
+			<array/>
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>runOnlyForDeploymentPostprocessing</key>
@@ -806,7 +800,6 @@
 				<string>971234C7C5E001420AD19F1D</string>
 				<string>9946C064294873BDE8BC5720</string>
 				<string>AB4131A05D75A268872F2723</string>
-				<string>1371514C562DA9EF8C55FC78</string>
 				<string>287FAC67053754C3D38DECCA</string>
 				<string>4377AEE29C13CD8A50BCE5ED</string>
 				<string>F0C53723296C1E6154487D29</string>
@@ -835,7 +828,6 @@
 				<string>321266029D1E0072CC6A8652</string>
 				<string>21249808583C1D4A47BFB15C</string>
 				<string>913C796CDE416D2C894DD5E3</string>
-				<string>F97F8A5A96EDBC8F8194A9C4</string>
 				<string>229FDF38987A041CB9A359F6</string>
 				<string>3E72F79B148C997AF904B851</string>
 				<string>A04EF422A849A4FAA3181775</string>
@@ -873,6 +865,7 @@
 				<string>61BA3E5B0D82490610BC6CBB</string>
 				<string>D05A5BECB3D7ADF58263D2DE</string>
 				<string>118FE063B56E7012144A2E9E</string>
+				<string>B38505A50314C9F0B2FF5CD8</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1115,7 +1108,6 @@
 				<string>3B55980E3385262591FA2B23</string>
 				<string>A4DAAD2653B821BCF0C8E7C7</string>
 				<string>7FD39639AEE8AF526AE33B57</string>
-				<string>A28EB252C1E67213AA584A69</string>
 				<string>ACA90607262F4E14474D1702</string>
 				<string>2E388E06F74E5C9FEC67769D</string>
 				<string>B1C7E19B0FB4DA41C274CF7E</string>
@@ -1181,6 +1173,7 @@
 				<string>C919DFE5AD10DCB6BCF17D16</string>
 				<string>79625ED23A42BE8D3CDEA9FF</string>
 				<string>A3BCA3089B6BCC75366DB84F</string>
+				<string>126583DF804CBDA359021603</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1209,13 +1202,6 @@
 		<dict>
 			<key>fileRef</key>
 			<string>361198CF601EEB82BB13F5C1</string>
-			<key>isa</key>
-			<string>PBXBuildFile</string>
-		</dict>
-		<key>A28EB252C1E67213AA584A69</key>
-		<dict>
-			<key>fileRef</key>
-			<string>1371514C562DA9EF8C55FC78</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1308,6 +1294,17 @@
 			<string>F0C53723296C1E6154487D29</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>B38505A50314C9F0B2FF5CD8</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Utils/JSONValue.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>B3BA9AA8BD13590949338459</key>
 		<dict>
@@ -1755,24 +1752,6 @@
 			<string>Release</string>
 			<key>isa</key>
 			<string>XCConfigurationList</string>
-		</dict>
-		<key>F8605495CCFB2EF6EFFA85E6</key>
-		<dict>
-			<key>fileRef</key>
-			<string>F97F8A5A96EDBC8F8194A9C4</string>
-			<key>isa</key>
-			<string>PBXBuildFile</string>
-		</dict>
-		<key>F97F8A5A96EDBC8F8194A9C4</key>
-		<dict>
-			<key>isa</key>
-			<string>PBXFileReference</string>
-			<key>lastKnownFileType</key>
-			<string>text.json</string>
-			<key>path</key>
-			<string>Sources/LegadoApp/Resources/bookSources.json</string>
-			<key>sourceTree</key>
-			<string>&lt;group&gt;</string>
 		</dict>
 		<key>F996B7EB9BB8D4ACE74FCE68</key>
 		<dict>

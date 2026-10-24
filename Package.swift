@@ -31,10 +31,7 @@ let package = Package(
             dependencies: [
                 "LegadoCore"
             ],
-            exclude: ["Info.plist"],
-            resources: [
-                .process("Resources")
-            ]),
+            exclude: ["Info.plist"]),
         .testTarget(
             name: "LegadoCoreTests",
             dependencies: ["LegadoCore"]),

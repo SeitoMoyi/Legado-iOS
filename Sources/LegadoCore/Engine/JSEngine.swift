@@ -19,6 +19,9 @@ import JavaScriptCore
     private var kvStore: [String: String] = [:]
     private let lock = NSLock()
     private weak var jsContext: JSContext?
+    /// Resolves the owning source's headers (loginHeader → header, JS-evaluated).
+    /// `java.ajax(url)` without them cannot reach Cookie-gated APIs (Android parity).
+    public var defaultHeaderProvider: (() -> String?)?
 
     public init(context: JSContext?) {
         self.jsContext = context
@@ -26,13 +29,13 @@ import JavaScriptCore
     }
 
     public func ajax(_ url: String) -> String {
-        guard let parsed = NetworkClient.parseLegadoUrl(url) else { return "" }
+        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?()) else { return "" }
         let resp = NetworkClient.shared.requestSync(parsed: parsed)
         return resp?.bodyString ?? ""
     }
 
     public func connect(_ url: String) -> JSValue {
-        return connect(url, "")
+        return connect(url, defaultHeaderProvider?() ?? "")
     }
 
     public func connect(_ url: String, _ header: String) -> JSValue {
@@ -166,6 +169,21 @@ import JavaScriptCore
     }
 }
 
+/// Minimal surface for `resolvedSourceHeader` — both `BookSource` and `RssSource` ship a
+/// static `header` rule plus a login-captured `loginHeader`.
+public protocol HeaderRuleProviding {
+    var bookSourceUrl: String { get }
+    var header: String? { get }
+    var loginHeader: String? { get }
+}
+
+extension BookSource: HeaderRuleProviding {}
+extension RssSource: HeaderRuleProviding {
+    public var bookSourceUrl: String { sourceUrl }
+    /// RSS 源暂未采集登录头（Android RssSource 同样没有 loginHeader 字段）。
+    public var loginHeader: String? { nil }
+}
+
 public class JSEngine {
     public let context: JSContext
     private let javaShim: JavaShim
@@ -183,6 +201,62 @@ public class JSEngine {
         setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
     }
 
+    /// Extracts the script body from a Legado rule that wraps it in `<js>…</js>` or prefixes it
+    /// with `@js:`; `nil` when the rule carries no script. The same extraction was copy-pasted
+    /// across search-URL rendering, explore categories, header evaluation and the rule engine.
+    public static func extractJSScript(from rule: String) -> String? {
+        if let start = rule.range(of: "<js>")?.upperBound,
+           let end = rule.range(of: "</js>")?.lowerBound, start <= end {
+            return String(rule[start..<end])
+        }
+        if rule.hasPrefix("@js:") {
+            return String(rule.dropFirst(4))
+        }
+        return nil
+    }
+
+    /// Android `BaseSource.getHeaderMap(hasLoginHeader: true)`: evaluates the source's `header`
+    /// rule (`<js>` / `@js:` supported), then overlays `loginHeader` on top — a MERGE, not the
+    /// `loginHeader ?? header` replacement. Proxies such as book.xkvi.top gate all API traffic
+    /// on the header-shipped `Cookie` while authentication rides `Authorization: Bearer`, so
+    /// replacing the header at login breaks every authed request with 502.
+    /// - Parameters:
+    ///   - engine: reuse the caller's engine when one exists; a fresh one is created for the
+    ///     evaluation otherwise.
+    ///   - loginHeaderOverride: session-captured login header (putLoginHeader) taking priority
+    ///     over the persisted `source.loginHeader`.
+    public static func resolvedSourceHeader(_ source: some HeaderRuleProviding,
+                                            engine: JSEngine? = nil,
+                                            loginHeaderOverride: String? = nil) -> String? {
+        var merged: [String: String] = [:]
+        for raw in [source.header, loginHeaderOverride ?? source.loginHeader] {
+            guard var json = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !json.isEmpty else { continue }
+            if let script = extractJSScript(from: json) {
+                let evalEngine = engine ?? JSEngine(bookSource: source as? BookSource, baseUrl: source.bookSourceUrl)
+                guard let evaluated = evalEngine.context.evaluateScript(script)?.toString(),
+                      !evaluated.isEmpty, evaluated != "undefined", evaluated != "null" else { continue }
+                json = evaluated
+            }
+            if let data = json.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                for (key, value) in dict {
+                    merged[key] = "\(value)"
+                }
+            } else if json.contains(":") {
+                for line in json.components(separatedBy: .newlines) {
+                    let parts = line.split(separator: ":", maxSplits: 1)
+                    if parts.count == 2 {
+                        merged[parts[0].trimmingCharacters(in: .whitespaces)] = parts[1].trimmingCharacters(in: .whitespaces)
+                    }
+                }
+            }
+        }
+        guard !merged.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: merged),
+              let str = String(data: data, encoding: .utf8) else { return nil }
+        return str
+    }
+
     private func setupEnvironment(bookSource: BookSource?, book: Book?, baseUrl: String?) {
         // Exception handler
         context.exceptionHandler = { _, exception in
@@ -196,7 +270,12 @@ public class JSEngine {
 
         // Expose source object
         let sourceObj = JSValue(newObjectIn: context)
-        var loginHeader: String? = bookSource?.loginHeader ?? bookSource?.header
+        // Android `getLoginHeader()` reads only the login-captured header
+        // (`CacheManager.get("loginHeader_<key>")`) — the source's static `header` field must
+        // NOT satisfy it, or `<js>` scripts that branch on 登录状态 (e.g. xkvi exploreUrl's
+        // `level=${token ? 0 : 1}`) take the logged-in path with an invalid token and every
+        // category/browse request 401/502s.
+        var loginHeader: String? = bookSource?.loginHeader
         var loginInfoStr: String? = bookSource?.loginInfo
         let sourceKey = bookSource?.bookSourceUrl ?? ""
         var variableStr: String? = bookSource?.variable ?? {
@@ -205,6 +284,17 @@ public class JSEngine {
             defer { Self.variableLock.unlock() }
             return Self.sourceVariableCache[sourceKey] ?? UserDefaults.standard.string(forKey: "legado_source_var_\(sourceKey)")
         }()
+
+        // `java.ajax` / `java.connect` must carry the source's headers (Android builds
+        // `AnalyzeUrl(url, source = source)`): loginHeader first, then the static `header`,
+        // JS-evaluated so `<js>` Cookie headers actually ship. Without this, scripts that
+        // probe user endpoints inside exploreUrl (`java.ajax("/api/user/favored")`) hit the
+        // proxy without a Cookie and surface 502 as 未知错误.
+        javaShim.defaultHeaderProvider = { [weak self] in
+            guard let self, let source = bookSource else { return nil }
+            return JSEngine.resolvedSourceHeader(source, engine: self, loginHeaderOverride: loginHeader)
+            return JSEngine.resolvedSourceHeader(source, engine: self, loginHeaderOverride: loginHeader)
+        }
 
         let getLoginHeaderBlock: @convention(block) () -> String? = { loginHeader }
         let putLoginHeaderBlock: @convention(block) (String) -> Void = { [weak self] newH in

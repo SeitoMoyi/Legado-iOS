@@ -61,9 +61,10 @@ public struct ProcessedContent {
 /// 6. replace `\u00A0` with a plain space
 /// 7. split into lines and add the first-line indent
 ///
-/// Deliberate departures from Android, all recorded in `ios/plan.md` §10: no `reSegment`
+/// Deliberate departures from Android, all recorded in `ios/Plan.md` §二: no `reSegment`
 /// (its output depends on `Math.random()`), and a timed-out rule is disabled and dropped
-/// instead of replacing the chapter with a stack trace and restarting the app.
+/// instead of Android's behaviour of disabling the rule *and* writing its name plus a stack
+/// trace into the chapter body.
 public final class ContentProcessor {
     public static let shared = ContentProcessor()
 

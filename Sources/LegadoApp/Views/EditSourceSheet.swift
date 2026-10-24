@@ -436,11 +436,11 @@ public struct EditSourceSheet: View {
             return
         }
 
-        if let single = try? JSONDecoder().decode(BookSource.self, from: data) {
+        if let single = BookSource.decodeWithExtras(from: data) {
             draft = single
             alertMessage = "已从剪贴板载入书源「\(single.bookSourceName)」"
             showAlert = true
-        } else if let array = try? JSONDecoder().decode([BookSource].self, from: data), let first = array.first {
+        } else if let array = BookSource.decodeListWithExtras(from: data), let first = array.first {
             draft = first
             alertMessage = "已从剪贴板载入书源「\(first.bookSourceName)」"
             showAlert = true

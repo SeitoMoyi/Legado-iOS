@@ -5,7 +5,7 @@
 [![Xcode](https://img.shields.io/badge/Xcode-14.0%2B-blue.svg)](https://developer.apple.com/xcode/)
 [![License](https://img.shields.io/badge/License-GPLv3-lightgrey.svg)](LICENSE)
 
-> **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.0)** 书源生态、解析规则与 WebDAV 多端同步机制。保持纯 Swift 开发，无重型第三方包装，提供流畅的原生阅读体验。
+> **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 现代化技术栈构建的开源网络小说阅读器，高度兼容 Android 端 **Legado (开源阅读 3.x)** 书源生态、解析规则与 WebDAV 多端同步机制。业务代码全部为原生 Swift，仅依赖两个轻量 SPM 包（SwiftSoup 负责 HTML/XPath 解析、ZIPFoundation 负责 EPUB 与备份包解包），不引入任何 UI 框架或网络库，提供流畅的原生阅读体验。
 
 ---
 
@@ -19,11 +19,13 @@
   - 实时名称、域名、注释过滤，支持 `group:分组名` 语法。
   - 「全部 / 已启用 / 已禁用」三态分组胶囊栏。
   - 右上角多选模式：支持批量启用、禁用、全选、反选、导出 JSON 及批量删除。
-  - 5 并发书源有效性校验：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时，源数据保持与 Android 100% 互通。
+  - 5 并发书源有效性校验：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时；`bookSourceGroup` 等已知字段原样保留。
+  - ✅ 字段零丢失导入导出：`BookSource` / `RssSource` / `Book` 解码时保留未建模的 Android 字段（`jsLib`、`concurrentRate`、`enabledCookieJar`、`ruleReview`、`Book.customTag`/`charset`/`type`/`order`/`syncTime` 等）在 `extra` 透传字典中，导出/备份时扁平化回写为顶层键（见 `Plan.md` §二 #15）。
 - **书源导入与登录**：
+  - 不预装任何书源（v0.2.6 起移除全部自带书源与域名迁移硬编码，书架从零开始）。
   - 支持从本地 `.json` 文件导入、网络 URL 下载导入、剪贴板粘贴导入。
   - 注册 `legado://` 与 `yuedu://` URL Scheme，网页端一键点击直接调起应用下载导入书源。
-  - 支持内置 WebKit 浏览器交互登录，会话 Cookie 自动双向镜像至 `HTTPCookieStorage`。
+  - 支持内置 WebKit 浏览器交互登录：登录后把 WebKit Cookie 域过滤提取，打包写入书源 `loginHeader`（供全部网络请求复用），同时镜像至 `HTTPCookieStorage`。
 
 ---
 
@@ -37,7 +39,7 @@
   - `TypographyPage`（`.lines` / `.image`）图文统一分页模型，翻页模式下插图独立成页。
   - 连续滚动模式原生支持双向长卷阅读：触底无缝拼装下一章，向下拉动无缝衔接上一章，并在断点间顺畅阅读；正文插图结合内存缓存（`ChapterImageLoader`）与排版坐标真实渲染。
 - **精细化排版与主题**：
-  - 内置 6 套纯色预设主题：默认白、复古羊皮纸、护眼草绿、夜间暗黑、水墨屏（E-Ink 纯黑白无彩色）及自定义配色（Hex 自由微调背景色与文字色）。
+  - 内置 5 套预设主题：默认白、复古羊皮纸、护眼草绿、夜间暗黑、水墨屏（E-Ink 纯黑白无彩色），外加自定义配色（Hex 自由微调背景色与文字色）。
   - 全局字体选择：系统默认（苹方）、楷体（`STKaiti`）、宋体（`Songti SC`）、圆体（`Yuanti SC`）。
   - 字号、行距、字距（CoreText `kern`）、段距、首行缩进（0–4 字符）、左右边距、上下边距全参数实时微调并落盘持久化。
   - 文字两端对齐（翻页与连续滚动双模式均生效）。
@@ -46,16 +48,16 @@
   - **顶栏一键快捷按钮**：常驻「换源」与「刷新本章」图标，配合右侧菜单秒级切换。
   - **3×3 九宫格自定义点击区域**：支持 14 种动作配置（菜单、下一页、上一页、书签、听书、换源等），中央强制保留菜单入口防误锁死。
   - **章节内容自定义编辑 (`EditContentSheet`)**：支持即时编辑本章标题与正文并持久化覆盖、一键重置为书源原始内容及全量复制。
-  - **章节离线下载**：支持滑动选择起止章节区间，或一键下载后续 50/100/全部章节，后台并发防爬限流抓取。
+  - **章节离线下载**：支持滑动选择起止章节区间，或一键下载后续 50/100/全部章节，后台顺序抓取（每章 60ms 间隔）防爬限流。
   - **自动翻页**：支持 2–30 秒自由调速，常驻悬浮控制条随时暂停/继续。
 
 ---
 
 ### 3. 换源与离线可用性
 - **整书换源与单章换源 (`ChangeSourceService`)**：
-  - 多源并发搜索，展示收录来源数、响应耗时与最新目录。
+  - 多源并发搜索，展示候选书源、章节数与可选的最新目录预检。
   - 基于 Jaccard 相似度与中文数字章节号解析的智能目录匹配算法（`ChapterMatcher`），换源后自动无缝对齐当前阅读进度。
-  - 阅读器内置 `tryAutoChangeSource`：正文取回为空或书源失效时，后台自动静默换源重试，无需中断阅读。
+  - 阅读器内置 `tryAutoChangeSource`（默认关闭，需在「更多设置」开启）：目录为空或目录解析失败时，后台静默换到首个能取到目录的书源，无需中断阅读。
 - **缓存优先与离线保障**：
   - 打开书籍优先加载本地目录缓存（`TocCache`），离线状态下只要已缓存过目录即可秒开书籍；10 分钟节流后台静默刷新目录。
   - 追更保护：纯追加更新保留原正文缓存，目录结构错位时主动重置防串章；被网络超时的未完成内容严禁落盘污染缓存。
@@ -68,14 +70,14 @@
   - 支持 iOS 原生离线语音合成（`AVSpeechSynthesizer`，默认 zh-CN）。
   - 支持自定义网络 **HttpTTS 引擎**，可在朗读面板中一键无缝切换原生/网络发音人。
 - **朗读控制面板与常驻悬浮条**：
-  - 朗读以段落为单位，支持上一段 / 下一段、按页朗读、语速调节（0–45 档换算）、音调微调、0–180 分钟定时停止。
+  - 朗读以段落为单位，支持上一段 / 下一段、语速调节（0–45 档换算）、音调微调、0–180 分钟定时停止。
   - 常驻底部的朗读悬浮条（播放/暂停/结束），可见性与播放状态自持，收起菜单后依然常驻。
   - 从当前可视页面首字起读，自动跳过插图标记 `[image:...]`。
-  - 连续滚动模式下支持当前发音句子柔和背景高亮，并随播放进度平滑自动居中滚动。
+  - 连续滚动模式下当前朗读段落以柔和底色高亮（尚无随进度自动居中滚动）。
   - 支持后台常驻音频播放（`UIBackgroundModes: audio`）、锁屏控制中心（`MPRemoteCommandCenter` / `nowPlayingInfo`）及耳机线控。
 - **在线有声书独立播放器 (`AudioPlayView`)**：
   - 书架与书籍详情页针对 `bookSourceType == 1` 或包含音频标签的书籍自动路由进入有声书播放器。
-  - 具备黑胶唱片旋转动效、`AVPlayer` 流媒体播放、快进/快退 15 秒、0.5x~2.0x 倍速调节、定时关闭与完整章节目录抽屉。
+  - 具备黑胶唱片式圆形封面、`AVPlayer` 流媒体播放、快进/快退 15 秒、0.75x~2.0x 倍速调节、定时关闭与完整章节目录抽屉。
 
 ---
 
@@ -101,7 +103,7 @@
   - 4 种排序规则：最近阅读、最近更新、书名排序、作者排序。
 - **分组体系 (`BookGroupStore`)**：
   - 默认虚拟分组：「全部」、「书源书籍」（网络源）、「本地书籍」（TXT/EPUB）。
-  - 支持新建、重命名、删除自定义分组；多选批量管理支持一键移入指定分组。
+  - 支持新建与删除自定义分组（暂无重命名）；多选批量管理支持一键移入指定分组。
 - **多选批量管理**：
   - 右上角 `⋯` 菜单进入选择模式，底部浮出批量操作栏：全选、反选、批量清理章节缓存、批量移入分组、批量移除书籍。
 - **书籍详情与信息编辑 (`BookDetailView`)**：
@@ -114,7 +116,7 @@
 
 ### 7. 正文处理与规则系统
 - **正文替换净化管线 (`ContentProcessor`)**：
-  - 严格按照 7 步管线执行：去除与标题重复段落 → 系统级简繁转换（`ChineseConverter`）→ 逐行首尾修剪 → 按 order 升序执行替换规则 → 标题匹配规则 → 不间断空格清洗 → 规范首行缩进。
+  - 严格按照 7 步管线执行：去除与标题重复段落 → 应用图片样式 → 系统级简繁转换（`ChineseConverter`）→ 逐行首尾修剪并按 order 升序执行替换规则 → 标题匹配规则 → 不间断空格清洗 → 规范首行缩进。
   - 单书净化总开关与全局新书默认净化配置。
   - 「起效的替换」实时查看器（`EffectiveReplacesSheet`），可从阅读菜单一键直达本章命中的规则并直接修改。
   - 超时规则自动熔断与临时禁用机制，杜绝界面卡顿。
@@ -122,7 +124,7 @@
   - **替换净化规则**：支持按分组管理、正则/字面匹配、作用于标题或正文、JSON 导入导出。
   - **TXT 目录规则**：内置标准章回节卷、Chapter、纯数字、大写分卷等默认预设；本地 TXT 导入自动匹配切章，详情页可随时选择规则重新切章。
   - **网络字典规则**：内置百度汉语、汉典等在线规则；阅读器搜索弹窗内置「查字典」Tab，快速解析关键字释义。
-  - **HttpTTS 引擎管理**：自定义网络语音合成接口，支持 Header 配置、测试与默认引擎一键恢复。
+  - **HttpTTS 引擎管理**：自定义网络语音合成接口，支持 Header 配置、启用开关与默认引擎一键恢复。
 
 ---
 
@@ -145,7 +147,7 @@
   - 阅读器与详情页支持双向云端进度比对；根据时间戳智能判断拉取最新远端进度覆盖，或回传本地最新阅读位置。
 - **全站书签汇总管理 (`AllBookmarksView`)**：
   - 设置页集中展示全站书签，按「书名 · 作者」分组呈现。
-  - 支持书签正文与备注关键字全局检索、单条编辑与左滑删除；支持将所有书签一键导出为标准 JSON 或 Markdown 格式至剪贴板。
+  - 支持书签正文与备注关键字全局检索、单条编辑与长按菜单删除；支持将所有书签一键导出为标准 JSON 或 Markdown 格式至剪贴板。
 - **离线本地备份**：
   - 无需配置 WebDAV 账户即可通过系统文件选择器直接导出或恢复离线 `backup*.zip`。
 
@@ -157,6 +159,14 @@
   - 分类胶囊栏解析（支持 `标题::URL` 格式分类）与文章信息流展示（缩略图、标题、时间、描述）。
   - 文章正文阅读：基于 `ruleContent` 规则网络提取正文，离线 description 兜底，支持一键在 Safari 中打开原文。
   - 文章收藏夹（`RssStar`），数据自动纳入 WebDAV 备份。
+- **全字段订阅源编辑器 (`RssSourceEditSheet`)**：
+  - 24 字段全量可视化编辑，对齐 Android `RssSource`：基本信息（名称/网址/图标/分组/注释/启用）、`loginUrl` + `loginUi` 登录配置、请求头 `header`、分类与版式（`sortUrl`/`singleUrl`/`articleStyle`）、列表规则七件套（`ruleArticles`/`ruleNextPage`/`ruleTitle`/`rulePubDate`/`ruleDescription`/`ruleImage`/`ruleLink`）、正文与样式（`ruleContent`/`style`/`enableJs`/`loadWithBaseUrl`）、变量与排序。
+- **订阅源流式调试台 (`RssSourceDebugSheet`)**：
+  - 三阶段实时调试：解析分类 (sortUrl) → 拉取文章列表 (ruleArticles 系列) → 抓取首篇正文 (ruleContent)，逐行流式输出各阶段耗时、解析结果预览与 `ruleNextPage` 是否生效。
+- **文章流交互**：
+  - 3 种版式一键切换并持久化：左文右图（0）、无图模式（1）、双列网格（2），对齐 Android `articleStyle`。
+  - 基于 `ruleNextPage` 的触底翻页自动拼装，跨页文章按链接去重，带回环保护。
+  - 已读文章标题置灰 + 已读角标，阅读历史落盘追踪（最多 500 条，随会话持久化）。
 
 ---
 
@@ -167,7 +177,7 @@
 - **局域网 WiFi 传书 (`LocalWebServer`)**：
   - 基于 iOS `Network.framework` 纯原生 `NWListener` 实现轻量 HTTP 服务，无需任何第三方 HTTP 库依赖。
   - 设置页一键开启服务，提示局域网地址（如 `http://192.168.1.100:1122`）。
-  - 电脑或手机浏览器打开网页门户，支持通过拖拽或文件选择直接上传 TXT、EPUB 文件，服务端自动接收解析并放入书架。
+  - 电脑或手机浏览器打开网页门户，通过文件选择上传 TXT、EPUB 文件；服务端按 `Content-Length` 收满整包、解出 multipart 中的文件字节并放入书架。
 - **主屏快捷操作 (App Shortcuts)**：
   - 3D Touch / 长按 App 图标快速唤起「搜索书籍」（直达分类搜索）与「继续阅读」（自动打开最近阅读的书籍）。
 
@@ -241,7 +251,7 @@ Legado-iOS/
 │   │   ├── Engine/               # 规则引擎（JSEngine, RuleAnalyzer, RuleTokenizer）
 │   │   ├── Models/               # 数据实体（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels, RssModels）
 │   │   ├── Service/              # 业务服务（NetworkClient, BookContentService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser...）
-│   │   └── Utils/                # 工具组件（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, CryptoUtils, JSONPath）
+│   │   └── Utils/                # 工具组件（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, JSONValue, CryptoUtils, JSONPath）
 │   └── LegadoApp/                # SwiftUI 交互层与应用入口
 │       ├── LegadoApp.swift       # 应用入口 + AppDelegate/SceneDelegate（快捷操作桥接）+ MainTabView（4 Tab 根界面）+ URL Scheme 监听
 │       ├── Services/             # 应用状态管理（BookStore, SearchViewModel, AudioBookService, LaunchRouter）
@@ -249,9 +259,10 @@ Legado-iOS/
 │       └── Views/                # 用户界面视图
 │           ├── BookshelfView.swift       # 书架（分组胶囊、三列网格/列表、4 种排序、批量管理）
 │           ├── CategoryExploreView.swift # 分类页（快速切源胶囊、预设分类流）
+│           ├── ExploreBookListView.swift # 单分类书籍流（下拉刷新、触底分页）
 │           ├── BookDetailView.swift      # 书籍详情（信息编辑、整书换源、变量弹窗、目录居中与反转）
-│           ├── RssViews.swift            # RSS 订阅（订阅源/文章流/正文提取/收藏夹/源编辑）
-│           ├── AudioPlayView.swift       # 在线有声书独立播放器（黑胶动效/倍速/定时/目录）
+│           ├── RssViews.swift            # RSS 订阅（订阅源/文章流/正文提取/收藏夹/全字段源编辑/三阶段调试台）
+│           ├── AudioPlayView.swift       # 在线有声书独立播放器（圆形封面/倍速/定时/目录）
 │           ├── SourceManagerView.swift   # 书源管理（搜索/三态胶囊/批量启禁删导/并发校验）
 │           ├── SourceDetailView.swift    # 书源详情与信息展示
 │           ├── SourceWebLoginView.swift  # WebKit 书源交互式登录
@@ -266,7 +277,7 @@ Legado-iOS/
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 设置中心（书源/书架与存储/外观/数据与局域网服务/正文处理/关于）
-├── Tests/LegadoCoreTests/        # 跨模块自动化单元测试套件（225 例）
+├── Tests/LegadoCoreTests/        # 跨模块自动化单元测试套件（249 例）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -288,16 +299,17 @@ Legado-iOS/
    ```
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 运行 220 项确定性单元测试（零外部网络依赖）
-   swift test                          # 包含真实活体书源网络嗅探冒烟测试（共 225 例）
+   swift test --skip LiveSourceTests   # 运行 242 项确定性单元测试（零外部网络依赖）
+   swift test                          # 包含真实活体书源网络嗅探冒烟测试（共 249 例）
    ```
 3. 打开并运行 Xcode 工程：
    ```bash
    open Legado.xcodeproj
    ```
-   在 Xcode 中选择模拟器或真机目标设备，按 `Cmd + R` 即可运行。新增文件后若需同步至 Xcode 工程文件，执行：
+   在 Xcode 中选择模拟器或真机目标设备，按 `Cmd + R` 即可运行。新增 Swift 文件后必须登记进 Xcode 工程，否则 `xcodebuild` 会静默忽略它们：
    ```bash
-   python3 tools/xcode_add_sources.py $(python3 tools/xcode_add_sources.py --check)
+   python3 tools/xcode_add_sources.py --check                      # 列出尚未登记的文件
+   python3 tools/xcode_add_sources.py Sources/Path/NewFile.swift   # 登记指定文件
    ```
 
 ---

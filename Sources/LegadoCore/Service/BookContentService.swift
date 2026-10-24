@@ -34,14 +34,7 @@ public class BookContentService {
         }
 
         let targetUrl = !book.tocUrl.isEmpty ? book.tocUrl : book.bookUrl
-        var headerToUse = source.loginHeader ?? source.header
-        if let h = headerToUse, (h.contains("<js>") || h.hasPrefix("@js:")) {
-            let js = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-            let script = h.contains("<js>") ? String(h[h.range(of: "<js>")!.upperBound..<h.range(of: "</js>")!.lowerBound]) : String(h.dropFirst(4))
-            if let evaluated = js.context.evaluateScript(script)?.toString(), !evaluated.isEmpty && evaluated != "undefined" {
-                headerToUse = evaluated
-            }
-        }
+        let headerToUse = JSEngine.resolvedSourceHeader(source)
 
         print("[BookDetail] 🚀 [\(source.bookSourceName)] Fetching details and TOC from: \(targetUrl)")
         guard let parsedReq = NetworkClient.parseLegadoUrl(targetUrl, defaultHeader: headerToUse, baseUrl: source.bookSourceUrl) else {
@@ -208,14 +201,7 @@ public class BookContentService {
             }
         }
 
-        var headerToUse = source.loginHeader ?? source.header
-        if let h = headerToUse, (h.contains("<js>") || h.hasPrefix("@js:")) {
-            let js = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-            let script = h.contains("<js>") ? String(h[h.range(of: "<js>")!.upperBound..<h.range(of: "</js>")!.lowerBound]) : String(h.dropFirst(4))
-            if let evaluated = js.context.evaluateScript(script)?.toString(), !evaluated.isEmpty && evaluated != "undefined" {
-                headerToUse = evaluated
-            }
-        }
+        let headerToUse = JSEngine.resolvedSourceHeader(source)
 
         print("[Content] 🚀 [\(source.bookSourceName)] Fetching chapter '\(chapter.title)' from: \(chapterUrl)")
         let collected = try await collectContentFragments(

@@ -159,23 +159,6 @@ public struct SourceWebLoginView: View {
 
             Spacer()
 
-            // Quick domain mirror switchers for ESJ Zone
-            if isESJZone {
-                HStack(spacing: 6) {
-                    Button("one 站") {
-                        loadUrlString("https://www.esjzone.one/my/profile.html")
-                    }
-                    .font(.caption2)
-                    .buttonStyle(.bordered)
-
-                    Button("cc 站") {
-                        loadUrlString("https://www.esjzone.cc/my/profile.html")
-                    }
-                    .font(.caption2)
-                    .buttonStyle(.bordered)
-                }
-            }
-
             Button("手动粘贴 Cookie") {
                 showManualCookieSheet = true
             }
@@ -185,11 +168,6 @@ public struct SourceWebLoginView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(Color.secondary.opacity(0.05))
-    }
-
-    private var isESJZone: Bool {
-        source.bookSourceName.lowercased().contains("esj") ||
-        source.bookSourceUrl.lowercased().contains("esjzone")
     }
 
     // MARK: - Manual Cookie Input Sheet
@@ -258,9 +236,6 @@ public struct SourceWebLoginView: View {
             if !loginHost.isEmpty && (domain.contains(loginHost) || loginHost.contains(domain)) {
                 return true
             }
-            if domain.contains("esjzone") {
-                return true
-            }
             return false
         }
     }
@@ -318,7 +293,8 @@ public struct SourceWebLoginView: View {
             updatedSource.loginInfo = infoStr
         }
 
-        // 3. Mirror cookies into shared HTTPCookieStorage for both esjzone.cc and esjzone.one
+        // 3. Mirror cookies into shared HTTPCookieStorage, and onto the bookSourceUrl host when
+        // the login page lives on a different domain (e.g. www host vs API host)
         for c in cookiesList {
             HTTPCookieStorage.shared.setCookie(c)
             // Mirror to bookSourceUrl domain if different

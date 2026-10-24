@@ -7,7 +7,7 @@ import LegadoCore
 /// Read-aloud control panel — the iOS counterpart of Android's `ReadAloudDialog`.
 ///
 /// Paragraph stepping, 定时 (0…180 min), 语速 and 音调 are the same controls; Android's
-/// engine picker and HttpTTS services are a separate P2 subsystem.
+/// engine picker and HttpTTS switching both live here via `AudioBookService`.
 struct ReadAloudPanel: View {
     @ObservedObject var audio: AudioBookService
     @ObservedObject var config: ReaderConfig

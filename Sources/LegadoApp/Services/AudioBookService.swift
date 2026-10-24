@@ -60,7 +60,6 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
 
     /// Android's `AppPattern.notReadAloudRegex`: nothing worth speaking in a line made only
     /// of whitespace, punctuation or symbols.
-    private static let punctuationOnlyPattern = "^[\\s\\p{P}\\p{C}\\p{Z}\\p{S}]+$"
 
     public override init() {
         super.init()

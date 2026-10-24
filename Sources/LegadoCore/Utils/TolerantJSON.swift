@@ -13,6 +13,18 @@ import Foundation
 public enum TolerantJSON {
 
     public static func decode<T: Codable>(_ type: T.Type, from data: Data, fallback: T) -> T? {
+        decodeOverlayingFallback(type, from: data, fallback: fallback)
+    }
+
+    /// Extras-aware variant: unknown keys land in `extra` so they survive export/backup
+    /// (Plan §二 #15). Overload resolution prefers this for conforming types.
+    public static func decode<T: JSONExtraPreserving>(_ type: T.Type, from data: Data, fallback: T) -> T? {
+        guard var model = decodeOverlayingFallback(type, from: data, fallback: fallback) else { return nil }
+        model.absorbExtras(from: data)
+        return model
+    }
+
+    static func decodeOverlayingFallback<T: Codable>(_ type: T.Type, from data: Data, fallback: T) -> T? {
         guard let stored = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let fallbackData = try? JSONEncoder().encode(fallback),
               var merged = try? JSONSerialization.jsonObject(with: fallbackData) as? [String: Any]
@@ -36,6 +48,21 @@ public enum TolerantJSON {
             guard let object = element as? [String: Any],
                   let elementData = try? JSONSerialization.data(withJSONObject: object),
                   let decoded = decode(type, from: elementData, fallback: fallback) else { continue }
+            result.append(decoded)
+        }
+        return result
+    }
+
+    /// Extras-aware list decode: per-element capture so undeclared fields round-trip.
+    public static func decodeList<T: JSONExtraPreserving>(_ type: T.Type, from data: Data, fallback: T) -> [T]? {
+        guard let array = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return nil }
+        var result: [T] = []
+        result.reserveCapacity(array.count)
+        for element in array {
+            guard let object = element as? [String: Any],
+                  let elementData = try? JSONSerialization.data(withJSONObject: object),
+                  var decoded = decodeOverlayingFallback(type, from: elementData, fallback: fallback) else { continue }
+            decoded.absorbExtras(from: object)
             result.append(decoded)
         }
         return result

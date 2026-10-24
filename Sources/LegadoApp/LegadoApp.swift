@@ -62,9 +62,7 @@ public struct LegadoApp: App {
         }
     }
 
-    public init() {
-        preloadDefaultSources()
-    }
+    public init() {}
 
     public var body: some Scene {
         WindowGroup {
@@ -92,17 +90,6 @@ public struct LegadoApp: App {
                         _ = try? bookStore.importSources(json: jsonStr)
                     }
                 }
-            }
-        }
-    }
-
-    private func preloadDefaultSources() {
-        if bookStore.sources.isEmpty {
-            // Load bundled default sources if available
-            if let bundleUrl = Bundle.main.url(forResource: "bookSources", withExtension: "json"),
-               let data = try? Data(contentsOf: bundleUrl),
-               let json = String(data: data, encoding: .utf8) {
-                _ = try? bookStore.importSources(json: json)
             }
         }
     }

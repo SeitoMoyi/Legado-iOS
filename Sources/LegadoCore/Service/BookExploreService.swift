@@ -26,11 +26,8 @@ public class BookExploreService {
 
         var jsonString: String = exploreUrl
 
-        // If JS script enclosed in <js>...</js> or starting with @js:
-        if exploreUrl.contains("<js>") {
-            let start = exploreUrl.range(of: "<js>")?.upperBound ?? exploreUrl.startIndex
-            let end = exploreUrl.range(of: "</js>")?.lowerBound ?? exploreUrl.endIndex
-            let script = String(exploreUrl[start..<end])
+        // JS script wrapped in <js>…</js> or prefixed @js:
+        if let script = JSEngine.extractJSScript(from: exploreUrl) {
             let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
             if let result = engine.eval(script: script) {
                 if let str = result as? String {
@@ -40,12 +37,6 @@ public class BookExploreService {
                           let str = String(data: data, encoding: .utf8) {
                     jsonString = str
                 }
-            }
-        } else if exploreUrl.hasPrefix("@js:") {
-            let script = String(exploreUrl.dropFirst(4))
-            let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-            if let result = engine.eval(script: script) as? String {
-                jsonString = result
             }
         }
 
@@ -101,9 +92,13 @@ public class BookExploreService {
             renderedUrl = jsEngine.renderTemplate(renderedUrl, variables: ["page": page])
         }
 
+        // Merged headers (header JS evaluated + loginHeader overlay) — `<js>` headers passed
+        // raw to parseLegadoUrl get silently dropped, sending explore requests cookie-less.
+        let headerToUse = JSEngine.resolvedSourceHeader(source, engine: jsEngine)
+
         guard let parsedReq = NetworkClient.parseLegadoUrl(
             renderedUrl,
-            defaultHeader: source.loginHeader ?? source.header,
+            defaultHeader: headerToUse,
             baseUrl: source.bookSourceUrl
         ) else {
             throw NSError(domain: "Legado", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法解析分类网址: \(categoryUrl)"])

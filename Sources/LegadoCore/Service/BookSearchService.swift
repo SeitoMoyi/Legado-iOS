@@ -22,16 +22,7 @@ public class BookSearchService {
         jsEngine.context.setObject(page, forKeyedSubscript: "searchPage" as NSString)
         jsEngine.context.setObject(source.bookSourceUrl, forKeyedSubscript: "baseUrl" as NSString)
 
-        if renderedUrl.contains("<js>") || renderedUrl.hasPrefix("@js:") {
-            let script: String
-            if renderedUrl.contains("<js>") {
-                let start = renderedUrl.range(of: "<js>")?.upperBound ?? renderedUrl.startIndex
-                let end = renderedUrl.range(of: "</js>")?.lowerBound ?? renderedUrl.endIndex
-                script = String(renderedUrl[start..<end])
-            } else {
-                script = String(renderedUrl.dropFirst(4))
-            }
-
+        if let script = JSEngine.extractJSScript(from: renderedUrl) {
             if let result = jsEngine.context.evaluateScript(script)?.toString(),
                !result.isEmpty && result != "undefined" && result != "null" {
                 renderedUrl = result
@@ -51,22 +42,9 @@ public class BookSearchService {
             ])
         }
 
-        // Parse and send request with loginHeader priority and baseUrl fallback
-        var headerToUse = source.loginHeader ?? source.header
-        if let h = headerToUse, (h.contains("<js>") || h.hasPrefix("@js:")) {
-            let script: String
-            if h.contains("<js>") {
-                let start = h.range(of: "<js>")?.upperBound ?? h.startIndex
-                let end = h.range(of: "</js>")?.lowerBound ?? h.endIndex
-                script = String(h[start..<end])
-            } else {
-                script = String(h.dropFirst(4))
-            }
-            if let evalResult = jsEngine.context.evaluateScript(script)?.toString(),
-               !evalResult.isEmpty && evalResult != "undefined" && evalResult != "null" {
-                headerToUse = evalResult
-            }
-        }
+        // Parse and send request with merged headers (Android getHeaderMap semantics:
+        // header JS evaluated, loginHeader overlaid on top — never a replacement)
+        let headerToUse = JSEngine.resolvedSourceHeader(source, engine: jsEngine)
 
         print("[Search] 🚀 [\(source.bookSourceName)] Rendered URL: \(renderedUrl)")
 
