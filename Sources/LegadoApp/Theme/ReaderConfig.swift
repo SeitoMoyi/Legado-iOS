@@ -253,6 +253,7 @@ public final class ReaderConfig: ObservableObject {
         style.lineSpacingExtra = Double(lineSpacing)
         style.paragraphSpacing = Double(paragraphSpacing)
         style.paragraphIndent = paragraphIndent
+        style.pageAnim = pageAnim.rawValue
         style.titleMode = titleMode
         style.paddingTop = Double(paddingTop)
         style.paddingRight = Double(paddingTrailing)
@@ -278,6 +279,9 @@ public final class ReaderConfig: ObservableObject {
         letterSpacing = CGFloat(saved.letterSpacing)
         paragraphSpacing = CGFloat(saved.paragraphSpacing)
         paragraphIndent = saved.paragraphIndent
+        // Restore the page-turn mode too — it is part of the style snapshot (Android keeps
+        // `pageAnim` in readConfig.json); without this every reader open fell back to scroll.
+        pageAnim = PageAnim(rawValue: saved.pageAnim) ?? .scroll
         textFont = saved.textFont
         textBold = saved.textBold
         titleMode = saved.titleMode

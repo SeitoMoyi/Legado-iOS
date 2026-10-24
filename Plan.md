@@ -5,7 +5,7 @@
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **71 个 Swift 文件 ≈ 26.3k 行**（LegadoCore 35 文件 9.0k 行 + LegadoApp 36 文件 17.3k 行；含 Tests 共 88 文件）。
 > - **单测门禁**：17 个测试文件共 **256 例单元测试**（249 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 249/249 通过）。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.7`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.7.1`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录
@@ -44,7 +44,7 @@
 | 9 | **书源编辑页** | 6 Tab 全字段 | 6 Tab 全字段 | **85%** | 基本/搜索/发现/详情/目录/正文 6 Tab 全规则字段编辑、整源 JSON 拷贝粘贴、直达调试台已实现；缺语法高亮与辅助符号键盘条 |
 | 10 | **书源调试页** | 完整 | 四阶段实时调试台 | **65%** | 搜索→详情→目录→正文四阶段流式实时调试日志已实现；缺阶段原始 HTML 查看器、WebSocket 实时调试 |
 | 11 | **登录 / 内置浏览器** | 完整 | 登录✅ 浏览器❌ | **50%** | 交互式 WebKit 登录、Cookie 域过滤提取并写入 `loginHeader` + 镜像至 `HTTPCookieStorage` 已实现；缺通用内置浏览器、Cloudflare 过盾自动重试、文件下载 |
-| 12 | **设置中心（替代「我的」）** | 约 140 项设置键 | 6 个分组 / 19 项一级条目 / 9 个子页 | **45%** | 书源、存储（所有书签/阅读记录）、外观、云备份、局域网服务、正文处理（4 类规则）已收敛；缺独立「我的」用户界面、帮助文档站渲染 |
+| 12 | **设置中心（「我的」）** | 约 140 项设置键 | Android 同构布局 | **50%** | **v0.2.8 起对齐 Android `pref_main.xml` 布局**：顶层六行（书源管理 / TXT 目录规则 / 替换净化 / 字典规则 / 主题模式 / Web 服务开关）+「设置」分组（备份与恢复 / 其它设置）+「其它」分组（书签 / 阅读记录 / 关于）；Tab 更名「我的」「发现」与 Android 四 Tab 一致；正文处理/朗读引擎/清缓存收敛进「其它设置」子页；缺帮助文档站、文件管理 |
 | 13 | **规则管理中心** | 4 独立 CRUD 页 | 4 独立 CRUD 页 | **90%** | 替换净化、TXT 目录规则、字典规则、HttpTTS 均已实现 CRUD、预装预设、导入导出与 **`EditButton` 拖拽排序**（TXT 重写 `serialNumber`、字典重写 `sortNumber`）；缺二维码导入 |
 | 14 | **文件与数据互通** | 完整 | 完善 | **80%** | WebDAV 10 类数据备份恢复、双向阅读进度同步、离线本地备份包、所有书签汇总与 Markdown 导出、阅读记录统计已实现；缺 Android 备份包剩余 11 个成员（`bookGroup`/`sourceSub`/`httpTTS`/`dictRule`/`servers`/`keyboardAssists`/`directLinkUploadRule`/`shareReadConfig`/`themeConfig`/`coverRule`/`config.xml`）、私有文件浏览器 |
 | 15 | **局域网服务 / 平台集成** | 完整 REST API | 轻量原生服务 | **35%** | 原生 `Network.framework` WiFi 传书门户与上传入库、`legado://` Scheme 导入、主屏快捷操作已实现；缺全套 REST/WebSocket API、后台常驻服务 |
@@ -129,6 +129,13 @@
 - **死代码移除**：SPM 模板残留 `LegadoCore.swift`（含 pbxproj 注册）；`RssService.fetchArticles` 兼容包装（调用方已全部迁移 `fetchArticlePage`）；`ArticlePage.isLastPage` 未使用计算属性；`BookStore.tocRefreshInterval` 未使用别名；`AudioBookService.punctuationOnlyPattern` 未使用正则常量；`BookExploreService` 中被 `extractJSScript` 覆盖后死亡的 `@js:` 分支。
 - **重复逻辑收敛**：`<js>…</js>` / `@js:` 脚本抽取五处重复实现收敛为 `JSEngine.extractJSScript(from:)`（搜索 URL 渲染、分类解析、请求头求值内部）；`SourceManagerView` 两份一致的 web 登录判定合并为单一静态方法。
 - `BookGroup` 的 `idAudio`/`idNetNone`/`idLocalNone`/`idError` 常量保留——它们是 Android `BookGroup` 伴生对象 ID 空间的对照文档（分组 ID 语义保真）。
+
+### 10. UI 布局对齐与翻页模式修复（2026-10-24，第三轮）
+- **翻页模式不记忆（用户报告）**：双重缺陷——`makeStyleConfig()` 保存快照时未写入当前 `pageAnim`，`apply(style:)` 恢复时也未读回，导致每次进入阅读器都回落到滚动模式。修复后 `pageAnim` 随样式快照（对齐 Android `readConfig.json` 的 `pageAnim` 字段）完整往返。
+- **「我的」页布局对齐 Android**：iOS 设置中心按 `pref_main.xml` 重排——顶层无分组六行（图标 + 标题 + caption 摘要 + 整行点击），顺序与文案完全一致（书源管理 / TXT 目录规则 / 替换净化 / 字典规则 / 主题模式 NameListPreference → Menu / Web 服务 Switch，运行时摘要显示局域网地址）；「设置」分组（备份与恢复 / 其它设置）；「其它」分组（书签 / 阅读记录 / 关于）。iOS 特有的 WiFi 传书详情页保留为 Web 服务下一行；无对应功能的入口（文件管理 / 退出 / 主题设置子页）省略而非占位。
+- **其它设置子页（新）**：收纳 Android `OTHER_CONFIG` 下的 iOS 已有项——正文处理（新书默认净化 / 简繁转换 / 图片样式）、朗读（HttpTTS 引擎）、缓存（清理阅读缓存）。
+- **关于子页（新）**：应用名称 / 当前版本 / 内核引擎 / 开源许可。
+- **底部 Tab 对齐**：`main_bnv.xml` 四项——书架 / 发现（图标换 safari 指南针，原「分类」）/ 订阅 / 我的（person 图标，原「设置」）；分类页标题同步改「发现」。
 
 ### 9. 已实现功能对齐审查（2026-10-24，第二轮）
 - **听书翻页续读 bug（用户报告）**：暂停/结束后翻页再点播放，会从旧段落续读而非新页开头。根因：底栏听书、朗读面板、浮动条三个入口都直连 `togglePlayPause()`/`play()`，paused 分支一律 `resume()` 到过期的 `currentIndex`。修复：三入口统一收敛到 `ReaderView.aloudPlayOrResume()`——**可见段落 == 朗读段落且未换章**才 `resume()`（保留 HttpTTS 音频中段进度），否则以 `currentAloudStartPos()` 重新锚定到当前可见段开头（对齐 Android `getNowParagraph` 语义）；`AudioBookService` 新增 `loadedChapterText` 与 `paragraphIndex(containingCharPos:)` 支撑判定，`stop()` 同时清空已载文本。

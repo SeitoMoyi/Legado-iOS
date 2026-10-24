@@ -8,213 +8,283 @@ import UIKit
 #if canImport(AppKit)
 import AppKit
 #endif
+/// 我的 — SwiftUI counterpart of Android `MyFragment` + `pref_main.xml`.
+///
+/// Row order, titles, summaries and grouping mirror the Android preference screen exactly
+/// (top-level rows, then 设置 category, then 其它 category); entries whose feature has no
+/// iOS counterpart yet (文件管理/退出) are omitted rather than stubbed.
 public struct SettingsView: View {
 
     @ObservedObject var bookStore = BookStore.shared
     @ObservedObject var readerConfig = ReaderConfig.shared
+    @ObservedObject private var webServer = LocalWebServer.shared
 
     @AppStorage("legado_app_theme") private var appTheme: String = "system"
 
-    @State private var showClearCacheAlert: Bool = false
-    @State private var clearCacheMessage: String? = nil
-
     public init() {}
-
-    /// Read from the bundle so the screen cannot drift from `MARKETING_VERSION` — it used to
-    /// say 1.0.0 while the project and the VERSION file said 0.2.0.
-    private var appVersion: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "未知"
-    }
 
     public var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("书源管理")) {
-                    NavigationLink(destination: SourceManagerView()) {
-                        HStack {
-                            Text("管理全部网络书源")
-                            Spacer()
-                            Text("\(bookStore.sources.filter { $0.enabled != false }.count) / \(bookStore.sources.count) 个可用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                // MARK: 顶层（无分组，对齐 pref_main 顶部六行）
+
+                prefLink("square.stack.3d.up.fill", "书源管理", "新建、导入、编辑或管理书源") {
+                    SourceManagerView()
+                }
+                prefLink("square.stack.3d.up.fill", "TXT 目录规则", "配置 TXT 目录规则") {
+                    TxtTocRuleListView()
+                }
+                prefLink("arrow.left.arrow.right.square.fill", "替换净化", "配置替换净化规则") {
+                    ReplaceRuleListView()
+                }
+                prefLink("character.book.closed.fill", "字典规则", "配置字典规则") {
+                    DictRuleListView()
                 }
 
-                Section(header: Text("书架与存储")) {
-                    HStack {
-                        Text("书架藏书")
-                        Spacer()
-                        Text("\(bookStore.bookshelf.count) 本")
+                // 主题模式（Android NameListPreference：值显示在 summary 位）
+                HStack(spacing: 12) {
+                    prefIcon("paintbrush.fill")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Menu {
+                            Button("跟随系统") { appTheme = "system" }
+                            Button("浅色模式") { appTheme = "light" }
+                            Button("深色模式") { appTheme = "dark" }
+                        } label: {
+                            HStack {
+                                Text("主题模式")
+                                Spacer()
+                                Text(appThemeLabel)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Text("选择主题模式")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
-
-                    NavigationLink(destination: AllBookmarksView()) {
-                        HStack {
-                            Text("所有书签")
-                            Spacer()
-                            Text("\(bookStore.bookmarks.count) 条")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    NavigationLink(destination: ReadRecordListView()) {
-                        HStack {
-                            Text("阅读记录")
-                            Spacer()
-                            Text("\(ReadRecordStore.load().count) 本")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Button(role: .destructive) {
-                        showClearCacheAlert = true
-                    } label: {
-                        HStack {
-                            Text("清理阅读缓存")
-                            Spacer()
-                            Image(systemName: "trash")
-                                .foregroundColor(.red)
-                        }
-                    }
                 }
+                .padding(.vertical, 2)
 
-                Section(header: Text("外观模式")) {
-                    Picker("外观模式", selection: $appTheme) {
-                        Text("跟随系统").tag("system")
-                        Text("浅色模式").tag("light")
-                        Text("深色模式").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                Section(header: Text("数据与局域网服务")) {
-                    NavigationLink(destination: WebDAVSyncView()) {
-                        HStack {
-                            Label("WebDAV 云同步", systemImage: "icloud.and.arrow.up")
-                            Spacer()
-                            if WebDAVService.shared.loadConfig().lastSyncTime != nil {
-                                Text("已同步")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("未配置")
+                // Web 服务（Android SwitchPreference：运行时 summary 显示地址）
+                HStack(spacing: 12) {
+                    prefIcon("network")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle(isOn: Binding(
+                            get: { webServer.isRunning },
+                            set: { $0 ? webServer.start() : webServer.stop() }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Web 服务")
+                                Text(webServer.isRunning ? webServer.serverURLString : "用浏览器写源或看书")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                         }
                     }
+                }
+                .padding(.vertical, 2)
 
-                    NavigationLink(destination: LocalWebServerView()) {
-                        HStack {
-                            Label("WiFi 传书 / Web 服务", systemImage: "wifi")
-                            Spacer()
-                            Text(LocalWebServer.shared.isRunning ? "运行中" : "未启动")
-                                .font(.caption)
-                                .foregroundColor(LocalWebServer.shared.isRunning ? .green : .secondary)
-                        }
+                // WiFi 传书详情（iOS 特有：浏览器上传门户的本地状态与传输动态）
+                prefLink("arrow.up.arrow.down.circle.fill", "WiFi 传书",
+                         webServer.isRunning ? "运行中 · \(webServer.serverURLString)" : "未启动") {
+                    LocalWebServerView()
+                }
+
+                // MARK: 设置
+
+                Section(header: Text("设置")) {
+                    prefLink("externaldrive.connected.to.line.below.fill", "备份与恢复",
+                             "WebDav 设置/导入旧版本数据") {
+                        WebDAVSyncView()
+                    }
+                    prefLink("gearshape.fill", "其它设置", "与功能相关的一些设置") {
+                        OtherConfigView()
                     }
                 }
 
-                Section(header: Text("正文处理")) {
-                    NavigationLink(destination: ReplaceRuleListView()) {
-                        HStack {
-                            Text("替换净化")
-                            Spacer()
-                            Text("\(bookStore.replaceRules.filter { $0.isEnabled }.count) / \(bookStore.replaceRules.count) 条启用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                // MARK: 其它
 
-                    NavigationLink(destination: TxtTocRuleListView()) {
-                        HStack {
-                            Text("TXT 目录规则")
-                            Spacer()
-                            Text("\(TxtTocRuleStore.load().filter { $0.enable }.count) 条启用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                Section(header: Text("其它")) {
+                    prefLink("bookmark.fill", "书签", "所有书签") {
+                        AllBookmarksView()
                     }
-
-                    NavigationLink(destination: DictRuleListView()) {
-                        HStack {
-                            Text("字典规则")
-                            Spacer()
-                            Text("\(DictRuleStore.load().filter { $0.enabled }.count) 条启用")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    prefLink("clock.arrow.circlepath", "阅读记录", "阅读时间记录") {
+                        ReadRecordListView()
                     }
-
-                    NavigationLink(destination: HttpTTSListView()) {
-                        HStack {
-                            Text("HttpTTS 朗读服务")
-                            Spacer()
-                            Text("\(HttpTTSStore.load().filter { $0.enabled }.count) 个引擎")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Toggle("新书默认启用净化", isOn: Binding(
-                        get: { readerConfig.prefs.replaceEnableDefault },
-                        set: { var p = readerConfig.prefs; p.replaceEnableDefault = $0; readerConfig.prefs = p }
-                    ))
-
-                    Picker("简繁转换", selection: Binding(
-                        get: { readerConfig.prefs.chineseConverterType },
-                        set: { var p = readerConfig.prefs; p.chineseConverterType = $0; readerConfig.prefs = p }
-                    )) {
-                        Text("关闭").tag(0)
-                        Text("繁体转简体").tag(1)
-                        Text("简体转繁体").tag(2)
-                    }
-
-                    Picker("图片样式", selection: Binding(
-                        get: { readerConfig.prefs.imageStyle },
-                        set: { var p = readerConfig.prefs; p.imageStyle = $0; readerConfig.prefs = p }
-                    )) {
-                        ForEach(ReadImageStyle.allCases) { style in
-                            Text(style.label).tag(style)
-                        }
+                    prefLink("info.circle", "关于", "Legado iOS") {
+                        AboutView()
                     }
                 }
+            }
+            .navigationTitle("我的")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+        #if os(iOS)
+        .navigationViewStyle(.stack)
+        #endif
+    }
 
-                Section(header: Text("关于 Legado iOS")) {
-                    HStack {
-                        Text("应用名称")
-                        Spacer()
-                        Text("Legado iOS (开源阅读)")
+    private var appThemeLabel: String {
+        switch appTheme {
+        case "light": return "浅色模式"
+        case "dark": return "深色模式"
+        default: return "跟随系统"
+        }
+    }
+
+    /// Android `Preference` row look: leading icon, bold title, caption summary, full-row tap.
+    private func prefLink<D: View>(_ icon: String, _ title: String, _ summary: String,
+                                   @ViewBuilder destination: @escaping () -> D) -> some View {
+        NavigationLink(destination: destination()) {
+            HStack(spacing: 12) {
+                prefIcon(icon)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if !summary.isEmpty {
+                        Text(summary)
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                }
+                Spacer()
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-                    HStack {
-                        Text("当前版本")
-                        Spacer()
-                        Text(appVersion)
-                            .foregroundColor(.secondary)
+    private func prefIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17))
+            .foregroundColor(.accentColor)
+            .frame(width: 26)
+    }
+}
+
+/// 其它设置 — collects the iOS feature toggles that Android keeps under
+/// `ConfigTag.OTHER_CONFIG` (正文处理 / 朗读引擎 / 缓存).
+struct OtherConfigView: View {
+    @ObservedObject var bookStore = BookStore.shared
+    @ObservedObject var readerConfig = ReaderConfig.shared
+    @State private var showClearCacheAlert: Bool = false
+    @State private var clearCacheMessage: String? = nil
+
+    var body: some View {
+        Form {
+            Section(header: Text("正文处理")) {
+                Toggle("新书默认启用净化", isOn: Binding(
+                    get: { readerConfig.prefs.replaceEnableDefault },
+                    set: { var p = readerConfig.prefs; p.replaceEnableDefault = $0; readerConfig.prefs = p }
+                ))
+
+                Picker("简繁转换", selection: Binding(
+                    get: { readerConfig.prefs.chineseConverterType },
+                    set: { var p = readerConfig.prefs; p.chineseConverterType = $0; readerConfig.prefs = p }
+                )) {
+                    Text("关闭").tag(0)
+                    Text("繁体转简体").tag(1)
+                    Text("简体转繁体").tag(2)
+                }
+
+                Picker("图片样式", selection: Binding(
+                    get: { readerConfig.prefs.imageStyle },
+                    set: { var p = readerConfig.prefs; p.imageStyle = $0; readerConfig.prefs = p }
+                )) {
+                    ForEach(ReadImageStyle.allCases) { style in
+                        Text(style.label).tag(style)
                     }
+                }
+            }
 
+            Section(header: Text("朗读")) {
+                NavigationLink(destination: HttpTTSListView()) {
                     HStack {
-                        Text("内核引擎")
+                        Text("朗读引擎")
                         Spacer()
-                        Text("Swift 原生 + JavaScriptCore")
+                        Text("\(HttpTTSStore.load().filter { $0.enabled }.count) 个引擎")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
             }
-            .navigationTitle("设置")
-            .alert("清理阅读缓存", isPresented: $showClearCacheAlert) {
-                Button("取消", role: .cancel) {}
-                Button("确定清理", role: .destructive) {
-                    for book in bookStore.bookshelf {
-                        BookContentService.shared.clearCache(for: book.bookUrl)
-                    }
-                    clearCacheMessage = "缓存已成功清理"
+
+            Section(header: Text("缓存")) {
+                Button(role: .destructive) {
+                    showClearCacheAlert = true
+                } label: {
+                    Text("清理阅读缓存")
                 }
-            } message: {
-                Text("确定要清理临时章节与图片缓存吗？书架书籍与阅读进度将保留。")
             }
         }
+        .navigationTitle("其它设置")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .alert("清理阅读缓存", isPresented: $showClearCacheAlert) {
+            Button("取消", role: .cancel) {}
+            Button("确定清理", role: .destructive) {
+                for book in bookStore.bookshelf {
+                    BookContentService.shared.clearCache(for: book.bookUrl)
+                }
+                clearCacheMessage = "缓存已成功清理"
+            }
+        } message: {
+            Text("确定要清理临时章节与图片缓存吗？书架书籍与阅读进度将保留。")
+        }
+        .alert(clearCacheMessage ?? "", isPresented: Binding(
+            get: { clearCacheMessage != nil },
+            set: { if !$0 { clearCacheMessage = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        }
+    }
+}
+
+/// 关于 — Android `AboutActivity` counterpart (应用名称 / 当前版本 / 内核引擎).
+struct AboutView: View {
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "未知"
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Text("应用名称")
+                    Spacer()
+                    Text("Legado iOS (开源阅读)")
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Text("当前版本")
+                    Spacer()
+                    Text(appVersion)
+                        .foregroundColor(.secondary)
+                }
+                HStack {
+                    Text("内核引擎")
+                    Spacer()
+                    Text("Swift 原生 + JavaScriptCore")
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Section {
+                HStack {
+                    Text("开源许可")
+                    Spacer()
+                    Text("GPLv3")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .navigationTitle("关于")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 

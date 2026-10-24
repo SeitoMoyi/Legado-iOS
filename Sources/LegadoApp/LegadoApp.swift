@@ -119,7 +119,7 @@ public struct MainTabView: View {
 
             CategoryExploreView()
                 .tabItem {
-                    Label("分类", systemImage: "square.grid.2x2.fill")
+                    Label("发现", systemImage: "safari.fill")
                 }
                 .tag(Tab.explore)
 
@@ -131,7 +131,7 @@ public struct MainTabView: View {
 
             SettingsView()
                 .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
+                    Label("我的", systemImage: "person.crop.circle.fill")
                 }
                 .tag(Tab.settings)
         }

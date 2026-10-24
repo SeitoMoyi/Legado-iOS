@@ -278,7 +278,7 @@ Legado-iOS/
 │           │   └── Sheets/               # 书签列表、整书/本章换源、章节内容编辑、起效的替换、全书搜索
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
-│           └── SettingsView.swift        # 设置中心（书源/书架与存储/外观/数据与局域网服务/正文处理/关于）
+│           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Tests/LegadoCoreTests/        # 跨模块自动化单元测试套件（256 例）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件

@@ -1923,7 +1923,7 @@ public struct ReaderView: View {
     private func performProgressSync() {
         let config = WebDAVService.shared.loadConfig()
         guard !config.url.isEmpty, !config.username.isEmpty else {
-            showControlHint("未配置 WebDAV，请先在设置中完成配置")
+            showControlHint("未配置 WebDAV，请先在「我的 - 备份与恢复」中完成配置")
             return
         }
         showControlHint("正在同步云端进度...")
@@ -2409,7 +2409,7 @@ public struct ReaderSearchSheet: View {
         guard !query.isEmpty else { return }
         let rule = enabledDictRules.first { $0.name == selectedDictRuleName } ?? enabledDictRules.first
         guard let r = rule else {
-            dictDefinition = "暂无可用的字典规则，请在设置中配置"
+            dictDefinition = "暂无可用的字典规则，请在「我的 - 字典规则」中配置"
             return
         }
         isSearchingDict = true
