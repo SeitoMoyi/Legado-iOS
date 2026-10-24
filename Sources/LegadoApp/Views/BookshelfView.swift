@@ -9,6 +9,7 @@ public enum BookshelfSortOrder: Int, CaseIterable {
     case recentUpdate = 1
     case name = 2
     case author = 3
+    case manual = 4
 
     public var label: String {
         switch self {
@@ -16,6 +17,7 @@ public enum BookshelfSortOrder: Int, CaseIterable {
         case .recentUpdate: return "按最近更新"
         case .name: return "按书名排序"
         case .author: return "按作者排序"
+        case .manual: return "手动排序（可拖拽）"
         }
     }
 }
@@ -57,6 +59,9 @@ public struct BookshelfView: View {
     private var sortedBookshelf: [Book] {
         currentGroupFilteredBooks.sorted { b1, b2 in
             switch sortOrder {
+            case .manual:
+                // Stable: ties keep arrival order (an unset `order` is 0 for everyone)
+                return b1.order < b2.order
             case .recentRead:
                 let t1 = max(b1.durChapterTime, b1.lastCheckTime)
                 let t2 = max(b2.durChapterTime, b2.lastCheckTime)
@@ -149,7 +154,14 @@ public struct BookshelfView: View {
                                         bookStore.removeBook(bookUrl: sortedBookshelf[idx].bookUrl)
                                     }
                                 }
+                                .onMove { source, destination in
+                                    var reordered = sortedBookshelf
+                                    reordered.move(fromOffsets: source, toOffset: destination)
+                                    bookStore.applyManualOrder(reordered)
+                                }
                             }
+                            .deleteDisabled(sortOrder == .manual)
+                            .modifier(ManualSortEditMode(isActive: sortOrder == .manual))
                             .refreshable {
                                 await bookStore.refreshAllBooks()
                             }
@@ -732,5 +744,19 @@ struct BookGroupManageSheet: View {
                 groups = BookGroupStore.load()
             }
         }
+    }
+}
+
+
+/// Drag handles only materialise when a List is in edit mode; `\.editMode` is iOS-only,
+/// so the manual-sort shelf wraps it (macOS falls back to normal reorder controls).
+struct ManualSortEditMode: ViewModifier {
+    let isActive: Bool
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.environment(\.editMode, .constant(isActive ? .active : .inactive))
+        #else
+        content
+        #endif
     }
 }

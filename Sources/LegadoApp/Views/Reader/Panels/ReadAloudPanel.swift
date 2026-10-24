@@ -20,6 +20,8 @@ struct ReadAloudPanel: View {
     let onMainMenu: () -> Void
     let onGoBackground: () -> Void
     let onOpenSettings: () -> Void
+    /// Start/continue via the reader's re-anchor policy (翻页后从新页开头读).
+    var onPlayPause: () -> Void = {}
 
     private static let timerPresets = [0, 5, 10, 15, 30, 60, 90, 180]
 
@@ -71,9 +73,7 @@ struct ReadAloudPanel: View {
             transportButton("arrow.turn.up.left", label: "上一段", enabled: true) { audio.prevParagraph() }
             transportButton(audio.isPlaying ? "pause.circle.fill" : "play.circle.fill",
                             label: audio.isPlaying ? "暂停" : "播放",
-                            enabled: true, emphasized: true) {
-                audio.togglePlayPause()
-            }
+                            enabled: true, emphasized: true, action: onPlayPause)
             transportButton("stop.circle", label: "停止", enabled: audio.isActive) { audio.stop() }
             transportButton("arrow.turn.up.right", label: "下一段", enabled: true) { audio.nextParagraph() }
             transportButton("chevron.right", label: "下一章", enabled: canGoNext, action: onNextChapter)

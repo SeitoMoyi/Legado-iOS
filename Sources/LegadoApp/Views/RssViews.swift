@@ -98,6 +98,22 @@ public struct RssSourceListView: View {
                             sources.remove(atOffsets: indexSet)
                             RssStore.saveSources(sources)
                         }
+                        .onMove { source, destination in
+                            sources.move(fromOffsets: source, toOffset: destination)
+                            // 搜索过滤视图：置换可见子集的 customOrder 槽位，视图外的源不动。
+                            let urlSet = Set(sources.map(\.sourceUrl))
+                            var all = RssStore.loadSources()
+                            let slots = all.filter { urlSet.contains($0.sourceUrl) }
+                                .map(\.customOrder).sorted()
+                            guard slots.count == sources.count else { return }
+                            for (idx, src) in sources.enumerated() {
+                                if let i = all.firstIndex(where: { $0.sourceUrl == src.sourceUrl }) {
+                                    all[i].customOrder = slots[idx]
+                                }
+                            }
+                            sources = all
+                            RssStore.saveSources(all)
+                        }
                     }
                     #if os(iOS)
                     .listStyle(.insetGrouped)
@@ -114,6 +130,9 @@ public struct RssSourceListView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 12) {
+                        #if os(iOS)
+                        EditButton()
+                        #endif
                         Button {
                             showFavorites = true
                         } label: {

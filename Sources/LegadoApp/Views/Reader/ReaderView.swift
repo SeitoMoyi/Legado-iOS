@@ -63,6 +63,7 @@ public struct ReaderView: View {
 
     @State private var showTOC: Bool = false
     @State private var showSearch: Bool = false
+    @State private var showFullSearch: Bool = false
     @State private var showEffectiveReplaces: Bool = false
     @State private var showBookmarks: Bool = false
     @State private var changeSourceMode: ChangeSourceSheet.Mode? = nil
@@ -338,6 +339,14 @@ public struct ReaderView: View {
         .sheet(isPresented: $showSearch) {
             searchSheet
         }
+        .sheet(isPresented: $showFullSearch) {
+            SearchContentSheet(book: book, chapters: chapters,
+                               onJump: { chapterIndex, charPos in
+                showFullSearch = false
+                withAnimation { showControls = false }
+                jumpToChapter(chapterIndex, charPos: charPos)
+            }, processContext: processContext)
+        }
         .sheet(isPresented: $showEffectiveReplaces) {
             EffectiveReplacesSheet(book: book,
                                    cacheKey: currentChapterCacheKey,
@@ -498,7 +507,8 @@ public struct ReaderView: View {
         if audioService.isActive {
             VStack(spacing: 0) {
                 Spacer()
-                ReadAloudFloatingBar(audio: audioService, config: readerConfig)
+                ReadAloudFloatingBar(audio: audioService, config: readerConfig,
+                                     onPlay: aloudPlayOrResume)
                     .padding(.bottom, 32)
             }
         }
@@ -1140,6 +1150,17 @@ public struct ReaderView: View {
         loadInitialChapter(at: targetIndex, targetPageIndex: toEnd ? -1 : 0, scrollToTargetEnd: toEnd)
     }
 
+    /// Precise jump used by 全书搜索 results: lands on the exact chapter + character offset
+    /// (paged mode resolves the page via `pageIndex(forCharOffset:)`, scroll mode scrolls).
+    private func jumpToChapter(_ targetIndex: Int, charPos: Int) {
+        guard targetIndex >= 0 && targetIndex < chapters.count else { return }
+        audioService.stop()
+        currentChapterIndex = targetIndex
+        currentPageIndex = 0
+        scrollSessionId = UUID()
+        loadInitialChapter(at: targetIndex, targetCharPos: max(0, charPos))
+    }
+
     private func handlePageModeChange(to newMode: PageMode) {
         guard let cur = currentLoadedChapter else { return }
 
@@ -1231,6 +1252,13 @@ public struct ReaderView: View {
                 if targetIndex != currentChapterIndex {
                     jumpToChapter(targetIndex)
                 }
+            },
+            onOpenFullSearch: {
+                // Two sheets share this host; presenting while the reader search sheet is
+                // still dismissing would silently drop the new one.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    showFullSearch = true
+                }
             }
         )
     }
@@ -1246,7 +1274,8 @@ public struct ReaderView: View {
                            onOpenToc: { closePanel(); showTOC = true },
                            onMainMenu: { closePanel() },
                            onGoBackground: { goBackgroundKeepingAudio() },
-                           onOpenSettings: { openPanel(.moreSettings) })
+                           onOpenSettings: { openPanel(.moreSettings) },
+                           onPlayPause: { aloudPlayOrResume() })
     }
 
     private var tocSheet: some View {
@@ -1765,10 +1794,35 @@ public struct ReaderView: View {
     }
 
     private func toggleAloud() {
+        aloudPlayOrResume()
+    }
+
+    /// Single start/resume policy for every 听书 entry point (底栏按钮、九宫格、浮动条、朗读面板):
+    ///
+    /// - speaking → pause
+    /// - paused **and the visible paragraph is still the speaking paragraph** → resume (keeps
+    ///   HttpTTS mid-audio position)
+    /// - otherwise → fresh load anchored to the first visible paragraph
+    ///
+    /// The third branch is the fix for 翻页后点继续接着旧位置读: the old code resumed the stale
+    /// `currentIndex` no matter how far the reader had turned, because every entry point called
+    /// `togglePlayPause()` / `play()` directly.
+    private func aloudPlayOrResume() {
         configureAudioContext()
-        if audioService.isActive {
-            audioService.togglePlayPause()
-        } else {
+        switch audioService.state {
+        case .speaking:
+            audioService.pause()
+        case .paused:
+            let stillOnSpeakingParagraph =
+                audioService.loadedChapterText == currentChapterContent
+                && audioService.paragraphIndex(containingCharPos: currentAloudStartPos()) == audioService.currentIndex
+            if stillOnSpeakingParagraph {
+                audioService.resume()
+            } else {
+                audioService.load(chapterText: currentChapterContent,
+                                  startCharPos: currentAloudStartPos())
+            }
+        case .stopped:
             audioService.load(chapterText: currentChapterContent,
                               startCharPos: currentAloudStartPos())
         }
@@ -2130,6 +2184,7 @@ public struct ReaderSearchSheet: View {
     let currentContent: String
     let chapters: [BookChapter]
     let onSelectChapter: (Int, String?) -> Void
+    var onOpenFullSearch: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
     @State private var searchText: String = ""
@@ -2197,6 +2252,30 @@ public struct ReaderSearchSheet: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+
+                Button {
+                    dismiss()
+                    onOpenFullSearch()
+                } label: {
+                    HStack {
+                        Image(systemName: "text.magnifyingglass")
+                        Text("全书搜索（含未缓存章节，可正则）")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.secondary.opacity(0.08))
+                    .cornerRadius(8)
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+
                 if searchScope == 2 {
                     dictLookupView
                 } else if searchText.isEmpty {

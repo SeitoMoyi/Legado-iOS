@@ -313,15 +313,67 @@ public class BookStore: ObservableObject {
             saveBookshelf()
             return existing
         } else {
-            bookshelf.insert(book, at: 0)
+            var newBook = book
+            newBook.order = nextManualOrder
+            bookshelf.insert(newBook, at: 0)
             saveBookshelf()
-            return book
+            return newBook
         }
     }
 
     public func removeBook(bookUrl: String) {
         bookshelf.removeAll { $0.bookUrl == bookUrl }
         saveBookshelf()
+    }
+
+    // MARK: - 手动排序 (Android `Book.order`)
+
+    /// Next manual position for a newly added book: Android's `BookInfoViewModel` pushes new
+    /// books to the top with `order = minOrder - 1`.
+    public var nextManualOrder: Int {
+        (bookshelf.map(\.order).min() ?? 1) - 1
+    }
+
+    /// Applies a drag-reorder from the (possibly group-filtered) shelf view.
+    ///
+    /// The dragged subset **permutes its own existing order values** in the new sequence.
+    /// Reindexing the visible list to 0…n-1 would collide with the other groups' slots and
+    /// reshuffle the 全部 view; permuting keeps every non-dragged book exactly where it was,
+    /// and degenerates to a plain 0…n-1 reindex when the view shows the whole shelf.
+    public func applyManualOrder(_ orderedBooks: [Book]) {
+        let urlSet = Set(orderedBooks.map(\.bookUrl))
+        let slotValues = bookshelf.filter { urlSet.contains($0.bookUrl) }
+            .map(\.order).sorted()
+        guard slotValues.count == orderedBooks.count else { return }
+        let newOrder: [String: Int] = Dictionary(uniqueKeysWithValues:
+            orderedBooks.enumerated().map { ($1.bookUrl, slotValues[$0]) })
+        for i in 0..<bookshelf.count {
+            if let o = newOrder[bookshelf[i].bookUrl] {
+                bookshelf[i].order = o
+            }
+        }
+        saveBookshelf()
+    }
+
+    /// Drag-to-reorder 书源 = 优先级调整 (Android `BookSource.customOrder` drives 换源候选).
+    ///
+    /// Same subset-permutation rule as `applyManualOrder`: a filtered/searched view permutes
+    /// its own `customOrder` slots so sources outside the view keep their priority, and the
+    /// full-list case degenerates to a plain 0…n-1 reindex.
+    public func applySourceOrder(_ orderedSources: [BookSource]) {
+        let urlSet = Set(orderedSources.map(\.bookSourceUrl))
+        let slotValues = sources.filter { urlSet.contains($0.bookSourceUrl) }
+            .compactMap(\.customOrder).sorted()
+        guard slotValues.count == orderedSources.count else { return }
+        let newOrder: [String: Int] = Dictionary(uniqueKeysWithValues:
+            orderedSources.enumerated().map { ($1.bookSourceUrl, slotValues[$0]) })
+        for i in 0..<sources.count {
+            if let o = newOrder[sources[i].bookSourceUrl] {
+                sources[i].customOrder = o
+            }
+        }
+        sources.sort { ($0.customOrder ?? 0) < ($1.customOrder ?? 0) }
+        saveSources()
     }
 
     public func removeBooks(bookUrls: Set<String>) {

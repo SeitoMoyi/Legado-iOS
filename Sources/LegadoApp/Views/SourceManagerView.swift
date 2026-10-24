@@ -17,6 +17,7 @@ public struct SourceManagerView: View {
     @State private var searchText: String = ""
     @State private var selectedGroupFilter: String = "全部"
     @State private var isSelecting: Bool = false
+    @State private var isSortMode: Bool = false
     @State private var selectedUrls: Set<String> = []
 
     // Validation state
@@ -42,6 +43,98 @@ public struct SourceManagerView: View {
     public init() {}
 
     private let availableGroupFilters: [String] = ["全部", "已启用", "已禁用"]
+
+    private var sourceList: some View {
+        List {
+            Section(header: Text("书源 (\(filteredSources.count)/\(bookStore.sources.count))")) {
+                ForEach(filteredSources) { source in
+                    if isSelecting {
+                        Button {
+                            toggleSelection(for: source.bookSourceUrl)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedUrls.contains(source.bookSourceUrl) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedUrls.contains(source.bookSourceUrl) ? .accentColor : .secondary)
+                                    .font(.system(size: 20))
+                                sourceRow(for: source)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink(destination: SourceDetailView(source: source)) {
+                            sourceRow(for: source)
+                        }
+                        .contextMenu {
+                            Button {
+                                selectedSourceForEdit = source
+                            } label: {
+                                Label("编辑规则", systemImage: "pencil")
+                            }
+
+                            Button {
+                                selectedSourceForDebug = source
+                            } label: {
+                                Label("调试该源", systemImage: "ladybug")
+                            }
+                            Button {
+                                bookStore.pinSource(sourceUrl: source.bookSourceUrl)
+                            } label: {
+                                Label("置顶", systemImage: "pin")
+                            }
+
+                            if !(source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+                                Button {
+                                    bookStore.toggleSourceExplore(sourceUrl: source.bookSourceUrl)
+                                } label: {
+                                    Label((source.enabledExplore ?? true) ? "禁用发现" : "启用发现",
+                                          systemImage: (source.enabledExplore ?? true) ? "eye.slash" : "eye")
+                                }
+                            }
+
+                            if source.loginUi != nil || source.loginUrl != nil {
+                                Button {
+                                    selectedSourceForLogin = source
+                                } label: {
+                                    Label(source.isLogged ? "重新登录" : "登录", systemImage: "person.badge.key")
+                                }
+                            }
+
+                            Button {
+                                SearchViewModel.shared.selectSource(url: source.bookSourceUrl)
+                                selectedSourceForSearch = source
+                            } label: {
+                                Label("仅在此源搜索", systemImage: "magnifyingglass")
+                            }
+
+                            Button {
+                                refreshSource(source)
+                            } label: {
+                                Label("刷新发现", systemImage: "arrow.clockwise")
+                            }
+
+                            Button {
+                                copySourcesJSON(urls: [source.bookSourceUrl])
+                            } label: {
+                                Label("拷贝书源 JSON", systemImage: "doc.on.doc")
+                            }
+
+                            Button(role: .destructive) {
+                                bookStore.deleteSource(sourceUrl: source.bookSourceUrl)
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .onDelete(perform: deleteFilteredSources)
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+    }
 
     private var filteredSources: [BookSource] {
         var list = bookStore.sources
@@ -86,95 +179,7 @@ public struct SourceManagerView: View {
                 validationBanner
             }
 
-            List {
-                Section(header: Text("书源 (\(filteredSources.count)/\(bookStore.sources.count))")) {
-                    ForEach(filteredSources) { source in
-                        if isSelecting {
-                            Button {
-                                toggleSelection(for: source.bookSourceUrl)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: selectedUrls.contains(source.bookSourceUrl) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(selectedUrls.contains(source.bookSourceUrl) ? .accentColor : .secondary)
-                                        .font(.system(size: 20))
-                                    sourceRow(for: source)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink(destination: SourceDetailView(source: source)) {
-                                sourceRow(for: source)
-                            }
-                            .contextMenu {
-                                Button {
-                                    selectedSourceForEdit = source
-                                } label: {
-                                    Label("编辑规则", systemImage: "pencil")
-                                }
-
-                                Button {
-                                    selectedSourceForDebug = source
-                                } label: {
-                                    Label("调试该源", systemImage: "ladybug")
-                                }
-                                Button {
-                                    bookStore.pinSource(sourceUrl: source.bookSourceUrl)
-                                } label: {
-                                    Label("置顶", systemImage: "pin")
-                                }
-
-                                if !(source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
-                                    Button {
-                                        bookStore.toggleSourceExplore(sourceUrl: source.bookSourceUrl)
-                                    } label: {
-                                        Label((source.enabledExplore ?? true) ? "禁用发现" : "启用发现",
-                                              systemImage: (source.enabledExplore ?? true) ? "eye.slash" : "eye")
-                                    }
-                                }
-
-                                if source.loginUi != nil || source.loginUrl != nil {
-                                    Button {
-                                        selectedSourceForLogin = source
-                                    } label: {
-                                        Label(source.isLogged ? "重新登录" : "登录", systemImage: "person.badge.key")
-                                    }
-                                }
-
-                                Button {
-                                    SearchViewModel.shared.selectSource(url: source.bookSourceUrl)
-                                    selectedSourceForSearch = source
-                                } label: {
-                                    Label("仅在此源搜索", systemImage: "magnifyingglass")
-                                }
-
-                                Button {
-                                    refreshSource(source)
-                                } label: {
-                                    Label("刷新发现", systemImage: "arrow.clockwise")
-                                }
-
-                                Button {
-                                    copySourcesJSON(urls: [source.bookSourceUrl])
-                                } label: {
-                                    Label("拷贝书源 JSON", systemImage: "doc.on.doc")
-                                }
-
-                                Button(role: .destructive) {
-                                    bookStore.deleteSource(sourceUrl: source.bookSourceUrl)
-                                } label: {
-                                    Label("删除", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-                    .onDelete(perform: deleteFilteredSources)
-                }
-            }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
+            sourceList
 
             if isSelecting {
                 batchActionBar
@@ -191,10 +196,25 @@ public struct SourceManagerView: View {
                             selectedUrls.removeAll()
                         }
                     }
+                } else if isSortMode {
+                    Button("完成") {
+                        withAnimation { isSortMode = false }
+                    }
                 } else {
                     Menu {
                         Button {
                             withAnimation {
+                                isSelecting = false
+                                isSortMode.toggle()
+                            }
+                        } label: {
+                            Label(isSortMode ? "退出拖拽排序" : "拖拽排序（优先级）",
+                                  systemImage: isSortMode ? "checkmark.circle" : "arrow.up.arrow.down")
+                        }
+
+                        Button {
+                            withAnimation {
+                                isSortMode = false
                                 isSelecting = true
                             }
                         } label: {

@@ -83,7 +83,8 @@ final class JSONExtrasTests: XCTestCase {
         XCTAssertEqual(decoded.extra["customTag"], JSONValue.string("玄幻"))
         XCTAssertEqual(decoded.extra["charset"], JSONValue.string("gbk"))
         XCTAssertEqual(decoded.extra["type"], JSONValue.int(0))
-        XCTAssertEqual(decoded.extra["order"], JSONValue.int(3))
+        // `order` became a modeled field (manual shelf sort, Plan Part 2) — decoded natively now
+        XCTAssertEqual(decoded.order, 3)
         XCTAssertEqual(decoded.extra["syncTime"], JSONValue.int(1_700_000_000_000))
 
         let reencoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as! [String: Any]

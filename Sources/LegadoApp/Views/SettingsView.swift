@@ -463,6 +463,12 @@ public struct TxtTocRuleListView: View {
                     rules.remove(atOffsets: indexSet)
                     TxtTocRuleStore.save(rules)
                 }
+                .onMove { source, destination in
+                    rules.move(fromOffsets: source, toOffset: destination)
+                    // serialNumber 即匹配优先级，重排后按显示顺序重写
+                    for idx in rules.indices { rules[idx].serialNumber = idx }
+                    TxtTocRuleStore.save(rules)
+                }
             }
         }
         #if os(iOS)
@@ -477,6 +483,9 @@ public struct TxtTocRuleListView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 12) {
+                    #if os(iOS)
+                    EditButton()
+                    #endif
                     Button {
                         editingRule = TxtTocRule(id: Int64(Date().timeIntervalSince1970 * 1000), name: "", rule: "", example: "")
                         isCreatingNew = true
@@ -810,6 +819,11 @@ public struct DictRuleListView: View {
                     rules.remove(atOffsets: indexSet)
                     DictRuleStore.save(rules)
                 }
+                .onMove { source, destination in
+                    rules.move(fromOffsets: source, toOffset: destination)
+                    for idx in rules.indices { rules[idx].sortNumber = idx }
+                    DictRuleStore.save(rules)
+                }
             }
         }
         #if os(iOS)
@@ -824,6 +838,9 @@ public struct DictRuleListView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 12) {
+                    #if os(iOS)
+                    EditButton()
+                    #endif
                     Button {
                         editingRule = DictRule(name: "", urlRule: "https://...{{key}}", showRule: "body@text")
                         isCreatingNew = true
@@ -1029,6 +1046,10 @@ public struct HttpTTSListView: View {
                     }
                     HttpTTSStore.save(engines)
                 }
+                .onMove { source, destination in
+                    engines.move(fromOffsets: source, toOffset: destination)
+                    HttpTTSStore.save(engines)
+                }
             }
         }
         #if os(iOS)
@@ -1043,6 +1064,9 @@ public struct HttpTTSListView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 HStack(spacing: 12) {
+                    #if os(iOS)
+                    EditButton()
+                    #endif
                     Button {
                         editingEngine = HttpTTS(name: "", url: "https://...{{speakText}}")
                         isCreatingNew = true

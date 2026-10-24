@@ -79,10 +79,15 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
 
     // MARK: - Loading
 
+    /// Chapter text currently split into `paragraphs` — lets the reader detect that the user
+    /// changed chapters while paused (resume must not replay the old chapter's queue).
+    public private(set) var loadedChapterText: String = ""
+
     /// Loads a chapter's text and starts at `startCharPos` (or from the top when 0).
     public func load(chapterText: String, startCharPos: Int = 0, language: String = "zh-CN") {
         isSwitchingChapter = false
         self.language = language
+        loadedChapterText = chapterText
         let lines = ReadAloudText.paragraphs(in: chapterText)
         paragraphs = lines
         guard !lines.isEmpty else {
@@ -90,6 +95,13 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
             return
         }
         speakParagraph(at: ReadAloudText.paragraphIndex(containing: startCharPos, in: lines))
+    }
+
+    /// Paragraph index containing a ReadAloudText-basis char offset; nil when nothing is
+    /// loaded. The reader uses it to decide 翻页后 resume-vs-re-anchor.
+    public func paragraphIndex(containingCharPos pos: Int) -> Int? {
+        guard !paragraphs.isEmpty else { return nil }
+        return ReadAloudText.paragraphIndex(containing: pos, in: paragraphs)
     }
 
     // MARK: - Speaking a paragraph
@@ -251,6 +263,7 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         stopSpeakingOnly()
         paragraphs = []
         currentParagraph = ""
+        loadedChapterText = ""
         #if os(iOS)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         #endif

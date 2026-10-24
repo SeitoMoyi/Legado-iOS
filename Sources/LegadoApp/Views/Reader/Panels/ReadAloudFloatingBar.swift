@@ -12,12 +12,15 @@ import LegadoCore
 struct ReadAloudFloatingBar: View {
     @ObservedObject var audio: AudioBookService
     let config: ReaderConfig
+    /// Start/continue goes through the reader's re-anchoring policy — after 翻页 the queue must
+    /// restart at the newly visible paragraph, not the stale speaking index.
+    var onPlay: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 0) {
             control(icon: "play.circle.fill", label: "播放",
                     highlight: !audio.isPlaying,
-                    enabled: !audio.isPlaying) { audio.play() }
+                    enabled: !audio.isPlaying, action: onPlay)
             control(icon: "pause.circle.fill", label: "暂停",
                     highlight: audio.isPlaying,
                     enabled: audio.isPlaying) { audio.pause() }

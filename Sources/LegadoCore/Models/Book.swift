@@ -33,9 +33,12 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var customCoverUrl: String?
     /// Group ID bitmap or single group ID (matching Android `Book.group: Long`). Default 0 means ungrouped.
     public var group: Int64 = 0
+    /// Manual shelf position (Android `Book.order`): smaller = closer to the top; new books
+    /// take `minOrder - 1`. Only meaningful while the shelf sorts 手动排序.
+    public var order: Int = 0
 
     /// Android-only fields this model does not declare (`customTag`, `customIntro`, `charset`,
-    /// `type`, `order`, `syncTime` …), kept verbatim so bookshelf round-trips through
+    /// `type`, `syncTime` …), kept verbatim so bookshelf round-trips through
     /// import/export and WebDAV backup without loss. See `JSONExtraPreserving` and Plan §二 #15.
     public var extra: [String: JSONValue] = [:]
 
@@ -72,7 +75,8 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         useReplaceRule: Bool? = nil,
         variable: String? = nil,
         customCoverUrl: String? = nil,
-        group: Int64 = 0
+        group: Int64 = 0,
+        order: Int = 0
     ) {
         self.bookUrl = bookUrl
         self.name = name
@@ -95,13 +99,14 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         self.variable = variable
         self.customCoverUrl = customCoverUrl
         self.group = group
+        self.order = order
     }
 
     enum CodingKeys: String, CodingKey {
         case bookUrl, name, author, kind, coverUrl, intro
         case origin, originName, tocUrl, wordCount, latestChapterTitle
         case durChapterTitle, durChapterIndex, durChapterPos, durChapterTime, totalChapterNum, lastCheckTime
-        case useReplaceRule, variable, customCoverUrl, group
+        case useReplaceRule, variable, customCoverUrl, group, order
     }
 
     public static let modeledJSONKeys: Set<String> = [
@@ -109,7 +114,7 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         "origin", "originName", "tocUrl", "wordCount", "latestChapterTitle",
         "durChapterTitle", "durChapterIndex", "durChapterPos", "durChapterTime",
         "totalChapterNum", "lastCheckTime", "useReplaceRule", "variable",
-        "customCoverUrl", "group"
+        "customCoverUrl", "group", "order"
     ]
 
     public init(from decoder: Decoder) throws {
@@ -135,6 +140,7 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         self.variable = try? container.decodeIfPresent(String.self, forKey: .variable)
         self.customCoverUrl = try? container.decodeIfPresent(String.self, forKey: .customCoverUrl)
         self.group = (try? container.decode(Int64.self, forKey: .group)) ?? 0
+        self.order = (try? container.decodeIfPresent(Int.self, forKey: .order)) ?? 0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -160,6 +166,7 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         try container.encodeIfPresent(variable, forKey: .variable)
         try container.encodeIfPresent(customCoverUrl, forKey: .customCoverUrl)
         try container.encode(group, forKey: .group)
+        try container.encode(order, forKey: .order)
         try encodeJSONExtras(extra, to: encoder)
     }
 
