@@ -5,7 +5,7 @@
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **71 个 Swift 文件 ≈ 26.3k 行**（LegadoCore 35 文件 9.0k 行 + LegadoApp 36 文件 17.3k 行；含 Tests 共 88 文件）。
 > - **单测门禁**：17 个测试文件共 **256 例单元测试**（249 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 249/249 通过）。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.7.3`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.7.4`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录
