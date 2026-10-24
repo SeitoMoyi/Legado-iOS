@@ -226,6 +226,10 @@ final class LiveSourceTests: XCTestCase {
 
         print("Fetched detailed book: '\(detailedBook.name)'")
         print("Author: '\(detailedBook.author)', chapters: \(chapters.count)")
+        print("Kind: '\(detailedBook.kind ?? "")'")
+        // kind 解析对齐 Android getStringList：JSONPath 数组规则必须返回完整标签列表
+        XCTAssertFalse(detailedBook.kind?.isEmpty ?? true, "kind should be parsed (getStringList parity)")
+        XCTAssertTrue(detailedBook.kind!.contains(","), "kind should contain multiple tags joined by ',' (got: \(detailedBook.kind ?? ""))")
 
         XCTAssertFalse(detailedBook.author.isEmpty, "Author should not be empty")
         XCTAssertNotEqual(detailedBook.author, "未知作者")

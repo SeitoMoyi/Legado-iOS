@@ -303,7 +303,12 @@ public class BookStore: ObservableObject {
     public func saveOrUpdateBook(_ book: Book) -> Book {
         if let index = bookshelf.firstIndex(where: { $0.bookUrl == book.bookUrl }) {
             var existing = bookshelf[index]
+            // Merge policy mirrors Android `BookInfoViewModel.upBookInfo`: the fetched detail
+            // overwrites display metadata wholesale (identity is bookUrl, so renaming is safe);
+            // reading progress fields are owned by the shelf copy.
+            if !book.name.isEmpty { existing.name = book.name }
             if !book.author.isEmpty && book.author != "未知作者" { existing.author = book.author }
+            if let cover = book.coverUrl, !cover.isEmpty { existing.coverUrl = book.coverUrl }
             if let intro = book.intro, !intro.isEmpty, !intro.hasPrefix("源站：") { existing.intro = intro }
             if let kind = book.kind, !kind.isEmpty { existing.kind = kind }
             if let wordCount = book.wordCount, !wordCount.isEmpty { existing.wordCount = wordCount }
@@ -509,6 +514,11 @@ public class BookStore: ObservableObject {
 
                     do {
                         let (detailedBook, chapters) = try await BookContentService.shared.fetchBookDetail(book: book, source: source)
+                        // 目录也要落盘（Android loadChapter 保存章节列表）：只更新元数据不存
+                        // 章节的话，书架刷新后阅读器仍读旧目录。
+                        if !chapters.isEmpty {
+                            self.saveChapters(chapters, for: book.bookUrl)
+                        }
                         var updated = detailedBook
                         updated.totalChapterNum = chapters.count
                         if let lastCh = chapters.last {
