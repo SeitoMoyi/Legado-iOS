@@ -43,6 +43,16 @@ public struct BookshelfView: View {
     @ObservedObject private var launchRouter = LaunchRouter.shared
     @State private var showGroupManageSheet: Bool = false
 
+    // 书架二级菜单 (Plan 第一批): 缓存/导出、书单导出、添加网址、远程书籍、书架管理
+    @State private var showCacheManage: Bool = false
+    @State private var showRemoteBooks: Bool = false
+    @State private var showAddUrl: Bool = false
+    @State private var showShelfManage: Bool = false
+    @State private var shelfShareItems: [Any]? = nil
+    @State private var shelfAlertTitle: String = ""
+    @State private var shelfAlertMessage: String = ""
+    @State private var showShelfAlert: Bool = false
+
     public init() {}
 
     private var bookGroups: [BookGroup] {
@@ -241,9 +251,39 @@ public struct BookshelfView: View {
                                     }
 
                                     Button {
+                                        showAddUrl = true
+                                    } label: {
+                                        Label("添加网址", systemImage: "link.badge.plus")
+                                    }
+
+                                    Button {
+                                        showRemoteBooks = true
+                                    } label: {
+                                        Label("远程书籍 (WebDAV)", systemImage: "icloud.and.arrow.down")
+                                    }
+
+                                    Button {
+                                        showCacheManage = true
+                                    } label: {
+                                        Label("缓存 / 导出", systemImage: "internaldrive")
+                                    }
+
+                                    Button {
+                                        exportShelfJSON()
+                                    } label: {
+                                        Label("导出书单", systemImage: "square.and.arrow.up.on.square")
+                                    }
+
+                                    Button {
                                         showGroupManageSheet = true
                                     } label: {
                                         Label("分组管理", systemImage: "folder.badge.gearshape")
+                                    }
+
+                                    Button {
+                                        showShelfManage = true
+                                    } label: {
+                                        Label("书架管理", systemImage: "square.grid.2x2")
                                     }
 
                                     Menu("书架布局") {
@@ -283,6 +323,38 @@ public struct BookshelfView: View {
                 }
                 .sheet(isPresented: $showGroupManageSheet) {
                     BookGroupManageSheet()
+                }
+                .sheet(isPresented: $showCacheManage) {
+                    CacheManageView()
+                }
+                .sheet(isPresented: $showRemoteBooks) {
+                    RemoteBooksView { imported in
+                        showRemoteBooks = false
+                        selectedBook = imported
+                    }
+                }
+                .sheet(isPresented: $showAddUrl) {
+                    AddUrlSheet { added in
+                        shelfAlertTitle = "已加入书架"
+                        shelfAlertMessage = "「\(added.name)」已通过网址添加到书架"
+                        showShelfAlert = true
+                    }
+                }
+                .sheet(isPresented: $showShelfManage) {
+                    ShelfGroupDisplaySheet()
+                }
+                .sheet(isPresented: Binding(
+                    get: { shelfShareItems != nil },
+                    set: { if !$0 { shelfShareItems = nil } }
+                )) {
+                    if let items = shelfShareItems {
+                        ActivityShareSheet(items: items)
+                    }
+                }
+                .alert(shelfAlertTitle, isPresented: $showShelfAlert) {
+                    Button("确定", role: .cancel) {}
+                } message: {
+                    Text(shelfAlertMessage)
                 }
                 .confirmationDialog("将选中的 \(selectedBookUrls.count) 本书籍移入分组", isPresented: $showMoveGroupDialog, titleVisibility: .visible) {
                     ForEach(BookGroupStore.load().filter { $0.groupId > 0 }) { g in
@@ -368,6 +440,18 @@ public struct BookshelfView: View {
             selectedBookUrls.remove(url)
         } else {
             selectedBookUrls.insert(url)
+        }
+    }
+
+    /// 导出书单: the same `bookshelf.json` shape the WebDAV backup writes.
+    private func exportShelfJSON() {
+        do {
+            let url = try BookExportService.exportBookshelfJSON(books: bookStore.bookshelf)
+            shelfShareItems = [url]
+        } catch {
+            shelfAlertTitle = "导出失败"
+            shelfAlertMessage = error.localizedDescription
+            showShelfAlert = true
         }
     }
 

@@ -589,6 +589,99 @@ public class WebDAVService {
     }
 
     /// Restores bookshelf and sources from WebDAV server (supports both Android backup*.zip and direct JSON files)
+    // MARK: - Remote File Browsing (Plan 第一批 书架二级菜单 ④: 远程书籍)
+
+    /// One entry of a WebDAV directory listing.
+    public struct RemoteDirectoryEntry: Identifiable, Equatable {
+        public var id: String { url.absoluteString }
+        public let name: String
+        public let url: URL
+        public let isDirectory: Bool
+        public let size: Int64?
+    }
+
+    /// Depth-1 PROPFIND listing of an arbitrary directory URL, used by the 远程书籍 browser.
+    public func listDirectory(url directoryURL: URL, config: WebDAVConfig) async throws -> [RemoteDirectoryEntry] {
+        var req = makeRequest(url: directoryURL, method: "PROPFIND", config: config)
+        req.setValue("1", forHTTPHeaderField: "Depth")
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw WebDAVError.custom("无法连接到 WebDAV 服务器")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw WebDAVError.unauthorized
+        }
+        guard (200...299).contains(http.statusCode) || http.statusCode == 207 else {
+            throw WebDAVError.custom("目录读取失败 (HTTP \(http.statusCode))")
+        }
+        guard let xml = String(data: data, encoding: .utf8) else {
+            return []
+        }
+        return Self.parseDirectoryEntries(from: xml, baseURL: directoryURL)
+    }
+
+    /// Shared regex parsing for PROPFIND multistatus: href + collection marker + size.
+    static func parseDirectoryEntries(from xml: String, baseURL: URL) -> [RemoteDirectoryEntry] {
+        let responsePattern = #"(?is)<(?:[a-zA-Z0-9_-]+:)?response\b[^>]*>(.*?)</(?:[a-zA-Z0-9_-]+:)?response>"#
+        guard let responseRegex = try? NSRegularExpression(pattern: responsePattern) else { return [] }
+        let hrefPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?href\b[^>]*>([^<]+)</(?:[a-zA-Z0-9_-]+:)?href>"#
+        let hrefRegex = try? NSRegularExpression(pattern: hrefPattern)
+        let collectionPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?collection\s*/?>"#
+        let collectionRegex = try? NSRegularExpression(pattern: collectionPattern)
+        let lengthPattern = #"(?i)<(?:[a-zA-Z0-9_-]+:)?getcontentlength\b[^>]*>([0-9]+)</(?:[a-zA-Z0-9_-]+:)?getcontentlength>"#
+        let lengthRegex = try? NSRegularExpression(pattern: lengthPattern)
+
+        let baseDir = baseURL.hasDirectoryPath ? baseURL
+            : baseURL.deletingLastPathComponent()
+
+        var entries: [RemoteDirectoryEntry] = []
+        let range = NSRange(xml.startIndex..<xml.endIndex, in: xml)
+        for match in responseRegex.matches(in: xml, options: [], range: range) {
+            guard let chunkRange = Range(match.range(at: 1), in: xml) else { continue }
+            let chunk = String(xml[chunkRange])
+            guard let hrefMatch = hrefRegex?.firstMatch(in: chunk, range: NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)),
+                  let hrefRange = Range(hrefMatch.range(at: 1), in: chunk) else { continue }
+            let rawHref = String(chunk[hrefRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let decoded = rawHref.removingPercentEncoding ?? rawHref
+            let name = URL(fileURLWithPath: decoded).lastPathComponent
+            guard !name.isEmpty else { continue }
+            guard let fullURL = URL(string: rawHref, relativeTo: baseDir)?.absoluteURL else { continue }
+
+            let isDirectory = (collectionRegex?.firstMatch(
+                in: chunk, range: NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)) != nil)
+            var size: Int64? = nil
+            if !isDirectory,
+               let lenMatch = lengthRegex?.firstMatch(in: chunk, range: NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)),
+               let lenRange = Range(lenMatch.range(at: 1), in: chunk) {
+                size = Int64(String(chunk[lenRange]))
+            }
+            // The listing always echoes the requested directory itself; hide it.
+            if fullURL.standardizedFileURL == baseDir.standardizedFileURL { continue }
+            entries.append(RemoteDirectoryEntry(name: name, url: fullURL,
+                                                isDirectory: isDirectory, size: size))
+        }
+        return entries.sorted { a, b in
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// Downloads one remote file (authenticated GET) — the 远程书籍 import step.
+    public func downloadFileData(url fileURL: URL, config: WebDAVConfig) async throws -> Data {
+        let req = makeRequest(url: fileURL, method: "GET", config: config)
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw WebDAVError.custom("无法连接到 WebDAV 服务器")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw WebDAVError.unauthorized
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw WebDAVError.custom("文件下载失败 (HTTP \(http.statusCode))")
+        }
+        return data
+    }
+
     public func restore(config: WebDAVConfig, backupFileName: String? = nil) async throws -> (books: [Book]?, sources: [BookSource]?, backupName: String?) {
         let payload = try await restorePayload(config: config, backupFileName: backupFileName)
         return (payload.books, payload.sources, payload.backupName)

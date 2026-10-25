@@ -48,5 +48,9 @@
 	<array>
 		<string>_http._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描二维码导入书源、规则与 WebDAV 配置</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于将生成的分享二维码保存到相册</string>
 </dict>
 </plist>

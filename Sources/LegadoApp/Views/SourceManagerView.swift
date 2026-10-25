@@ -40,6 +40,13 @@ public struct SourceManagerView: View {
     @State private var alertMessage: String? = nil
     @State private var showAlert: Bool = false
 
+    // 扫码导入与分享二维码 (Plan 第一批 Part 3)
+    @State private var showQRScanner: Bool = false
+    @State private var scannedRaw: String = ""
+    @State private var showScanResult: Bool = false
+    @State private var qrShareJSON: String = ""
+    @State private var showQRShare: Bool = false
+
     public init() {}
 
     private let availableGroupFilters: [String] = ["全部", "已启用", "已禁用"]
@@ -116,6 +123,12 @@ public struct SourceManagerView: View {
                                 copySourcesJSON(urls: [source.bookSourceUrl])
                             } label: {
                                 Label("拷贝书源 JSON", systemImage: "doc.on.doc")
+                            }
+
+                            Button {
+                                shareSourceQR(source)
+                            } label: {
+                                Label("生成分享二维码", systemImage: "qrcode")
                             }
 
                             Button(role: .destructive) {
@@ -232,6 +245,12 @@ public struct SourceManagerView: View {
                         } label: {
                             Label("导入书源", systemImage: "plus.circle")
                         }
+
+                        Button {
+                            showQRScanner = true
+                        } label: {
+                            Label("扫码导入", systemImage: "qrcode.viewfinder")
+                        }
                         Button {
                             startBatchValidation(sources: filteredSources)
                         } label: {
@@ -280,6 +299,21 @@ public struct SourceManagerView: View {
             NavigationView {
                 SearchBookView()
             }
+        }
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerSheet { raw in
+                showQRScanner = false
+                scannedRaw = raw
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    showScanResult = true
+                }
+            }
+        }
+        .sheet(isPresented: $showScanResult) {
+            ScanResultSheet(raw: scannedRaw)
+        }
+        .sheet(isPresented: $showQRShare) {
+            QRCodeShareView(content: qrShareJSON, title: "书源二维码 · 用 Legado 扫码导入")
         }
         .alert(alertMessage ?? "", isPresented: $showAlert) {
             Button("确定", role: .cancel) {}
@@ -454,6 +488,23 @@ public struct SourceManagerView: View {
         showAlert = true
     }
 
+    /// 生成分享二维码: single-source JSON, capped by QR data capacity (~2.4k bytes at
+    /// correction level M keeps scanners reliable). Oversized sources fall back to a hint.
+    private func shareSourceQR(_ source: BookSource) {
+        guard let json = bookStore.exportSourcesJSON(urls: [source.bookSourceUrl]) else {
+            alertMessage = "没有可导出的书源"
+            showAlert = true
+            return
+        }
+        guard json.utf8.count <= 2400 else {
+            alertMessage = "「\(source.bookSourceName)」的 JSON 超出二维码容量，请改用「拷贝书源 JSON」分享"
+            showAlert = true
+            return
+        }
+        qrShareJSON = json
+        showQRShare = true
+    }
+
     private func startBatchValidation(sources: [BookSource]) {
         if isValidating {
             stopValidation()
@@ -606,6 +657,17 @@ public struct SourceManagerView: View {
                         showFileImporter = true
                     } label: {
                         Label("从本地文件导入 (.json)", systemImage: "doc.badge.plus")
+                    }
+                }
+
+                Section(header: Text("扫码导入")) {
+                    Button {
+                        showImportSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            showQRScanner = true
+                        }
+                    } label: {
+                        Label("扫描二维码导入", systemImage: "qrcode.viewfinder")
                     }
                 }
 

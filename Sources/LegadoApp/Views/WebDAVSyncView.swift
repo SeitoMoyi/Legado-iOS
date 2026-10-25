@@ -29,6 +29,8 @@ public struct WebDAVSyncView: View {
     @State private var showAlert: Bool = false
     @State private var showRestoreConfirm: Bool = false
     @State private var selectedRestoreBackupName: String? = nil
+    // 扫码填入 WebDAV 配置 (Plan 第一批 Part 3)
+    @State private var showQRScanner: Bool = false
 
     public init() {}
 
@@ -74,6 +76,12 @@ public struct WebDAVSyncView: View {
         }
         .sheet(isPresented: $showBackupPickerSheet) {
             backupPickerView
+        }
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerSheet { raw in
+                showQRScanner = false
+                applyScannedConfig(raw)
+            }
         }
         .fileImporter(
             isPresented: $showFileImporter,
@@ -176,6 +184,14 @@ public struct WebDAVSyncView: View {
                         url = "https://example.com/remote.php/dav/files/user/"
                         if remotePath.isEmpty { remotePath = "legado" }
                         saveConfig()
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.caption)
+
+                    Button {
+                        showQRScanner = true
+                    } label: {
+                        Label("扫码", systemImage: "qrcode.viewfinder")
                     }
                     .buttonStyle(.bordered)
                     .font(.caption)
@@ -433,6 +449,36 @@ public struct WebDAVSyncView: View {
 
     private func saveConfig() {
         WebDAVService.shared.saveConfig(currentConfig)
+    }
+
+    /// 扫码填入: full WebDAV config JSON fills every field; a plain URL fills the server
+    /// address only.
+    private func applyScannedConfig(_ raw: String) {
+        switch ScanPayload.detect(raw) {
+        case .webdavConfig(let json):
+            if let data = json.data(using: .utf8),
+               let config = try? JSONDecoder().decode(WebDAVConfig.self, from: data) {
+                url = config.url
+                username = config.username
+                password = config.password
+                if !config.remotePath.isEmpty { remotePath = config.remotePath }
+                saveConfig()
+                alertTitle = "已写入 WebDAV 配置"
+                alertMessage = "扫码成功，配置已保存，可点击测试连接验证。"
+            } else {
+                alertTitle = "扫码失败"
+                alertMessage = "二维码内容无法解析为 WebDAV 配置"
+            }
+        case .importURL(let link) where link.lowercased().hasPrefix("http"):
+            url = link
+            saveConfig()
+            alertTitle = "已填入服务器地址"
+            alertMessage = "请补全账号与密码后保存"
+        default:
+            alertTitle = "无法识别"
+            alertMessage = "二维码内容不是 WebDAV 配置或服务器地址"
+        }
+        showAlert = true
     }
 
     private func testConnection() {

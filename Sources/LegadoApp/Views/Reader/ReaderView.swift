@@ -27,6 +27,25 @@ enum ReaderPanel: Equatable {
     case aloud
 }
 
+/// A live text selection (Part 4 选词). `range` is a chapter-content Character offset pair —
+/// the same basis as `TypographyLine.charRange` and `Bookmark.chapterPos`; `anchorRect` is
+/// the selection's union rect in window coordinates, used to place the action menu.
+public struct ReaderSelectionInfo: Equatable {
+    public let chapterIndex: Int
+    public let range: Range<Int>
+    public let anchorRect: CGRect
+
+    public init(chapterIndex: Int, range: Range<Int>, anchorRect: CGRect) {
+        self.chapterIndex = chapterIndex
+        self.range = range
+        self.anchorRect = anchorRect
+    }
+
+    public static func == (lhs: ReaderSelectionInfo, rhs: ReaderSelectionInfo) -> Bool {
+        lhs.chapterIndex == rhs.chapterIndex && lhs.range == rhs.range
+    }
+}
+
 public struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var readerConfig = ReaderConfig.shared
@@ -76,6 +95,11 @@ public struct ReaderView: View {
     @State private var bookmarkIsNew: Bool = true
     @State private var panel: ReaderPanel = .none
     @State private var showControls: Bool = false
+    // Part 4 text selection state
+    @State private var textSelection: ReaderSelectionInfo? = nil
+    @State private var editingSelectionRule: ReplaceRule? = nil
+    /// Selected text routed to the 查字典 tab of the search sheet; cleared on sheet close.
+    @State private var dictLookupSeed: String = ""
     /// One-line explanation shown above the bottom bar after a control that has no visible
     /// effect of its own (净化 is the case that prompted this: a bare toggle labelled with
     /// Android's internal term).
@@ -207,6 +231,11 @@ public struct ReaderView: View {
 
     /// Single dispatch point for the nine tap zones, so paged and scrolling modes agree.
     private func handleTapAction(_ action: ClickActionCode) {
+        // A tap with a live selection only dismisses the selection.
+        if textSelection != nil {
+            clearTextSelection()
+            return
+        }
         switch action {
         case .menu: toggleControls()
         case .nextPage, .prevPage:
@@ -302,6 +331,8 @@ public struct ReaderView: View {
 
                 aloudFloatingLayer
                 autoTurnFloatingLayer
+                selectionMenuOverlay(origin: outerGeo.frame(in: .global).origin,
+                                     size: outerGeo.size)
                 controlsLayer
                 panelLayer(maxHeight: outerGeo.size.height)
             }
@@ -381,6 +412,12 @@ public struct ReaderView: View {
                 BookStore.shared.deleteBookmark(time: removed.time)
             }
         }
+        .sheet(item: $editingSelectionRule) { rule in
+            ReplaceRuleEditorView(rule: rule) { saved in
+                BookStore.shared.upsertReplaceRule(saved)
+                showControlHint("已保存替换规则「\(saved.name)」")
+            }
+        }
         .sheet(isPresented: $showRangeDownload) {
             ChapterRangeDownloadSheet(
                 book: book,
@@ -413,6 +450,12 @@ public struct ReaderView: View {
                 audioService.stop()
             }
             restoreIdleTimer()
+        }
+        .onChange(of: currentPageIndex) { _ in clearTextSelection() }
+        .onChange(of: currentChapterIndex) { _ in clearTextSelection() }
+        .onChange(of: readerConfig.pageMode) { _ in clearTextSelection() }
+        .onChange(of: showSearch) { open in
+            if !open { dictLookupSeed = "" }
         }
         .onChange(of: readerConfig.pageAnim) { _ in
             handlePageModeChange(to: readerConfig.pageMode)
@@ -674,7 +717,18 @@ public struct ReaderView: View {
             },
             onRequestChapter: { targetIdx in
                 await self.getOrFetchChapter(at: targetIdx)
-            }
+            },
+            isTextSelectionEnabled: true,
+            onSelectionChanged: { chapterIndex, range, anchor in
+                if let range = range, !range.isEmpty {
+                    self.textSelection = ReaderSelectionInfo(chapterIndex: chapterIndex,
+                                                             range: range, anchorRect: anchor)
+                } else {
+                    self.textSelection = nil
+                }
+            },
+            selectionChapterIndex: textSelection?.chapterIndex ?? 0,
+            selectionRange: textSelection?.range
         )
     }
 
@@ -718,13 +772,13 @@ public struct ReaderView: View {
                             ChapterImageView(urlString: img.urlString, referer: effectiveSource?.bookSourceUrl)
                                 .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
-                            let (lines, isParagraphEnd): ([String], [Bool]) = {
+                            let (pageSlice, lines, isParagraphEnd): ([TypographyLine], [String], [Bool]) = {
                                 if let cur = currentLoadedChapter,
                                    let range = cur.typography.lineRange(ofPage: currentPageIndex) {
                                     let slice = Array(cur.typography.lines[range])
-                                    return (slice.map { $0.text }, slice.map { $0.isParagraphEnd })
+                                    return (slice, slice.map { $0.text }, slice.map { $0.isParagraphEnd })
                                 }
-                                return ([], [])
+                                return ([], [], [])
                             }()
 
                             let effectiveLineHeight = readerConfig.fontSize * 1.25 + readerConfig.lineSpacing
@@ -741,7 +795,19 @@ public struct ReaderView: View {
                                 height: pageContentHeight,
                                 letterSpacing: readerConfig.letterSpacing,
                                 paragraphSpacing: readerConfig.paragraphSpacing,
-                                justify: readerConfig.prefs.textFullJustify
+                                justify: readerConfig.prefs.textFullJustify,
+                                pageLines: pageSlice,
+                                chapterIndex: currentChapterIndex,
+                                selectionRange: (textSelection?.chapterIndex == currentChapterIndex)
+                                    ? textSelection?.range : nil,
+                                onSelectionChanged: { chapterIndex, range, anchor in
+                                    if let range = range, !range.isEmpty {
+                                        self.textSelection = ReaderSelectionInfo(
+                                            chapterIndex: chapterIndex, range: range, anchorRect: anchor)
+                                    } else {
+                                        self.textSelection = nil
+                                    }
+                                }
                             )
                             .frame(width: usableWidth, height: pageContentHeight, alignment: .topLeading)
                         }
@@ -770,7 +836,10 @@ public struct ReaderView: View {
                 updateContainerSizeIfNeeded(newSize)
             }
             .gesture(
-                DragGesture(minimumDistance: readerConfig.pageTouchSlop)
+                // A live selection owns horizontal drags (handle adjusting); page turning
+                // resumes once it is dismissed.
+                textSelection == nil
+                ? DragGesture(minimumDistance: readerConfig.pageTouchSlop)
                     .onEnded { value in
                         let threshold = readerConfig.pageTurnThreshold
                         if value.translation.width < -threshold {
@@ -779,6 +848,7 @@ public struct ReaderView: View {
                             turnPage(forward: false)
                         }
                     }
+                : nil
             )
         }
     }
@@ -875,6 +945,165 @@ public struct ReaderView: View {
         case .scroll:
             return .opacity
         }
+    }
+
+    // MARK: - Text Selection (Part 4 选词联动)
+
+    private func clearTextSelection() {
+        textSelection = nil
+    }
+
+    /// Selected chapter text. The range is validated against the chapter content so a stale
+    /// selection (page already turned) reads as empty rather than crashing.
+    private var selectionText: String {
+        guard let sel = textSelection,
+              let loaded = loadedChapters.first(where: { $0.chapter.index == sel.chapterIndex }),
+              sel.range.lowerBound >= 0, sel.range.upperBound <= loaded.content.count,
+              sel.range.lowerBound < sel.range.upperBound else { return "" }
+        let start = loaded.content.index(loaded.content.startIndex, offsetBy: sel.range.lowerBound)
+        let end = loaded.content.index(loaded.content.startIndex, offsetBy: sel.range.upperBound)
+        return String(loaded.content[start..<end])
+    }
+
+    /// Floating action menu anchored above (or below) the selection. Positioning works in
+    /// window coordinates on both ends: the canvases report `anchorRect` via
+    /// `UIView.convert(_:to: nil)`, and this overlay subtracts the reader's own global origin.
+    @ViewBuilder
+    private func selectionMenuOverlay(origin: CGPoint, size: CGSize) -> some View {
+        if let sel = textSelection, !selectionText.isEmpty {
+            let anchorTop = sel.anchorRect.minY - origin.y
+            let anchorBottom = sel.anchorRect.maxY - origin.y
+            let aboveRoom = anchorTop > 190
+            let menuY = aboveRoom ? anchorTop - 70 : min(anchorBottom + 84, size.height - 110)
+            let centerX = size.width / 2
+
+            VStack(spacing: 8) {
+                Text(selectionText)
+                    .font(.system(size: 12))
+                    .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 2) {
+                    selectionMenuButton(icon: "doc.on.doc", title: "复制") { copySelection() }
+                    selectionMenuButton(icon: "character.book.closed", title: "查字典") { lookupSelectionInDict() }
+                    selectionMenuButton(icon: "bookmark", title: "书签") { bookmarkSelection() }
+                    selectionMenuButton(icon: "headphones", title: "朗读") { readSelectionAloud() }
+                    selectionMenuButton(icon: "wand.and.stars", title: "替换") { makeReplaceRuleFromSelection() }
+                    selectionMenuButton(icon: "xmark.circle", title: "关闭") { clearTextSelection() }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(width: 316)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(readerConfig.effectiveBackgroundColor)
+                    .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(readerConfig.theme.textColor.opacity(0.14), lineWidth: 0.5)
+            )
+            .position(x: centerX, y: min(max(menuY, 84), size.height - 96))
+            .transition(.opacity)
+            .zIndex(60)
+        }
+    }
+
+    private func selectionMenuButton(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .medium))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(readerConfig.theme.textColor)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func copySelection() {
+        #if os(iOS)
+        UIPasteboard.general.string = selectionText
+        #endif
+        showControlHint("已复制所选文本")
+        clearTextSelection()
+    }
+
+    /// Opens the reader search sheet on the 查字典 tab with the selection pre-filled.
+    private func lookupSelectionInDict() {
+        let query = selectionText
+        clearTextSelection()
+        dictLookupSeed = query
+        // Presenting while the selection menu (part of the same render pass) tears down can
+        // swallow the sheet; give the state change one runloop to land.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            showSearch = true
+        }
+    }
+
+    private func bookmarkSelection() {
+        guard let sel = textSelection, sel.chapterIndex < chapters.count else { return }
+        let bookmark = Bookmark(
+            bookName: book.name,
+            bookAuthor: book.author,
+            chapterIndex: sel.chapterIndex,
+            chapterPos: sel.range.lowerBound,
+            chapterName: chapters[sel.chapterIndex].title,
+            bookText: selectionText
+        )
+        bookmarkIsNew = true
+        editingBookmark = bookmark
+        clearTextSelection()
+    }
+
+    /// Starts speech from the paragraph containing the selection.
+    private func readSelectionAloud() {
+        guard let sel = textSelection else { return }
+        configureAudioContext()
+        audioService.load(chapterText: currentChapterContent,
+                          startCharPos: aloudStartPos(forCharOffset: sel.range.lowerBound))
+        showControlHint("从所选段落开始朗读")
+        clearTextSelection()
+    }
+
+    /// Maps a chapter-content Character offset onto `ReadAloudText`'s paragraph basis
+    /// (paragraph lengths + newlines, blank lines dropped) so speech anchors on the right
+    /// paragraph.
+    private func aloudStartPos(forCharOffset offset: Int) -> Int {
+        guard let cur = currentLoadedChapter else { return 0 }
+        var acc = 0
+        var anchor: String? = nil
+        for rawLine in cur.content.components(separatedBy: "\n") {
+            if offset < acc + rawLine.count {
+                anchor = rawLine.trimmingCharacters(in: .whitespaces)
+                break
+            }
+            acc += rawLine.count + 1
+        }
+        guard let needle = anchor, !needle.isEmpty else { return 0 }
+        let paragraphs = ReadAloudText.paragraphs(in: cur.content)
+        guard let index = paragraphs.firstIndex(of: needle) else { return 0 }
+        return ReadAloudText.offset(of: paragraphs, at: index)
+    }
+
+    /// Seeds a 字面 replacement rule with the selected text and opens the editor.
+    private func makeReplaceRuleFromSelection() {
+        let text = selectionText
+        clearTextSelection()
+        guard !text.isEmpty else { return }
+        editingSelectionRule = ReplaceRule(
+            name: String(text.prefix(12)),
+            pattern: text,
+            replacement: "",
+            scopeContent: true,
+            isRegex: false
+        )
     }
 
     // MARK: - Navigation Bars & Toolbars (Apple Books Layout)
@@ -1291,6 +1520,8 @@ public struct ReaderView: View {
             currentChapterTitle: (!chapters.isEmpty && currentChapterIndex < chapters.count) ? chapters[currentChapterIndex].title : "",
             currentContent: currentChapterContent,
             chapters: chapters,
+            initialScope: dictLookupSeed.isEmpty ? 0 : 2,
+            initialQuery: dictLookupSeed,
             onSelectChapter: { targetIndex, _ in
                 showSearch = false
                 withAnimation {
@@ -2240,6 +2471,28 @@ public struct ReaderSearchSheet: View {
     @State private var isSearchingDict: Bool = false
     @State private var selectedDictRuleName: String = ""
 
+    public init(
+        book: Book,
+        currentChapterIndex: Int,
+        currentChapterTitle: String,
+        currentContent: String,
+        chapters: [BookChapter],
+        initialScope: Int = 0,
+        initialQuery: String = "",
+        onSelectChapter: @escaping (Int, String?) -> Void,
+        onOpenFullSearch: @escaping () -> Void = {}
+    ) {
+        self.book = book
+        self.currentChapterIndex = currentChapterIndex
+        self.currentChapterTitle = currentChapterTitle
+        self.currentContent = currentContent
+        self.chapters = chapters
+        self.onSelectChapter = onSelectChapter
+        self.onOpenFullSearch = onOpenFullSearch
+        self._searchText = State(initialValue: initialQuery)
+        self._searchScope = State(initialValue: initialScope)
+    }
+
     public struct SearchItem: Identifiable {
         public let id = UUID()
         public let chapterIndex: Int
@@ -2445,6 +2698,10 @@ public struct ReaderSearchSheet: View {
             if selectedDictRuleName.isEmpty {
                 selectedDictRuleName = enabledDictRules.first?.name ?? ""
             }
+            // 选词 → 查字典 seeds the query; run the lookup immediately.
+            if !searchText.isEmpty && dictDefinition == nil && !isSearchingDict {
+                searchDict()
+            }
         }
         .onSubmit(of: .search) {
             searchDict()
@@ -2563,6 +2820,12 @@ public struct CoreTextPageView: NSViewRepresentable {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    // Part 4 selection params accepted for call-site parity with iOS; macOS preview builds
+    // have no gesture layer, so they are stored unused.
+    public var pageLines: [TypographyLine] = []
+    public var chapterIndex: Int = 0
+    public var selectionRange: Range<Int>? = nil
+    public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)? = nil
 
     public func makeNSView(context: Context) -> CoreTextNSView {
         let view = CoreTextNSView()
@@ -2628,10 +2891,16 @@ public struct CoreTextPageView: UIViewRepresentable {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    // Part 4 selection: the TypographyLine slice behind `lines` plus the live selection.
+    public var pageLines: [TypographyLine] = []
+    public var chapterIndex: Int = 0
+    public var selectionRange: Range<Int>? = nil
+    public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)? = nil
 
     public func makeUIView(context: Context) -> CoreTextUIView {
         let view = CoreTextUIView()
         updateUIView(view, context: context)
+        view.setupSelectionGesture()
         return view
     }
 
@@ -2646,6 +2915,10 @@ public struct CoreTextPageView: UIViewRepresentable {
         uiView.letterSpacing = letterSpacing
         uiView.paragraphSpacing = paragraphSpacing
         uiView.justify = justify
+        uiView.pageLines = pageLines
+        uiView.chapterIndex = chapterIndex
+        uiView.selectionRange = selectionRange
+        uiView.onSelectionChanged = onSelectionChanged
         uiView.backgroundColor = .clear
         uiView.setNeedsDisplay()
     }
@@ -2662,9 +2935,105 @@ public class CoreTextUIView: UIView {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    // Part 4 selection state
+    public var pageLines: [TypographyLine] = []
+    public var chapterIndex: Int = 0
+    public var selectionRange: Range<Int>? { didSet { setNeedsDisplay() } }
+    public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)?
+    private let selectionMachine = SelectionGestureMachine()
+
+    /// Called once from `makeUIView` so re-renders never stack recognizers.
+    public func setupSelectionGesture() {
+        guard gestureRecognizers?.contains(where: { $0 is UILongPressGestureRecognizer }) != true else { return }
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleSelectionLongPress(_:)))
+        longPress.minimumPressDuration = 0.6
+        longPress.allowableMovement = 12
+        addGestureRecognizer(longPress)
+    }
+
+    private func sliceTop(_ index: Int) -> CGFloat {
+        let eff = fontSize * 1.25 + lineSpacing
+        let ended = pageLines.prefix(index).filter { $0.isParagraphEnd }.count
+        return CGFloat(index) * eff + CGFloat(ended) * paragraphSpacing
+    }
+
+    /// Chapter-content offset under a point in this page view's coordinates.
+    private func charOffset(atViewPoint p: CGPoint) -> Int? {
+        for (i, line) in pageLines.enumerated() {
+            let top = sliceTop(i)
+            if p.y >= top - 2 && p.y < top + line.height + 2 {
+                let local = SelectionGeometry.charIndex(in: line.text, atX: p.x,
+                                                        fontSize: fontSize, letterSpacing: letterSpacing)
+                return line.charRange.lowerBound + local
+            }
+        }
+        return nil
+    }
+
+    private func selectionRects(for range: Range<Int>) -> [CGRect] {
+        var rects: [CGRect] = []
+        for (i, line) in pageLines.enumerated() {
+            let overlap = range.clamped(to: line.charRange)
+            guard !overlap.isEmpty else { continue }
+            let lo = overlap.lowerBound - line.charRange.lowerBound
+            let hi = overlap.upperBound - line.charRange.lowerBound
+            let x0 = SelectionGeometry.xOffset(in: line.text, atCharacterIndex: lo,
+                                               fontSize: fontSize, letterSpacing: letterSpacing)
+            let x1 = SelectionGeometry.xOffset(in: line.text, atCharacterIndex: hi,
+                                               fontSize: fontSize, letterSpacing: letterSpacing,
+                                               isTrailingEdge: true)
+            guard x1 > x0 else { continue }
+            rects.append(CGRect(x: x0, y: sliceTop(i), width: x1 - x0, height: line.height))
+        }
+        return rects
+    }
+
+    @objc private func handleSelectionLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard onSelectionChanged != nil else { return }
+        let loc = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            selectionMachine.existingRange = selectionRange
+            if let sel = selectionRange {
+                let rects = selectionRects(for: sel)
+                selectionMachine.existingStartHandle = SelectionRenderer.handleCenter(forRects: rects, atStart: true) ?? .zero
+                selectionMachine.existingEndHandle = SelectionRenderer.handleCenter(forRects: rects, atStart: false) ?? .zero
+            }
+            let offset = charOffset(atViewPoint: loc)
+            if let range = selectionMachine.began(atChapterOffset: offset, touchPoint: loc) {
+                selectionRange = range
+            } else {
+                selectionMachine.reset()
+            }
+        case .changed:
+            let offset = charOffset(atViewPoint: loc)
+            if let range = selectionMachine.changed(headChapterOffset: offset) {
+                selectionRange = range
+            }
+        case .ended, .cancelled, .failed:
+            selectionMachine.ended()
+            if let sel = selectionRange {
+                let rects = selectionRects(for: sel)
+                let union = rects.reduce(CGRect.null) { $0.union($1) }
+                onSelectionChanged?(chapterIndex, sel, convert(union, to: nil))
+            }
+        default:
+            break
+        }
+    }
 
     public override func draw(_ rect: CGRect) {
-        guard let ctx = UIGraphicsGetCurrentContext(), !lines.isEmpty else { return }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        // Selection highlight sits under the glyphs.
+        if let sel = selectionRange {
+            let rects = selectionRects(for: sel)
+            SelectionRenderer.drawRects(rects, in: ctx,
+                                        accent: tintColor.withAlphaComponent(0.28).cgColor)
+            SelectionRenderer.drawHandles(rects, in: ctx,
+                                          accent: tintColor.withAlphaComponent(0.9).cgColor,
+                                          atStart: true, atEnd: true)
+        }
+        guard !lines.isEmpty else { return }
         CoreTextPageRenderer.draw(
             ctx: ctx, lines: lines, isParagraphEnd: isParagraphEnd,
             fontSize: fontSize, lineSpacing: lineSpacing,

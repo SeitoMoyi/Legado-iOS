@@ -64,6 +64,10 @@ public final class ChapterCanvasLayerView: UIView {
     public var aloudIsActive: Bool = false
     public var isLastChapterInBook: Bool = false
     public var nextChapterTitle: String?
+    /// Chapter-content char range currently selected inside this chapter (Part 4 选词).
+    public var selectionRange: Range<Int>? {
+        didSet { setNeedsDisplay() }
+    }
 
     /// Typography-image views keyed by `TypographyImage.id`, so redraws reuse them.
     private var imageViews: [Int: UIImageView] = [:]
@@ -119,6 +123,16 @@ public final class ChapterCanvasLayerView: UIView {
         guard let ctx = UIGraphicsGetCurrentContext(), let typo = typography else { return }
 
         let usableWidth = max(100, bounds.width - paddingLeading - paddingTrailing)
+
+        // 0. Selection highlight under the text (Part 4 选词).
+        if let selRange = selectionRange {
+            let rects = typo.selectionRects(for: selRange, paddingLeading: paddingLeading,
+                                            fontSize: fontSize, letterSpacing: letterSpacing)
+            let accent = accentColor.withAlphaComponent(0.28).cgColor
+            SelectionRenderer.drawRects(rects, in: ctx, accent: accent)
+            SelectionRenderer.drawHandles(rects, in: ctx, accent: accentColor.withAlphaComponent(0.85).cgColor,
+                                          atStart: true, atEnd: true)
+        }
 
         // 1. Draw Chapter Title (Multi-line wrapped, unified with Slide mode!)
         let titleFontSize = fontSize + 4.0
@@ -265,6 +279,10 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     public var onCharOffsetChange: ((Int) -> Void)?
     public var onTapZone: ((ClickActionCode) -> Void)?
     public var onRequestChapter: ((Int) async -> LoadedChapter?)?
+    /// Part 4 选词: chapter index + finalized range, or nil range = "cleared".
+    /// The rect is the selection anchor in window coordinates (menu placement).
+    public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)?
+    public var isTextSelectionEnabled: Bool = true
 
     private var chapterTypographies: [ChapterTypography] = []
     private var chapterViews: [Int: ChapterCanvasLayerView] = [:]
@@ -314,6 +332,12 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     // Tap actions map (3x3 grid)
     private var tapActionList: [ClickActionCode] = ReaderPrefs.defaultClickActions.map { ClickActionCode.from($0) }
 
+    // Text selection state (Part 4)
+    private var selectionMachine = SelectionGestureMachine()
+    private var selectionChapterIndex: Int = 0
+    /// (chapterIndex, range) currently highlighted on screen.
+    private var activeSelection: (chapter: Int, range: Range<Int>)? = nil
+
     // Loading locks
     private var isLoadingPrevious: Bool = false
     private var isLoadingNext: Bool = false
@@ -337,6 +361,120 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         addGestureRecognizer(tapGesture)
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleSelectionLongPress(_:)))
+        longPress.minimumPressDuration = 0.6
+        longPress.allowableMovement = 12
+        addGestureRecognizer(longPress)
+    }
+
+    // MARK: - Text Selection (Part 4)
+
+    @objc private func handleSelectionLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard isTextSelectionEnabled else { return }
+        let loc = gesture.location(in: self)
+        let contentPoint = CGPoint(x: loc.x, y: loc.y + contentOffset.y)
+
+        switch gesture.state {
+        case .began:
+            let hit = chapterOffset(atContentPoint: contentPoint)
+            let localTouch = touchPoint(inChapterCoords: contentPoint)
+            selectionMachine.existingRange = activeSelection?.range
+            updateSelectionHandlePoints()
+            if let range = selectionMachine.began(atChapterOffset: hit, touchPoint: localTouch),
+               let chapter = chapterTypographies.first(where: {
+                   contentPoint.y >= $0.yOffset && contentPoint.y < $0.yOffset + $0.totalHeight
+               }) {
+                selectionChapterIndex = chapter.chapter.index
+                applySelection(range: range)
+            } else {
+                selectionMachine.reset()
+            }
+        case .changed:
+            let hit = chapterOffset(atContentPoint: contentPoint)
+            if let range = selectionMachine.changed(headChapterOffset: hit) {
+                applySelection(range: range)
+            }
+        case .ended, .cancelled, .failed:
+            selectionMachine.ended()
+            if let sel = activeSelection,
+               let rects = selectionRectsInChapterView(for: sel) {
+                let union = rects.reduce(CGRect.null) { $0.union($1) }
+                let anchorInWindow = convert(union, to: nil)
+                onSelectionChanged?(sel.chapter, sel.range, anchorInWindow)
+            }
+        default:
+            break
+        }
+    }
+
+    /// Chapter-content offset under a scroll-content-space point, or nil off text.
+    private func chapterOffset(atContentPoint p: CGPoint) -> Int? {
+        guard let typo = chapterTypographies.first(where: {
+            p.y >= $0.yOffset && p.y < $0.yOffset + $0.totalHeight
+        }) else { return nil }
+        let local = CGPoint(x: p.x, y: p.y - typo.yOffset)
+        return typo.charIndex(atX: local.x - paddingLeading, y: local.y,
+                              fontSize: fontSize, letterSpacing: letterSpacing)
+    }
+
+    /// The same point expressed relative to the chapter typography's own origin, used for
+    /// handle hit-testing distances.
+    private func touchPoint(inChapterCoords contentPoint: CGPoint) -> CGPoint {
+        guard let typo = chapterTypographies.first(where: {
+            contentPoint.y >= $0.yOffset && contentPoint.y < $0.yOffset + $0.totalHeight
+        }) else { return contentPoint }
+        return CGPoint(x: contentPoint.x, y: contentPoint.y - typo.yOffset)
+    }
+
+    private func applySelection(range: Range<Int>) {
+        guard !range.isEmpty else { return }
+        activeSelection = (selectionChapterIndex, range)
+        if let view = chapterViews[selectionChapterIndex] {
+            view.selectionRange = range
+        }
+    }
+
+    private func selectionRectsInChapterView(for sel: (chapter: Int, range: Range<Int>)) -> [CGRect]? {
+        guard let typo = chapterTypographies.first(where: { $0.chapter.index == sel.chapter }) else { return nil }
+        return typo.selectionRects(for: sel.range, paddingLeading: paddingLeading,
+                                   fontSize: fontSize, letterSpacing: letterSpacing)
+    }
+
+    private func updateSelectionHandlePoints() {
+        guard let sel = activeSelection,
+              let rects = selectionRectsInChapterView(for: sel),
+              let chapterView = chapterViews[sel.chapter] else { return }
+        let start = SelectionRenderer.handleCenter(forRects: rects, atStart: true) ?? .zero
+        let end = SelectionRenderer.handleCenter(forRects: rects, atStart: false) ?? .zero
+        selectionMachine.existingStartHandle = chapterView.convert(start, to: self)
+        selectionMachine.existingEndHandle = chapterView.convert(end, to: self)
+    }
+
+    /// Mirrors the reader-level selection state onto the canvas. The canvas is the source of
+    /// truth while a gesture is running; this is how the reader clears it after an action
+    /// (copy, bookmark, page turn) without another callback round trip.
+    public func syncSelectionState(chapterIndex: Int, range: Range<Int>?) {
+        if let range = range, !range.isEmpty {
+            selectionChapterIndex = chapterIndex
+            applySelection(range: range)
+        } else if activeSelection != nil {
+            if let sel = activeSelection {
+                chapterViews[sel.chapter]?.selectionRange = nil
+            }
+            activeSelection = nil
+            selectionMachine.reset()
+        }
+    }
+
+    /// Drops any live selection; scrolling with an active selection would leave the
+    /// highlight floating over the wrong text.
+    private func clearSelection() {
+        guard let sel = activeSelection else { return }
+        chapterViews[sel.chapter]?.selectionRange = nil
+        activeSelection = nil
+        selectionMachine.reset()
+        onSelectionChanged?(sel.chapter, nil, .zero)
     }
 
     public override func layoutSubviews() {
@@ -348,6 +486,11 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        // A tap with a live selection dismisses it before doing anything else.
+        if activeSelection != nil {
+            clearSelection()
+            return
+        }
         let point = gesture.location(in: self)
         let bounds = self.bounds
         let width = bounds.width
@@ -430,6 +573,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     }
 
     public func resetToChapter(loaded: LoadedChapter, toEnd: Bool = false, targetCharPos: Int? = nil) {
+        clearSelection()
         for (_, view) in chapterViews {
             view.removeFromSuperview()
         }
@@ -660,6 +804,12 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     // MARK: - UIScrollViewDelegate
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // The selection highlight is anchored to chapter coordinates; scrolling away would
+        // leave it over the wrong glyphs, so any user scroll dismisses it. The machine is
+        // idle between presses, so this only fires after a finalized selection.
+        if activeSelection != nil, !isPrependingChapter {
+            clearSelection()
+        }
         guard !isPrependingChapter, bounds.height > 0 else { return }
 
         let offsetY = scrollView.contentOffset.y
@@ -715,6 +865,10 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
     public let onCharOffsetChange: (Int) -> Void
     public let onTapZone: (ClickActionCode) -> Void
     public let onRequestChapter: (Int) async -> LoadedChapter?
+    public var isTextSelectionEnabled: Bool = true
+    public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)? = nil
+    var selectionChapterIndex: Int = 0
+    var selectionRange: Range<Int>? = nil
 
     public init(
         loadedChapter: LoadedChapter?,
@@ -728,7 +882,11 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         onChapterChange: @escaping (Int, String) -> Void,
         onCharOffsetChange: @escaping (Int) -> Void,
         onTapZone: @escaping (ClickActionCode) -> Void,
-        onRequestChapter: @escaping (Int) async -> LoadedChapter?
+        onRequestChapter: @escaping (Int) async -> LoadedChapter?,
+        isTextSelectionEnabled: Bool = true,
+        onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)? = nil,
+        selectionChapterIndex: Int = 0,
+        selectionRange: Range<Int>? = nil
     ) {
         self.loadedChapter = loadedChapter
         self.chaptersMeta = chaptersMeta
@@ -742,6 +900,10 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         self.onCharOffsetChange = onCharOffsetChange
         self.onTapZone = onTapZone
         self.onRequestChapter = onRequestChapter
+        self.isTextSelectionEnabled = isTextSelectionEnabled
+        self.onSelectionChanged = onSelectionChanged
+        self.selectionChapterIndex = selectionChapterIndex
+        self.selectionRange = selectionRange
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -754,6 +916,8 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         view.onCharOffsetChange = onCharOffsetChange
         view.onTapZone = onTapZone
         view.onRequestChapter = onRequestChapter
+        view.isTextSelectionEnabled = isTextSelectionEnabled
+        view.onSelectionChanged = onSelectionChanged
 
         context.coordinator.currentSessionId = scrollSessionId
         context.coordinator.renderedChapterIndex = loadedChapter?.chapter.index
@@ -768,6 +932,9 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
         uiView.onCharOffsetChange = onCharOffsetChange
         uiView.onTapZone = onTapZone
         uiView.onRequestChapter = onRequestChapter
+        uiView.isTextSelectionEnabled = isTextSelectionEnabled
+        uiView.onSelectionChanged = onSelectionChanged
+        uiView.syncSelectionState(chapterIndex: selectionChapterIndex, range: selectionRange)
 
         uiView.updateConfiguration(
             fontSize: readerConfig.fontSize,
@@ -841,7 +1008,11 @@ public struct ReaderScrollCanvasView: View {
         onChapterChange: @escaping (Int, String) -> Void,
         onCharOffsetChange: @escaping (Int) -> Void,
         onTapZone: @escaping (ClickActionCode) -> Void,
-        onRequestChapter: @escaping (Int) async -> Any?
+        onRequestChapter: @escaping (Int) async -> Any?,
+        isTextSelectionEnabled: Bool = true,
+        onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)? = nil,
+        selectionChapterIndex: Int = 0,
+        selectionRange: Range<Int>? = nil
     ) {}
 
     public var body: some View {

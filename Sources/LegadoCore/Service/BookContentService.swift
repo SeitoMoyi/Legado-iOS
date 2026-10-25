@@ -577,6 +577,20 @@ public class BookContentService {
         return files.filter { $0.hasSuffix(".txt") }.count
     }
 
+    /// Total bytes of cached chapter files for one book — the 缓存管理 size column.
+    public func cacheSize(for bookUrl: String) -> Int64 {
+        let dir = chapterCacheDirectory(bookUrl: bookUrl)
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return 0 }
+        var total: Int64 = 0
+        for file in files where file.hasSuffix(".txt") {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: dir.appendingPathComponent(file).path),
+               let size = attrs[.size] as? Int64 {
+                total += size
+            }
+        }
+        return total
+    }
+
     /// Downloads chapter text for a specified range [startIndex...endIndex] with cancellation and progress reporting.
     /// Matches Android Legado `CacheBook.kt` / `CacheBookService.kt`.
     public func downloadChaptersRange(

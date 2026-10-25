@@ -15,6 +15,10 @@ public struct ReplaceRuleListView: View {
     @State private var statusMessage: String?
     @State private var showStatus = false
     @State private var confirmDelete: ReplaceRule?
+    // 扫码导入 (Plan 第一批 Part 3)
+    @State private var showQRScanner = false
+    @State private var scannedRaw = ""
+    @State private var showScanResult = false
 
     public init() {}
 
@@ -64,6 +68,10 @@ public struct ReplaceRuleListView: View {
                         } label: { Label("粘贴导入", systemImage: "doc.on.clipboard") }
 
                         Button {
+                            showQRScanner = true
+                        } label: { Label("扫码导入", systemImage: "qrcode.viewfinder") }
+
+                        Button {
                             exportRules()
                         } label: { Label("导出 JSON", systemImage: "square.and.arrow.up") }
                     } label: {
@@ -82,6 +90,18 @@ public struct ReplaceRuleListView: View {
         }
         .sheet(isPresented: $showImportSheet) {
             importSheet
+        }
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerSheet { raw in
+                showQRScanner = false
+                scannedRaw = raw
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    showScanResult = true
+                }
+            }
+        }
+        .sheet(isPresented: $showScanResult) {
+            ScanResultSheet(raw: scannedRaw)
         }
         .alert("提示", isPresented: $showStatus) {
             Button("好", role: .cancel) {}

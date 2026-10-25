@@ -25,6 +25,7 @@ public struct BookDetailView: View {
     @State private var isReading: Bool = false
     @State private var selectedChapterIndex: Int = 0
     @State private var showActionAlert: Bool = false
+    @State private var showBookQRShare: Bool = false
     @State private var actionAlertMessage: String = ""
     @State private var showChangeSource: Bool = false
     @State private var showGroupDialog: Bool = false
@@ -157,6 +158,12 @@ public struct BookDetailView: View {
                             Label("拷贝书籍 URL", systemImage: "link")
                         }
 
+                        Button {
+                            showBookQRShare = true
+                        } label: {
+                            Label("生成分享二维码", systemImage: "qrcode")
+                        }
+
                         if !currentBook.tocUrl.isEmpty {
                             Button {
                                 copyStringToClipboard(currentBook.tocUrl)
@@ -212,6 +219,10 @@ public struct BookDetailView: View {
             }
             .alert(actionAlertMessage, isPresented: $showActionAlert) {
                 Button("确定", role: .cancel) {}
+            }
+            .sheet(isPresented: $showBookQRShare) {
+                QRCodeShareView(content: currentBook.bookUrl,
+                                title: "「\(currentBook.name)」· 用 Legado 扫码按网址添加")
             }
             .background(
                 NavigationLink(

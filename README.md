@@ -21,6 +21,7 @@
   - 右上角多选模式：支持批量启用、禁用、全选、反选、导出 JSON 及批量删除。
   - 拖拽排序模式：长按把手重排书源，`customOrder` 重写为 0…n-1，换源候选按新优先级排列（对齐 Android 书源优先级语义）。
   - 5 并发书源有效性校验：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时；`bookSourceGroup` 等已知字段原样保留。
+  - **扫码导入**：AVFoundation 相机扫码或相册选图 `CIDetector` 离线识别，自动按字段形态分流导入（书源 / 替换规则 / 订阅源 / 字典规则 / WebDAV 配置 / 导入直链）；书源管理长按菜单可**生成分享二维码**（单源 JSON，超容量自动提示）。
   - ✅ 字段零丢失导入导出：`BookSource` / `RssSource` / `Book` 解码时保留未建模的 Android 字段（`jsLib`、`concurrentRate`、`enabledCookieJar`、`ruleReview`、`Book.customTag`/`charset`/`type`/`order`/`syncTime` 等）在 `extra` 透传字典中，导出/备份时扁平化回写为顶层键（见 `Plan.md` §二 #15）。
 - **书源导入与登录**：
   - 不预装任何书源（v0.2.6 起移除全部自带书源与域名迁移硬编码，书架从零开始）。
@@ -46,6 +47,7 @@
   - 文字两端对齐（翻页与连续滚动双模式均生效）。
 - **交互与快捷工具**：
   - **书内全书并发搜索 (`SearchContentSheet`)**：搜索弹窗顶部直达；关键字与正则双模式，缓存章节离线可搜、未缓存章节 6 并发联网抓取（可选），命中流式上涌（单章封顶 3 条），上下文高亮并展示章节进度；点击精准跳转到目标章节的字符偏移（翻页/滚动双模式适配）。
+  - **长按选词与取词联动**：翻页与连续滚动双画布 600ms 长按选词（CJK 单字、西文整词），按住拖拽扩选、边界把手调节；浮动菜单支持 复制 / 查字典（预填查询词）/ 添加书签（摘录所选）/ 朗读所选 / 创建替换规则，随阅读主题深浅自适应。
   - **常驻系统状态栏**：始终常驻顶部时间、电量与网络状态，字体颜色随阅读主题深浅自适应。
   - **顶栏一键快捷按钮**：常驻「换源」与「刷新本章」图标，配合右侧菜单秒级切换。
   - **3×3 九宫格自定义点击区域**：支持 14 种动作配置（菜单、下一页、上一页、书签、听书、换源等），中央强制保留菜单入口防误锁死。
@@ -108,10 +110,16 @@
   - 支持新建与删除自定义分组（暂无重命名）；多选批量管理支持一键移入指定分组。
 - **多选批量管理**：
   - 右上角 `⋯` 菜单进入选择模式，底部浮出批量操作栏：全选、反选、批量清理章节缓存、批量移入分组、批量移除书籍。
+- **书架二级菜单（对齐 Android `main_bookshelf.xml`）**：
+  - **缓存管理 (`CacheManageView`)**：按体积列出全站已缓存书籍（已缓存/总章节数 + 占用），支持**一键缓存全本**（⬇ 单键下载该书全部章节，行内实时进度、随时停止、已缓存自动跳过）、**一键缓存全部书籍**（逐本顺序队列）、单本清除与**整书导出**——TXT（UTF-8 / UTF-16 / GB18030 编码可选）与 EPUB（`mimetype` 首位 + container/OPF/nav/NCX 完整结构），以及「导出所有书籍」批量分享。
+  - **导出书单**：`bookshelf.json`（与 WebDAV 备份同编码形态）经系统分享面板导出。
+  - **添加网址 (`AddUrlSheet`)**：粘贴章节/详情页 URL，按 `bookUrlPattern` → 前缀 → 同 host 三级匹配书源，自动抓取详情与目录后加架。
+  - **远程书籍 (`RemoteBooksView`)**：WebDAV 目录浏览，点击 `.txt` / `.epub` 经鉴权会话下载并走本地导入链入库。
+  - **书架管理 (`ShelfGroupDisplaySheet`)**：按分组开关书架顶部胶囊栏显示（`BookGroup.show`）。
 - **书籍详情与信息编辑 (`BookDetailView`)**：
   - 支持编辑并持久化自定义书名、作者、封面 URL、内容简介。
   - 目录列表支持输入过滤、正序/倒序一键翻转、已离线缓存章节绿色标识。
-  - 快捷操作：整书置顶、整书换源、拷贝书籍 URL、拷贝目录 URL、清理单书缓存。
+  - 快捷操作：整书置顶、整书换源、拷贝书籍 URL、拷贝目录 URL、清理单书缓存、**生成分享二维码**。
   - 变量弹窗：支持查看与编辑书源自定义变量及书籍绑定变量。
 
 ---
@@ -152,6 +160,7 @@
   - 支持书签正文与备注关键字全局检索、单条编辑与长按菜单删除；支持将所有书签一键导出为标准 JSON 或 Markdown 格式至剪贴板。
 - **离线本地备份**：
   - 无需配置 WebDAV 账户即可通过系统文件选择器直接导出或恢复离线 `backup*.zip`。
+  - WebDAV 设置页支持**扫码填入配置**（WebDAV 配置 JSON 或纯服务器地址）。
 
 ---
 
@@ -252,14 +261,19 @@ Legado-iOS/
 │   ├── LegadoCore/               # 跨平台纯 Swift 核心逻辑库
 │   │   ├── Engine/               # 规则引擎（JSEngine, RuleAnalyzer, RuleTokenizer）
 │   │   ├── Models/               # 数据实体（Book, BookSource, ReadConfig, Bookmark, ReplaceRule, SearchScope, SearchKeyword, RuleModels, RssModels）
-│   │   ├── Service/              # 业务服务（NetworkClient, BookContentService, BookContentSearchService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser...）
-│   │   └── Utils/                # 工具组件（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, JSONValue, CryptoUtils, JSONPath）
+│   │   ├── Service/              # 业务服务（NetworkClient, BookContentService, BookContentSearchService, ContentProcessor, ChangeSourceService, ReaderStore, ReplaceRuleStore, BookSearchService, BookExploreService, RssService, TocCache, LocalWebServer, LaunchIntent, WebDAVService, EpubParser, BookExportService...）
+│   │   └── Utils/                # 工具组件（CharsetDetector, ChapterMatcher, ChineseConverter, TolerantJSON, JSONValue, CryptoUtils, JSONPath, BookUrlMatcher, ScanPayload）
 │   └── LegadoApp/                # SwiftUI 交互层与应用入口
 │       ├── LegadoApp.swift       # 应用入口 + AppDelegate/SceneDelegate（快捷操作桥接）+ MainTabView（4 Tab 根界面）+ URL Scheme 监听
-│       ├── Services/             # 应用状态管理（BookStore, SearchViewModel, AudioBookService, LaunchRouter）
+│       ├── Services/             # 应用状态管理（BookStore, SearchViewModel, AudioBookService, LaunchRouter, TabBarVisibility）
 │       ├── Theme/                # 阅读主题与排版配置（ReaderConfig）
 │       └── Views/                # 用户界面视图
-│           ├── BookshelfView.swift       # 书架（分组胶囊、三列网格/列表、4 种排序、批量管理）
+│           ├── Bookshelf/                # 书架二级菜单功能页（缓存管理/导出、添加网址、远程书籍）
+│           │   ├── CacheManageView.swift # 缓存管理（章节数/体积 + TXT/EPUB 整书导出 + 导出所有）
+│           │   ├── AddUrlSheet.swift     # 添加网址（三级书源匹配）+ 书架管理（分组显示开关）
+│           │   └── RemoteBooksView.swift # WebDAV 远程目录浏览与文件导入
+│           ├── QR/                       # 扫码全链路（AVFoundation 扫码 + 相册 CIDetector 识别 + 生成分享二维码 + 结果分流导入）
+│           ├── BookshelfView.swift       # 书架（分组胶囊、三列网格/列表、5 种排序、批量管理、书架二级菜单）
 │           ├── CategoryExploreView.swift # 分类页（快速切源胶囊、预设分类流）
 │           ├── ExploreBookListView.swift # 单分类书籍流（下拉刷新、触底分页）
 │           ├── BookDetailView.swift      # 书籍详情（信息编辑、整书换源、变量弹窗、目录居中与反转）
@@ -272,14 +286,14 @@ Legado-iOS/
 │           ├── SearchBookView.swift      # 搜索页（多源并发增量流、书架匹配、搜索历史）
 │           ├── WebDAVSyncView.swift      # WebDAV 备份恢复 + 本地备份包导出/导入
 │           ├── Reader/                   # 全屏沉浸式阅读器
-│           │   ├── ReaderView.swift      # 阅读画布顶层控制器、手势调度、常驻状态栏、底栏控制
-│           │   ├── Canvas/               # 统一排版与滚动画布（ChapterTypography 统一排版真理源, ReaderScrollCanvasView 原生长卷滚动画布）
+│           │   ├── ReaderView.swift      # 阅读画布顶层控制器、手势调度、常驻状态栏、底栏控制、选词浮动菜单
+│           │   ├── Canvas/               # 统一排版与滚动画布（ChapterTypography 统一排版真理源, ReaderScrollCanvasView 原生长卷滚动画布, TextSelection 选词几何）
 │           │   ├── Panels/               # 界面样式面板、更多设置、朗读控制、悬浮条、点击区域
 │           │   └── Sheets/               # 书签列表、整书/本章换源、章节内容编辑、起效的替换、全书搜索
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
-├── Tests/LegadoCoreTests/        # 跨模块自动化单元测试套件（256 例）
+├── Tests/                        # 自动化单元测试套件（21 个测试文件 285 例：LegadoCoreTests + LegadoAppTests）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -301,8 +315,8 @@ Legado-iOS/
    ```
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 运行 249 项确定性单元测试（零外部网络依赖）
-   swift test                          # 包含真实活体书源网络嗅探冒烟测试（共 256 例）
+   swift test --skip LiveSourceTests   # 运行 278 项确定性单元测试（零外部网络依赖）
+   swift test                          # 包含真实活体书源网络嗅探冒烟测试（共 285 例）
    ```
 3. 打开并运行 Xcode 工程：
    ```bash
