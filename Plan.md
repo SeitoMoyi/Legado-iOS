@@ -12,11 +12,11 @@
 ## 目录
 - [一、 Android ↔ iOS 当前功能差距对比矩阵](#一-android--ios-当前功能差距对比矩阵)
 - [二、 关键设计决策与 Android 架构偏离备忘](#二-关键设计决策与-android-架构偏离备忘)
-- [三、 版本变更摘要与已固化的对齐语义](#三-版本变更摘要与已固化的对齐语义)
-- [四、 后续迭代演进路线图 (Future Roadmap)](#四-后续迭代演进路线图-future-roadmap)
-  - [Phase 1: P2 核心生态与高频功能（近期重点）](#phase-1-p2-核心生态与高频功能近期重点)
-  - [Phase 2: P2 进阶系统与数据完整性（中期推进）](#phase-2-p2-进阶系统与数据完整性中期推进)
-  - [Phase 3: P3 iOS 平台深度融合（远期演进）](#phase-3-p3-ios-平台深度融合远期演进)
+- [三、 后续迭代演进路线图 (Future Roadmap)](#三-后续迭代演进路线图-future-roadmap)
+  - [第一批（v0.2.8）：阅读与书架刚需](#第一批v028阅读与书架刚需)
+  - [第二批（v0.3.x）：生态与数据完整性](#第二批v03x生态与数据完整性)
+  - [第三批（v0.4.x）：格式与体验](#第三批v04x格式与体验)
+  - [第四批（v1.0）：平台深度融合](#第四批v10平台深度融合)
 
 ---
 
@@ -75,140 +75,101 @@
 | **13** | **单章换源流程** | 自动调用 `ChapterMatcher` 映射章节 | 章节匹配器单测通过率极高，自动映射可避免频繁打断用户翻页。 |
 | **14** | **阅读面板归一** | 统一采用 `ReaderPanelChrome` | 「界面」、「更多设置」、「朗读」面板共用圆角卡片、间距规范与半屏高度限制，消除各面板样式漂移。 |
 | **15** | **JSON 往返字段保真** | **已修复**：三个模型保留 `extra: [String: JSONValue]` 原始字典 | `BookSource` / `RssSource` / `Book` 解码时把未建模的 Android 字段（`jsLib`、`concurrentRate`、`enabledCookieJar`、`ruleReview`、`Book.customTag` / `customIntro` / `charset` / `type` / `order` / `syncTime` 等）收进 `extra`，`encode(to:)` 时**扁平化回写**为顶层键（无 "extra" 包装，Android GSON 直接识别）。`JSONExtrasTests` 8 例锁定往返零丢失。`RssSource` 同时补齐 `loginUrl` / `loginUi` / `variable` 三个 Android 字段。 |
+| **16** | **请求头合并语义** | 统一 `JSEngine.resolvedSourceHeader` | header 规则求值后**叠加** loginHeader（Android `getHeaderMap(hasLoginHeader:)`），严禁 `loginHeader ?? header` 替换式。 |
+| **17** | **getLoginHeader()** | 仅返回登录捕获头 | 不回退静态 `header`——书源 `<js>` 的登录态分支判定依赖此语义（xkvi `level=0/1` 实测教训）。 |
+| **18** | **java.ajax/connect** | 经 `JavaShim.defaultHeaderProvider` 携带书源头 | 对齐 Android `AnalyzeUrl(url, source=)`；裸发请求会被 Cookie 网关拒掉。 |
+| **19** | **`<js>`/`@js:` 拆分** | 统一 `JSEngine.splitJSRule`/`extractJSScript` | 禁止各处手写 range 拆分；kind 类列表规则必须 `getStringList`，单值字段 `getString`。 |
+| **20** | **JSON 往返** | 未建模字段进 `extra`（`JSONExtraPreserving`） | encode 扁平化回写顶层键，Android GSON 直接识别。 |
+| **21** | **分页记账** | 段距挂下一段首行、页首行不收、跨页重置 | Android `prepareNextPageIfNeed(durY + textHeight)` 语义；`TypographyPageFillTests` 锁定不变量。 |
+| **22** | **过滤视图拖拽排序** | 置换可见子集自身序号槽位 | 视图外条目不动；全量视图退化为 0…n-1 重排。 |
+| **23** | **详情页 TabBar** | `TabBarVisibility` 服务 + 全局 Appearance 材质 | 来源页 onAppear 还原（pop 开始瞬间生效）；`.toolbar(.hidden)` 的还原延迟与材质丢失均有坑，禁用。 |
+| **24** | **听书启动/续读** | 统一 `aloudPlayOrResume()` | 可见段落==朗读段落才 resume（保 HttpTTS 中段进度），否则重锚定到当前可见段。 |
+| **25** | **全书搜索基准** | 偏移基于净化后文本（`fetchChapterContent(context:)` 同管线） | 与排版文本同基准才能精准跳转；`source: nil` = 仅离线。 |
 
 ---
 
-## 三、 版本变更摘要与已固化的对齐语义
+## 三、 后续迭代演进路线图 (Future Roadmap)
 
-### v0.2.7.x 系列变更一览
-| 版本 | 内容 |
-|---|---|
-| v0.2.7.1 | 「我的」页按 `pref_main.xml` 重排（顶层六行 + 设置/其它分组）；翻页模式持久化修复；底部 Tab 对齐 `main_bnv.xml`（书架/发现/订阅/我的） |
-| v0.2.7.2 | （跳过） |
-| v0.2.7.3 | 自带书源与书源硬编码全部移除（`xkvi→novelia` 迁写、别名匹配、ESJ 专属 UI、测试凭证）；活体测试改用社区源列表；书架/详情/搜索页深度布局对齐（详情垂直头部 + `fl_action` 底栏 + 菜单顺序）；搜索历史流式胶囊 |
-| v0.2.7.4 | 书架下拉刷新元数据完整更新：合并书名/封面，章节列表落盘（对齐 Android `upBookInfo`） |
-| v0.2.7.5 | 分页自然度：段距记账对齐 Android（挂下一段首行、跨页重置），页底不再提前分割；`LegadoAppTests` 分页不变量回归锁 |
-| v0.2.7.6 | 阅读器菜单对齐（底栏四入口 + 悬浮球四键 + 界面面板方块化 + 纯色主题块）；应用图标（Android Legado 512px 母版）；审计去重 |
-
-### 已固化的对齐语义（后续开发必须遵守）
-1. **请求头合并**：一切书源请求头经 `JSEngine.resolvedSourceHeader(source, engine:, loginHeaderOverride:)`——header 规则求值后**叠加** loginHeader（Android `getHeaderMap(hasLoginHeader:)` 语义），严禁 `loginHeader ?? header` 替换式写法。
-2. **`getLoginHeader()`** 仅返回登录捕获头，不回退静态 `header`（登录态分支判定依赖此语义）。
-3. **`java.ajax/connect`** 经 `JavaShim.defaultHeaderProvider` 携带书源头。
-4. **`<js>`/`@js:` 拆分** 统一走 `JSEngine.splitJSRule` / `extractJSScript`；kind 类列表规则用 `getStringList`（对齐 Android `BookInfo.kt`），单值字段用 `getString`。
-5. **JSON 往返**：未建模字段一律进 `extra`（`JSONExtraPreserving`），encode 扁平化回写。
-6. **分页记账**：段距挂下一段首行、页首行不收段距、跨页重置（Android `prepareNextPageIfNeed(durY + textHeight)` 语义），不变量由 `TypographyPageFillTests` 锁定。
-7. **过滤视图拖拽排序**：置换可见子集自身序号槽位，不动视图外条目。
-8. **详情页 TabBar**：隐藏/还原走 `TabBarVisibility`（来源页 onAppear 还原，pop 开始瞬间生效）；TabBar 材质由 App 启动时全局 Appearance 声明。
-9. **听书启动/续读**统一走 `aloudPlayOrResume()`（可见段落==朗读段落才 resume，否则重锚定）。
-10. **全书搜索**偏移基于净化后文本（`fetchChapterContent(context:)` 同管线），跳转按字符偏移精准定位。
-
-## 四、 后续迭代演进路线图 (Future Roadmap)
-
-P0（核心阅读闭环）与 P1（高频生态与工具链）已达成，排版底层与连续长卷滚动架构终态收敛。**下一版本 v0.2.8（中版本）目标：完成 Phase 1 剩余三项（Part 3/4/6）**，随后推进 Phase 2/3：
+P0/P1 已达成；Phase 1 已完成 3/6（RSS、拖拽排序、全书搜索）。剩余功能**按重要性分批**推进，每批一个版本：
 
 ```mermaid
 graph TD
-    subgraph Phase 1: P2 核心生态与高频功能
-        T1[Part 1: RSS 订阅深度完善 ✅]
-        T2[Part 2: 列表拖拽与手动排序 ✅]
-        T3[Part 3: 二维码全链路集成]
-        T4[Part 4: 文本选择与取词联动]
-        T5[Part 5: 书内全书并发搜索 ✅]
-        T6[Part 6: 通用内置 WebKit 浏览器]
+    subgraph 第一批 v0.2.8 阅读与书架刚需
+        A1[Part 4: 文本选词联动]
+        A2[书架二级菜单对齐 缓存/导出]
+        A3[Part 3: 二维码全链路]
     end
-
-    subgraph Phase 2: P2 进阶系统与数据完整性
-        T7[Part 7: 规则订阅聚合 sourceSub]
-        T8[Part 8: WebDAV 21 类全数据对齐]
-        T9[Part 9: 本地 MOBI/AZW3/PDF 解析]
-        T10[Part 10: 高级主题与背景图系统]
-        T11[Part 11: 漫画模式专用交互]
+    subgraph 第二批 v0.3.x 生态与数据完整性
+        B1[Part 6: 内置 WebKit 浏览器]
+        B2[Part 8: WebDAV 21 类对齐]
+        B3[Part 7: 规则订阅 sourceSub]
     end
-
-    subgraph Phase 3: P3 iOS 平台深度融合
-        T12[Part 12: iOS 桌面组件 Widgets]
-        T13[Part 13: App Intents 与 Share 扩展]
-        T14[Part 14: CarPlay 与 VoiceOver 无障碍]
-        T15[Part 15: 完整局域网 REST API]
+    subgraph 第三批 v0.4.x 格式与体验
+        C1[Part 9: MOBI/AZW3/PDF]
+        C2[Part 10: 主题背景图系统]
+        C3[Part 11: 漫画模式]
     end
-
-    Phase 1 --> Phase 2
-    Phase 2 --> Phase 3
+    subgraph 第四批 v1.0 平台深度融合
+        D1[Widgets / App Intents / Share]
+        D2[VoiceOver / CarPlay]
+        D3[完整局域网 REST API]
+    end
+    第一批 --> 第二批 --> 第三批 --> 第四批
 ```
 
 ---
 
-### Phase 1: P2 核心生态与高频功能（近期重点）
-
-#### Part 1：RSS 订阅深度完善 ✅（已完成）
-全字段编辑器（24 字段含 loginUrl/loginUi/variable）、三阶段流式调试台、文章 3 版式（articleStyle 持久化）、`ruleNextPage` 触底翻页（自环保护 + link 去重）、已读置灰与阅读历史落盘（500 条上限）。**遗留**：交互式登录 WebView、订阅源并发校验。
-
-#### Part 2：列表拖拽与手动排序 ✅（已完成）
-`Book.order` 建模落盘（新书 `minOrder-1` 置顶）+ 书架「手动排序（可拖拽）」；书源拖拽排序（`customOrder` 重排优先级）；TXT/字典/HttpTTS/RSS 四列表 `EditButton`+`.onMove`。过滤视图拖拽置换子集槽位。**遗留**：网格模式拖拽（`LazyVGrid` 无 `.onMove`）。
-
-#### Part 3：二维码全链路集成
-- **目标**：打通多端扫码导入与生成分享闭环。
-- **实施点**：
-  1. 基于 `AVFoundation` 开发轻量扫码页 `QRCodeScannerView`，支持扫描书源、规则、订阅源、WebDAV 配置 JSON 或导入直链。
-  2. 支持从系统相册选取二维码图片并使用 `CIDetector` 离线识别。
-  3. 书籍详情页与书源管理页菜单新增「生成分享二维码」，支持将配置编码为高清二维码展示与保存相册。
+### 第一批（v0.2.8）：阅读与书架刚需
 
 #### Part 4：阅读器文本选择与取词联动
 - **目标**：在 CoreText 统一排版画布上建立原生级选词交互。
 - **实施点**：
-  1. 在 `ChapterCanvasLayerView` 与滑动视图上挂载长按手势（600ms），识别字符索引并计算文本包围盒（Bounding Box）。
-  2. 绘制半透明主色选区高亮图层与左右两个调节双把手。
-  3. 弹出上下文交互菜单（`UIMenuController` 或 SwiftUI 浮层）：
-     - **复制**：复制选中文字至剪贴板。
-     - **查字典**：直接调起内置「查字典」Tab 查询选中词汇释义。
-     - **添加书签**：将选中句直接作为摘录内容创建书签。
-     - **朗读所选**：从选中段落立即启动 TTS 朗读。
-     - **创建替换规则**：以选中词为默认目标打开快速替换弹窗。
+  1. 画布挂载长按手势（600ms），由触点坐标反查字符索引并计算包围盒。
+  2. 半透明主色选区高亮 + 左右调节把手拖拽扩选。
+  3. 上下文菜单：复制 / 查字典（联动内置字典 Tab）/ 添加书签（选中句为摘录）/ 朗读所选 / 创建替换规则。
 
-#### Part 5：书内全书多章并发搜索 ✅（已完成）
-`BookContentSearchService`（AsyncStream 进度/命中/完成事件、6 并发分块、缓存优先 + 可选联网、单章命中封顶）+ `SearchContentSheet`（关键字/正则、命中高亮、字符偏移精准跳转、净化管线同基准）。入口：搜索弹窗顶部直达卡。
+#### 书架二级菜单对齐（`main_bookshelf.xml` 全量）
+- **目标**：补齐书架菜单缺失入口，全部可行，按价值排序。
+- **实施点**：
+  1. **缓存/导出（`CacheActivity` 同构）**：书籍缓存管理页——书架列表 + 每本已缓存章数/体积（`BookContentService` 缓存 API 已具备）、点击进入离线下载（`ChapterRangeDownloadSheet` 已有）、单本清除（已有）；**导出缓存为 TXT/EPUB**（TXT 拼接即得；EPUB 用 ZIPFoundation 组包 container.xml + nav，中等工作量）、「导出所有」、导出格式与编码选择、`UIActivityViewController` 分享。
+  2. **导出书单**：`bookshelf.json`（现有编码器）→ 系统分享/文件导出。
+  3. **添加网址**：输入章节 URL → 按书源 `bookUrlPattern` 匹配书源直接加架。
+  4. **远程书籍**：WebDAV 目录浏览 + 文件导入（复用 `WebDAVService` PROPFIND 与本地导入链）。
+  5. **书架管理**：分组显示开关（`BookGroupStore.show` 字段已有）批量勾选页。
+- 已对齐项：更新目录 / 添加本地 / 分组管理 / 书架布局（视图+排序）/ 选择。
+
+#### Part 3：二维码全链路集成
+- **目标**：打通多端扫码导入与生成分享闭环。
+- **实施点**：
+  1. `AVFoundation` 扫码页：书源/规则/订阅源/WebDAV 配置 JSON 或导入直链。
+  2. 相册选图 + `CIDetector` 离线识别。
+  3. 详情页与书源管理菜单「生成分享二维码」（CoreImage 生成，保存相册）。
+
+### 第二批（v0.3.x）：生态与数据完整性
 
 #### Part 6：通用内置 WebKit 浏览器
-- **目标**：补齐非登录场景的网页浏览与 Cloudflare 智能过盾。
-- **实施点**：
-  1. 封装通用浏览器组件 `GeneralWebBrowserView`：包含前进、后退、刷新、复制 URL、Safari 打开、Cookie 管理。
-  2. 自动过盾处理：当网络请求遇到 403 / 503 防爬或人机验证页时，自动弹出轻量浏览器引导用户完成滑动/验证，验证通过后自动回写 Cookie 至全局存储并重试正文抓取。
+封装通用浏览器组件（前进/后退/刷新/复制 URL/Safari 打开/Cookie 管理）；403/503 人机验证页自动弹浏览器过盾，Cookie 回写全局存储后重试正文抓取。
 
----
+#### Part 8：WebDAV 21 类全数据对齐
+备份恢复覆盖剩余成员（`bookGroup`/`sourceSub`/`httpTTS`/`dictRule`/`servers`/`keyboardAssists`/`directLinkUploadRule`/`shareReadConfig`/`themeConfig`/`coverRule`/`config.xml`）；恢复时「忽略列表」多选。
 
-### Phase 2: P2 进阶系统与数据完整性（中期推进）
+#### Part 7：规则订阅聚合 `sourceSub.json`
+外部规则聚合订阅：导入管理、定期检查更新、合并书源/替换规则/订阅源。
 
-#### Part 7：规则订阅聚合 (`sourceSub.json`)
-- 支持导入与管理外部规则聚合订阅源，定期自动检查更新并合并书源、替换规则与订阅源。
+### 第三批（v0.4.x）：格式与体验
 
-#### Part 8：WebDAV 完整 21 类数据对齐
-- 扩充备份与恢复范围，覆盖 `servers`、`bookGroup`、`directLinkUploadRule`、`coverRule` 等剩余成员；实现导入恢复时的「忽略列表」多选配置。
-
-#### Part 9：本地书籍格式扩展
-- 引入轻量纯 Swift 解析器，扩展对 **MOBI**、**AZW3** 与 **PDF** 本地电子书的流式排版与渲染支持。
+#### Part 9：本地 MOBI/AZW3/PDF 解析
+轻量纯 Swift 解析器，流式排版接入统一排版引擎。
 
 #### Part 10：高级主题与背景图系统
-- 独立主题管理中心：支持新建、命名、导出自定义主题；支持正文背景图片纹理（Android 端 `assets/bg` 预装 14 张纹理，可对齐移植 + 相册自选）。
-- E-Ink 深化：现有「水墨屏」主题只提供纯白底 + 纯黑字，仍需去除界面阴影与半透明层、提升对比度。
+主题管理中心（新建/命名/导出）；正文背景纹理（对齐 Android 14 张预装 + 相册）；E-Ink 对比度深化。
 
 #### Part 11：漫画模式专用交互
-- 针对图片书源或条漫格式提供横向整页翻页、PagerSnap 贴靠、双指 Pinch 缩放、图片二值化与滤镜。
+横向整页翻页、PagerSnap 贴靠、双指缩放、图片二值化滤镜。
 
----
+### 第四批（v1.0）：平台深度融合
 
-### Phase 3: P3 iOS 平台深度融合（远期演进）
-
-#### Part 12：iOS 桌面组件 (Widgets)
-- 使用 WidgetKit 构建主屏组件：书架封面墙轮播、当前阅读书籍进度与最近更新章节提示。
-
-#### Part 13：系统深度集成
-- **App Intents**：集成 iOS 16+ App Intents 框架，支持通过 Siri 语音或快捷指令指令搜索小说与继续阅读。
-- **Share Extension**：系统分享面板扩展，在 Safari 或第三方应用中选中链接或文本时，可一键发送给 Legado 加入书架或触发搜索。
-- **Universal Links**：配置关联域名，支持网页端直链唤起客户端。
-
-#### Part 14：CarPlay 与无障碍体验
-- **CarPlay**：针对听书与音频书场景接入 CarPlay 模板，驾驶模式下安全切换章节与播放控制。
-- **无障碍**：阅读器画布与控制面板适配 VoiceOver 读屏辅助标签，保障视障读者无障碍使用。
-
-#### Part 15：完整局域网 REST API
-- 扩展 `LocalWebServer`，补齐对齐 Android `HttpServer.kt` 的 12 GET + 14 POST 接口，支持通过局域网在 PC 浏览器端完整管理书架、书源及在线阅读。
+- **Widgets**：书架封面墙轮播 + 当前阅读进度。
+- **App Intents / Share Extension**：Siri 与快捷指令搜索/继续阅读；系统分享一键加架。
+- **VoiceOver / CarPlay**：阅读画布与控制面板无障碍标签；听书 CarPlay 模板。
+- **完整局域网 REST API**：对齐 `HttpServer.kt` 12 GET + 14 POST。
