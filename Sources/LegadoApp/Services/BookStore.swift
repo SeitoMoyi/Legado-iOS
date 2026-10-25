@@ -180,7 +180,7 @@ public class BookStore: ObservableObject {
         var rulesCount = 0
 
         if let newBooks = payload.books {
-            for var b in newBooks {
+            for b in newBooks {
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
                     bookshelf[idx] = b
                 } else {

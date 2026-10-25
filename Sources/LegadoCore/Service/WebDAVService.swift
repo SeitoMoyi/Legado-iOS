@@ -655,8 +655,9 @@ public class WebDAVService {
                let lenRange = Range(lenMatch.range(at: 1), in: chunk) {
                 size = Int64(String(chunk[lenRange]))
             }
-            // The listing always echoes the requested directory itself; hide it.
-            if fullURL.standardizedFileURL == baseDir.standardizedFileURL { continue }
+            // The listing always echoes the requested directory itself; hide it. Servers
+            // disagree about the trailing slash, so compare scheme+host+trimmed path.
+            if Self.isSameDirectory(fullURL, baseDir) { continue }
             entries.append(RemoteDirectoryEntry(name: name, url: fullURL,
                                                 isDirectory: isDirectory, size: size))
         }
@@ -664,6 +665,14 @@ public class WebDAVService {
             if a.isDirectory != b.isDirectory { return a.isDirectory }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
+    }
+
+    static func isSameDirectory(_ a: URL, _ b: URL) -> Bool {
+        func key(_ u: URL) -> String {
+            (u.scheme ?? "") + "://" + (u.host ?? "")
+                + u.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        return key(a) == key(b)
     }
 
     /// Downloads one remote file (authenticated GET) — the 远程书籍 import step.

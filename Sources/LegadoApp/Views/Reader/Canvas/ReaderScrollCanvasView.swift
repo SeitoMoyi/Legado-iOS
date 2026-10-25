@@ -337,6 +337,9 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     private var selectionChapterIndex: Int = 0
     /// (chapterIndex, range) currently highlighted on screen.
     private var activeSelection: (chapter: Int, range: Range<Int>)? = nil
+    /// True between long-press .began and its terminal state; guards `syncSelectionState`
+    /// from clobbering a live drag with the parent's last committed range.
+    private var isSelectionGestureActive = false
 
     // Loading locks
     private var isLoadingPrevious: Bool = false
@@ -377,6 +380,7 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
 
         switch gesture.state {
         case .began:
+            isSelectionGestureActive = true
             let hit = chapterOffset(atContentPoint: contentPoint)
             let localTouch = touchPoint(inChapterCoords: contentPoint)
             selectionMachine.existingRange = activeSelection?.range
@@ -395,7 +399,8 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
             if let range = selectionMachine.changed(headChapterOffset: hit) {
                 applySelection(range: range)
             }
-        case .ended, .cancelled, .failed:
+        case .ended:
+            isSelectionGestureActive = false
             selectionMachine.ended()
             if let sel = activeSelection,
                let rects = selectionRectsInChapterView(for: sel) {
@@ -403,6 +408,12 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
                 let anchorInWindow = convert(union, to: nil)
                 onSelectionChanged?(sel.chapter, sel.range, anchorInWindow)
             }
+        case .cancelled, .failed:
+            // Stolen gesture: drop the half-made selection — the parent never hears about
+            // it, so leaving it would strand a highlight nothing can clear.
+            isSelectionGestureActive = false
+            selectionMachine.reset()
+            if activeSelection != nil { clearSelection() }
         default:
             break
         }
@@ -455,6 +466,9 @@ public final class ContinuousScrollReaderUIView: UIScrollView, UIScrollViewDeleg
     /// truth while a gesture is running; this is how the reader clears it after an action
     /// (copy, bookmark, page turn) without another callback round trip.
     public func syncSelectionState(chapterIndex: Int, range: Range<Int>?) {
+        // Mid-gesture the canvas owns the range; applying the parent's last committed
+        // value here would snap the live drag back.
+        guard !isSelectionGestureActive else { return }
         if let range = range, !range.isEmpty {
             selectionChapterIndex = chapterIndex
             applySelection(range: range)

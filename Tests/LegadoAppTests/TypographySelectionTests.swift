@@ -82,11 +82,10 @@ final class TypographySelectionTests: XCTestCase {
             XCTAssertTrue(covering, "矩形 \(rect) 不在任何覆盖行上")
         }
 
-        // x 单调：起点矩形的 x 不得落后于行首。
-        if let firstRect = rects.first, let firstLine = typo.lines.first {
+        // x 单调：起点矩形不得落后于行首。
+        if let firstRect = rects.first {
             XCTAssertGreaterThanOrEqual(firstRect.minX, 10 - 0.6)
             XCTAssertGreaterThan(firstRect.width, 0.5)
-            _ = firstLine
         }
     }
 

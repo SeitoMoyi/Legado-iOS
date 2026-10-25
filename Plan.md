@@ -4,9 +4,9 @@
 > - **Android 对标基线**：`/Users/peibinxu/Downloads/legado-master`（`app/` 813 个 Kotlin 文件，`app/` + `modules/` 合计 844；184 个 layout XML，完整功能版 3.x）。
 > - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **80 个 Swift 文件 ≈ 29.6k 行**（LegadoCore 38 文件 9.5k 行 + LegadoApp 42 文件 20.1k 行；含 Tests 共 101 文件）。
 > - **单测门禁**：21 个测试文件共 **285 例单元测试**（278 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 278/278 通过）。
-> - **应用图标**：Android Legado 512px 母版（`ic_launcher-web.png`）经 `Assets.xcassets/AppIcon` 单尺寸 1024 编译注入。
+> - **应用图标**：Android 自适应图标矢量层（`drawable/ic_launcher1_b.xml` 背景 + `drawable/ic_launcher1.xml` 前景）合成为单张 1024px 不透明 PNG（`Assets.xcassets/AppIcon` 单尺寸编译注入），与 Android 8+ 启动器渲染的「阅读 Read 3.0」图标一致。
 > - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.8.0`（`VERSION` 文件；版本随 tag 发布）
+> **当前版本**：`v0.2.8.1`（`VERSION` 文件；版本随 tag 发布）
 ---
 
 ## 目录

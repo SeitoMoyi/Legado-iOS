@@ -2917,9 +2917,14 @@ public struct CoreTextPageView: UIViewRepresentable {
         uiView.justify = justify
         uiView.pageLines = pageLines
         uiView.chapterIndex = chapterIndex
-        uiView.selectionRange = selectionRange
         uiView.onSelectionChanged = onSelectionChanged
         uiView.backgroundColor = .clear
+        // A SwiftUI re-render mid-gesture (async precache landing, audio state change)
+        // carries the last committed selection; overwriting with it would snap the
+        // live drag back. The canvas owns the range until the gesture ends.
+        if !uiView.isSelectionGestureActive {
+            uiView.selectionRange = selectionRange
+        }
         uiView.setNeedsDisplay()
     }
 }
@@ -2940,6 +2945,8 @@ public class CoreTextUIView: UIView {
     public var chapterIndex: Int = 0
     public var selectionRange: Range<Int>? { didSet { setNeedsDisplay() } }
     public var onSelectionChanged: ((Int, Range<Int>?, CGRect) -> Void)?
+    /// True between long-press .began and .ended/.cancelled — see updateUIView.
+    private(set) var isSelectionGestureActive = false
     private let selectionMachine = SelectionGestureMachine()
 
     /// Called once from `makeUIView` so re-renders never stack recognizers.
@@ -2993,6 +3000,7 @@ public class CoreTextUIView: UIView {
         let loc = gesture.location(in: self)
         switch gesture.state {
         case .began:
+            isSelectionGestureActive = true
             selectionMachine.existingRange = selectionRange
             if let sel = selectionRange {
                 let rects = selectionRects(for: sel)
@@ -3010,13 +3018,21 @@ public class CoreTextUIView: UIView {
             if let range = selectionMachine.changed(headChapterOffset: offset) {
                 selectionRange = range
             }
-        case .ended, .cancelled, .failed:
+        case .ended:
+            isSelectionGestureActive = false
             selectionMachine.ended()
             if let sel = selectionRange {
                 let rects = selectionRects(for: sel)
                 let union = rects.reduce(CGRect.null) { $0.union($1) }
                 onSelectionChanged?(chapterIndex, sel, convert(union, to: nil))
             }
+        case .cancelled, .failed:
+            // A stolen gesture never reports to the parent; drop the half-made selection
+            // here or it stays highlighted with no way to clear it (the parent has no
+            // state change to re-render with).
+            isSelectionGestureActive = false
+            selectionMachine.reset()
+            selectionRange = nil
         default:
             break
         }

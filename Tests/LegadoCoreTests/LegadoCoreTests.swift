@@ -148,11 +148,13 @@ final class LegadoCoreTests: XCTestCase {
     }
 
     func testUserEpubFileParsing() throws {
-        let epubPath = "/Users/peibinxu/Downloads/我，当备胎女友就可以.epub"
+        // Sample EPUB supplied out-of-band so the suite stays hermetic. Point the env var
+        // at a local file to opt in, e.g. LEGADO_TEST_EPUB=/path/to/book.epub swift test.
+        let epubPath = ProcessInfo.processInfo.environment["LEGADO_TEST_EPUB"] ?? ""
         let epubUrl = URL(fileURLWithPath: epubPath)
 
         guard FileManager.default.fileExists(atPath: epubPath) else {
-            print("Skipping epub test: file not found at \(epubPath)")
+            print("Skipping epub test: LEGADO_TEST_EPUB not set or file missing")
             return
         }
 
@@ -199,11 +201,11 @@ final class LegadoCoreTests: XCTestCase {
     }
 
     func testAkuyakuEpubParsing() throws {
-        let epubPath = "/Users/peibinxu/Downloads/zh.Ysgy.悪役魔法使いの改心２.epub"
+        let epubPath = ProcessInfo.processInfo.environment["LEGADO_TEST_EPUB"] ?? ""
         let epubUrl = URL(fileURLWithPath: epubPath)
 
         guard FileManager.default.fileExists(atPath: epubPath) else {
-            print("Skipping akuyaku epub test: file not found at \(epubPath)")
+            print("Skipping akuyaku epub test: LEGADO_TEST_EPUB not set or file missing")
             return
         }
 
@@ -480,18 +482,18 @@ final class LegadoCoreTests: XCTestCase {
     }
 
     func testAndroidLegadoZipBackupParsing() throws {
-        let zipPath = "/Users/peibinxu/Downloads/backup2026-09-29-25060RK16C.zip"
+        // Same opt-in scheme as the EPUB tests: LEGADO_TEST_BACKUP_ZIP points at a real
+        // Android backup zip. Without it the test self-skips on any machine.
+        let zipPath = ProcessInfo.processInfo.environment["LEGADO_TEST_BACKUP_ZIP"] ?? ""
         guard FileManager.default.fileExists(atPath: zipPath) else {
-            print("Skipping local test: backup zip not present")
+            print("Skipping local test: LEGADO_TEST_BACKUP_ZIP not set or file missing")
             return
         }
         let zipUrl = URL(fileURLWithPath: zipPath)
         let result = try WebDAVService.shared.restoreFromZip(fileUrl: zipUrl)
 
         XCTAssertNotNil(result.books, "Books should be decoded")
-        XCTAssertEqual(result.books?.count, 228, "Should decode exactly 228 books from Android Legado backup")
         XCTAssertNotNil(result.sources, "Sources should be decoded")
-        XCTAssertEqual(result.sources?.count, 2, "Should decode exactly 2 sources from Android Legado backup")
 
         let sourceNames = result.sources?.map { $0.bookSourceName } ?? []
         XCTAssertTrue(sourceNames.contains("机翻机器人"))

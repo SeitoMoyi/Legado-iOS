@@ -250,7 +250,8 @@ public struct ScanResultSheet: View {
         case .importURL:
             if raw.lowercased().hasPrefix("http") {
                 Button {
-                    dismiss()
+                    // Present on top of this sheet; dismissing self first would tear down
+                    // the presenter the new sheet is attached to.
                     showAddURL = true
                 } label: {
                     Label("按网址添加书籍", systemImage: "book.badge.plus")
@@ -352,6 +353,9 @@ import PhotosUI
 
 final class QRScanPreviewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onCode: ((String) -> Void)? = nil
+    /// Fired when camera permission is denied so the sheet can show a hint instead of a
+    /// silent black preview.
+    var onPermissionDenied: (() -> Void)? = nil
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var isConfigured = false
@@ -371,8 +375,14 @@ final class QRScanPreviewController: UIViewController, AVCaptureMetadataOutputOb
         guard !isConfigured else { return }
         isConfigured = true
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            guard granted else { return }
-            DispatchQueue.main.async { self?.startSession() }
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                guard granted else {
+                    self.onPermissionDenied?()
+                    return
+                }
+                self.startSession()
+            }
         }
     }
 
@@ -421,15 +431,18 @@ final class QRScanPreviewController: UIViewController, AVCaptureMetadataOutputOb
 
 struct CameraPreviewView: UIViewControllerRepresentable {
     let onCode: (String) -> Void
+    var onPermissionDenied: (() -> Void)? = nil
 
     func makeUIViewController(context: Context) -> QRScanPreviewController {
         let controller = QRScanPreviewController()
         controller.onCode = onCode
+        controller.onPermissionDenied = onPermissionDenied
         return controller
     }
 
     func updateUIViewController(_ controller: QRScanPreviewController, context: Context) {
         controller.onCode = onCode
+        controller.onPermissionDenied = onPermissionDenied
     }
 }
 
@@ -485,9 +498,12 @@ public struct QRScannerSheet: View {
     public var body: some View {
         NavigationView {
             ZStack {
-                CameraPreviewView { code in
-                    onResult(code)
-                }
+                CameraPreviewView(
+                    onCode: onResult,
+                    onPermissionDenied: {
+                        sessionHint = "未获得相机权限，可在系统设置中开启，或用下方「相册识别」"
+                    }
+                )
                 .ignoresSafeArea()
 
                 // Framing hint
@@ -545,13 +561,21 @@ public struct QRScannerSheet: View {
                     }
                 }
             }
+            .onDisappear {
+                // The torch is device-level hardware state; it outlives this sheet unless
+                // turned back off here.
+                if torchOn { resetTorch() }
+            }
         }
         .navigationViewStyle(.stack)
     }
 
     private func toggleTorch() {
         guard let device = AVCaptureDevice.default(for: .video),
-              device.hasTorch else { return }
+              device.hasTorch else {
+            sessionHint = "手电筒不可用"
+            return
+        }
         do {
             try device.lockForConfiguration()
             device.torchMode = torchOn ? .off : .on
@@ -559,6 +583,19 @@ public struct QRScannerSheet: View {
             torchOn.toggle()
         } catch {
             sessionHint = "手电筒不可用"
+        }
+    }
+
+    private func resetTorch() {
+        guard let device = AVCaptureDevice.default(for: .video),
+              device.hasTorch, device.torchMode == .on else { return }
+        do {
+            try device.lockForConfiguration()
+            device.torchMode = .off
+            device.unlockForConfiguration()
+            torchOn = false
+        } catch {
+            // Nothing to recover into UI at teardown; the OS reaps the torch eventually.
         }
     }
 

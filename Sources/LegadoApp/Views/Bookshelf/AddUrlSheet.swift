@@ -19,7 +19,6 @@ public struct AddUrlSheet: View {
     @State private var urlString: String = ""
     @State private var phase: Phase = .input
     @State private var matchedSource: BookSource? = nil
-    @State private var addedBook: Book? = nil
     @State private var errorMessage: String = ""
 
     enum Phase: Equatable {
@@ -150,7 +149,6 @@ public struct AddUrlSheet: View {
                 bookStore.saveChapters(result.chapters, for: saved.bookUrl)
                 bookStore.markTocFetched(bookUrl: saved.bookUrl)
                 await MainActor.run {
-                    addedBook = saved
                     onAdded?(saved)
                     dismiss()
                 }
