@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 import JavaScriptCore
 
 @objc public protocol JavaShimProtocol: JSExport {
@@ -19,17 +20,19 @@ import JavaScriptCore
     private var kvStore: [String: String] = [:]
     private let lock = NSLock()
     private weak var jsContext: JSContext?
+    private let baseURL: String?
     /// Resolves the owning source's headers (loginHeader → header, JS-evaluated).
     /// `java.ajax(url)` without them cannot reach Cookie-gated APIs (Android parity).
     public var defaultHeaderProvider: (() -> String?)?
 
-    public init(context: JSContext?) {
+    public init(context: JSContext?, baseURL: String? = nil) {
         self.jsContext = context
+        self.baseURL = baseURL
         super.init()
     }
 
     public func ajax(_ url: String) -> String {
-        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?()) else { return "" }
+        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?(), baseUrl: baseURL) else { return "" }
         let resp = NetworkClient.shared.requestSync(parsed: parsed)
         return resp?.bodyString ?? ""
     }
@@ -42,22 +45,10 @@ import JavaScriptCore
         guard let ctx = jsContext else {
             return JSValue(undefinedIn: JSContext())
         }
-        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: header) else {
+        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: header, baseUrl: baseURL) else {
             return JSValue(nullIn: ctx)
         }
-        let resp = NetworkClient.shared.requestSync(parsed: parsed)
-        let body = resp?.bodyString ?? ""
-        let code = resp?.statusCode ?? 0
-
-        let resultObj = JSValue(newObjectIn: ctx)
-        let bodyBlock: @convention(block) () -> String = { body }
-        let codeBlock: @convention(block) () -> Int = { code }
-        let urlBlock: @convention(block) () -> String = { url }
-        resultObj?.setValue(bodyBlock, forProperty: "body")
-        resultObj?.setValue(codeBlock, forProperty: "statusCode")
-        resultObj?.setValue(urlBlock, forProperty: "url")
-        resultObj?.setValue(body, forProperty: "text")
-        return resultObj ?? JSValue(nullIn: ctx)
+        return responseValue(NetworkClient.shared.requestSync(parsed: parsed), url: parsed.url.absoluteString, context: ctx)
     }
 
     public func post(_ url: String, _ body: String, _ header: JSValue) -> JSValue {
@@ -65,43 +56,43 @@ import JavaScriptCore
             return JSValue(undefinedIn: JSContext())
         }
 
-        var headerDict: [String: String] = [:]
+        guard let base = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?(), baseUrl: baseURL) else {
+            return JSValue(nullIn: ctx)
+        }
+        var headerDict = base.headers
         if header.isObject || header.isString {
             if let dict = header.toDictionary() as? [String: Any] {
                 for (k, v) in dict {
-                    headerDict[k] = "\(v)"
+                    NetworkClient.mergeHeaders([k: "\(v)"], into: &headerDict)
                 }
             } else if let str = header.toString(), let data = str.data(using: .utf8),
                       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for (k, v) in dict {
-                    headerDict[k] = "\(v)"
+                    NetworkClient.mergeHeaders([k: "\(v)"], into: &headerDict)
                 }
             }
         }
 
-        if headerDict["Content-Type"] == nil {
+        if !headerDict.keys.contains(where: { $0.caseInsensitiveCompare("Content-Type") == .orderedSame }) {
             headerDict["Content-Type"] = "application/json"
         }
 
-        let bodyData = body.data(using: .utf8)
-        guard let cleanUrl = URL(string: url) ?? URL(string: url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url) else {
-            return JSValue(nullIn: ctx)
-        }
+        let parsed = NetworkClient.ParsedRequest(url: base.url, method: "POST", headers: headerDict, body: body.data(using: .utf8))
+        return responseValue(NetworkClient.shared.requestSync(parsed: parsed), url: base.url.absoluteString, context: ctx)
+    }
 
-        let parsed = NetworkClient.ParsedRequest(url: cleanUrl, method: "POST", headers: headerDict, body: bodyData)
-        let resp = NetworkClient.shared.requestSync(parsed: parsed)
-        let respBody = resp?.bodyString ?? ""
-        let respCode = resp?.statusCode ?? 0
-
-        let resultObj = JSValue(newObjectIn: ctx)
-        let bodyBlock: @convention(block) () -> String = { respBody }
-        let codeBlock: @convention(block) () -> Int = { respCode }
+    private func responseValue(_ response: NetworkResponse?, url: String, context: JSContext) -> JSValue {
+        let body = response?.bodyString ?? ""
+        let code = response?.statusCode ?? 0
+        let result = JSValue(newObjectIn: context)
+        let bodyBlock: @convention(block) () -> String = { body }
+        let codeBlock: @convention(block) () -> Int = { code }
         let urlBlock: @convention(block) () -> String = { url }
-        resultObj?.setValue(bodyBlock, forProperty: "body")
-        resultObj?.setValue(codeBlock, forProperty: "statusCode")
-        resultObj?.setValue(urlBlock, forProperty: "url")
-        resultObj?.setValue(respBody, forProperty: "text")
-        return resultObj ?? JSValue(nullIn: ctx)
+        result?.setValue(bodyBlock, forProperty: "body")
+        result?.setValue(codeBlock, forProperty: "statusCode")
+        result?.setValue(urlBlock, forProperty: "url")
+        result?.setValue(body, forProperty: "text")
+        return result ?? JSValue(nullIn: context)
     }
 
     public func get(_ key: String) -> String? {
@@ -187,6 +178,7 @@ extension RssSource: HeaderRuleProviding {
 public class JSEngine {
     public let context: JSContext
     private let javaShim: JavaShim
+    private var isResolvingHeader = false
     public var onLoginHeaderUpdated: ((String) -> Void)?
     public var onBookVariableUpdated: ((String?) -> Void)?
 
@@ -196,7 +188,7 @@ public class JSEngine {
 
     public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil) {
         self.context = JSContext()
-        self.javaShim = JavaShim(context: context)
+        self.javaShim = JavaShim(context: context, baseURL: baseUrl ?? bookSource?.bookSourceUrl)
 
         setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
     }
@@ -239,6 +231,11 @@ public class JSEngine {
             guard var json = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !json.isEmpty else { continue }
             if let script = extractJSScript(from: json) {
                 let evalEngine = engine ?? JSEngine(bookSource: source as? BookSource, baseUrl: source.bookSourceUrl)
+                // Header scripts may themselves call java.ajax. Do not recursively re-evaluate
+                // that same header while preparing the nested request.
+                guard !evalEngine.isResolvingHeader else { continue }
+                evalEngine.isResolvingHeader = true
+                defer { evalEngine.isResolvingHeader = false }
                 guard let evaluated = evalEngine.context.evaluateScript(script)?.toString(),
                       !evaluated.isEmpty, evaluated != "undefined", evaluated != "null" else { continue }
                 json = evaluated
@@ -246,13 +243,13 @@ public class JSEngine {
             if let data = json.data(using: .utf8),
                let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for (key, value) in dict {
-                    merged[key] = "\(value)"
+                    NetworkClient.mergeHeaders([key: "\(value)"], into: &merged)
                 }
             } else if json.contains(":") {
                 for line in json.components(separatedBy: .newlines) {
                     let parts = line.split(separator: ":", maxSplits: 1)
                     if parts.count == 2 {
-                        merged[parts[0].trimmingCharacters(in: .whitespaces)] = parts[1].trimmingCharacters(in: .whitespaces)
+                        NetworkClient.mergeHeaders([parts[0].trimmingCharacters(in: .whitespaces): parts[1].trimmingCharacters(in: .whitespaces)], into: &merged)
                     }
                 }
             }
@@ -299,7 +296,6 @@ public class JSEngine {
         javaShim.defaultHeaderProvider = { [weak self] in
             guard let self, let source = bookSource else { return nil }
             return JSEngine.resolvedSourceHeader(source, engine: self, loginHeaderOverride: loginHeader)
-            return JSEngine.resolvedSourceHeader(source, engine: self, loginHeaderOverride: loginHeader)
         }
 
         let getLoginHeaderBlock: @convention(block) () -> String? = { loginHeader }
@@ -322,14 +318,16 @@ public class JSEngine {
         let getLoginInfoMapBlock: @convention(block) () -> JSValue = { [weak self] in
             guard let ctx = self?.context else { return JSValue(nullIn: JSContext()) }
             let mapObj = JSValue(newObjectIn: ctx)
+            var values: [String: String] = [:]
             if let info = loginInfoStr, let data = info.data(using: .utf8),
                let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for (k, v) in dict {
                     mapObj?.setValue(v, forProperty: k)
+                    values[k] = "\(v)"
                 }
             }
             let getBlock: @convention(block) (String) -> String = { key in
-                return mapObj?.forProperty(key)?.toString() ?? ""
+                return values[key] ?? ""
             }
             mapObj?.setValue(getBlock, forProperty: "get")
             return mapObj ?? JSValue(newObjectIn: ctx)
@@ -423,7 +421,7 @@ public class JSEngine {
     /// Evaluates a JavaScript snippet with optional `result` value
     public func eval(script: String, result: Any? = nil) -> Any? {
         if let result = result {
-            context.setObject(result, forKeyedSubscript: "result" as NSString)
+            context.setObject(Self.scriptValue(result), forKeyedSubscript: "result" as NSString)
         }
         let val = context.evaluateScript(script)
         if val?.isUndefined == true || val?.isNull == true {
@@ -445,6 +443,15 @@ public class JSEngine {
             return val?.toDictionary()
         }
         return val?.toObject()
+    }
+
+    /// SwiftSoup nodes cannot be bridged directly into JavaScriptCore (copyWithZone crash).
+    /// Give scripts HTML text, also when a selector returns a list of nodes.
+    private static func scriptValue(_ value: Any) -> Any {
+        if let node = value as? Node { return (try? node.outerHtml()) ?? "" }
+        if let array = value as? [Any] { return array.map { scriptValue($0) } }
+        if let object = value as? [String: Any] { return object.mapValues { scriptValue($0) } }
+        return value
     }
 
     /// Evaluates template strings containing `{{ ... }}`

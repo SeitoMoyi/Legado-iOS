@@ -185,6 +185,7 @@ final class PagedFetchTests: XCTestCase {
 
     private var savedClient: NetworkClient!
     private var seenURLs: [String] = []
+    private let seenLock = NSLock()
     private let bookUrl = "https://paged.test/book"
 
     override func setUp() {
@@ -212,7 +213,9 @@ final class PagedFetchTests: XCTestCase {
     private func stub(_ routes: [String: (body: String, headers: [String: String])]) {
         MockWebDAVURLProtocol.requestHandler = { request in
             let url = request.url!
+            self.seenLock.lock()
             self.seenURLs.append(url.absoluteString)
+            self.seenLock.unlock()
             guard let route = routes[url.path] else {
                 let resp = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: nil)!
                 return (resp, Data())
@@ -376,5 +379,261 @@ final class PagedFetchTests: XCTestCase {
         let response = try await NetworkClient.shared.request(parsed: parsed)
         XCTAssertEqual(response.statusCode, 404)
         XCTAssertEqual(attempts, 1, "4xx is a real answer and must not be retried")
+    }
+}
+
+final class NetworkRequestRegressionTests: XCTestCase {
+    func testRelativeUrlsUseUrlResolutionInsteadOfStringConcatenation() throws {
+        let base = "https://example.com/books/detail.html"
+        let cases = [
+            "/search": "https://example.com/search",
+            "next.html": "https://example.com/books/next.html",
+            "../toc": "https://example.com/toc",
+            "//cdn.example.com/chapter": "https://cdn.example.com/chapter"
+        ]
+        for (relative, expected) in cases {
+            XCTAssertEqual(try XCTUnwrap(NetworkClient.parseLegadoUrl(relative, baseUrl: base)).url.absoluteString, expected)
+        }
+        XCTAssertNil(NetworkClient.parseLegadoUrl(""))
+        XCTAssertNil(NetworkClient.parseLegadoUrl("/relative-without-base"))
+        XCTAssertNil(NetworkClient.parseLegadoUrl("file:///tmp/book.txt"))
+    }
+
+    func testOptionsAfterCommaInUrlAndCaseInsensitiveHeaders() throws {
+        let request = try XCTUnwrap(NetworkClient.parseLegadoUrl(
+            #"https://example.com/a,b,{"method":"POST","headers":{"user-agent":"new","content-type":"text/plain"},"body":{"key":"value"}}"#,
+            defaultHeader: #"{"User-Agent":"old","Content-Type":"old"}"#))
+        XCTAssertEqual(request.url.path, "/a,b")
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.headers.filter { $0.key.lowercased() == "user-agent" }.count, 1)
+        XCTAssertEqual(request.headers["user-agent"], "new")
+        XCTAssertEqual(request.headers.filter { $0.key.lowercased() == "content-type" }.count, 1)
+        XCTAssertEqual(request.headers["content-type"], "text/plain")
+    }
+
+    func testPostBodyHonorsDeclaredCharset() throws {
+        let request = try XCTUnwrap(NetworkClient.parseLegadoUrl(
+            #"https://example.com,{"method":"POST","charset":"gbk","body":"关键词=中文"}"#))
+        XCTAssertEqual(request.body, "关键词=中文".data(using: CharsetDetector.gb18030))
+    }
+
+    func testPublicRequestInitializerClampsRetry() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com"))
+        XCTAssertEqual(NetworkClient.ParsedRequest(url: url, method: "GET", headers: [:], body: nil, retry: -1).retry, 0)
+        XCTAssertEqual(NetworkClient.ParsedRequest(url: url, method: "GET", headers: [:], body: nil, retry: Int.max).retry, NetworkClient.maxRetry)
+    }
+
+    func testCancelledRequestDoesNotStartOrRetry() async throws {
+        let request = try XCTUnwrap(NetworkClient.parseLegadoUrl("https://cancelled.test,{\"retry\":3}"))
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await NetworkClient().request(parsed: request)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("cancelled work must throw before issuing a request")
+        } catch is CancellationError { }
+    }
+
+    func testCookieDomainUsesDnsLabelBoundaries() {
+        XCTAssertTrue(NetworkClient.cookieDomain(".example.com", matchesHost: "www.example.com"))
+        XCTAssertTrue(NetworkClient.cookieDomain("EXAMPLE.COM", matchesHost: "example.com"))
+        XCTAssertFalse(NetworkClient.cookieDomain("evil-example.com", matchesHost: "example.com"))
+        XCTAssertFalse(NetworkClient.cookieDomain("example.com", matchesHost: "example.com.attacker.test"))
+        XCTAssertFalse(NetworkClient.cookieDomain("api.example.com", matchesHost: "example.com"))
+        XCTAssertFalse(NetworkClient.cookieDomain("", matchesHost: "example.com"))
+    }
+}
+
+extension PagedFetchTests {
+    func testDetailRulesChooseMetadataAndFetchSeparateToc() async throws {
+        stub([
+            "/book": (#"{"introductionZh":"do not override rules","payload":{"name":"正确书名","author":"规则作者","intro":"规则简介","toc":"/toc"}}"#, [:]),
+            "/toc": ("<ul><li><a href='/one'>第一章</a></li></ul>", [:])
+        ])
+        var src = source(ruleContent: ContentRule(content: "#txt@text"),
+                         ruleToc: TocRule(chapterList: "li", chapterName: "a@text", chapterUrl: "a@href"))
+        src.ruleBookInfo = BookInfoRule(initRule: "$.payload", name: "$.name", author: "$.author", intro: "$.intro", tocUrl: "$.toc")
+        let result = try await BookContentService.shared.fetchBookDetailResult(
+            book: Book(bookUrl: bookUrl, name: "旧书名", author: "旧作者"), source: src)
+        XCTAssertEqual(result.book.name, "正确书名")
+        XCTAssertEqual(result.book.intro, "规则简介")
+        XCTAssertEqual(result.book.author, "规则作者")
+        XCTAssertEqual(result.book.tocUrl, "https://paged.test/toc")
+        XCTAssertEqual(result.chapters.map(\.title), ["第一章"])
+        XCTAssertTrue(result.complete)
+        XCTAssertEqual(seenURLs, ["https://paged.test/book", "https://paged.test/toc"])
+    }
+
+    func testChapterUrlIsNotRewrittenForSpecificApiLayouts() async throws {
+        let apiBookUrl = "https://paged.test/api/novel/123"
+        defer { BookContentService.shared.clearCache(for: apiBookUrl) }
+        stub(["/chapter/456": (page("书源指定的正文", next: nil), [:])])
+        let chapter = BookChapter(bookUrl: apiBookUrl, url: "https://paged.test/chapter/456", title: "第一章", index: 0)
+        let text = try await BookContentService.shared.fetchChapterContent(chapter: chapter, source: source(ruleContent: ContentRule(content: "#txt@text")))
+        XCTAssertEqual(text, "书源指定的正文")
+        XCTAssertEqual(seenURLs, ["https://paged.test/chapter/456"])
+    }
+
+    func testFailedParallelFragmentDoesNotCachePartialChapter() async throws {
+        stub([
+            "/c1": (#"{"body":"第一段","next":["/c2","/missing"]}"#, [:]),
+            "/c2": (#"{"body":"第二段"}"#, [:])
+        ])
+        let chapter = BookChapter(bookUrl: bookUrl, url: "https://paged.test/c1", title: "第一章", index: 0)
+        let text = try await BookContentService.shared.fetchChapterContent(
+            chapter: chapter, source: source(ruleContent: ContentRule(content: "$.body", nextContentUrl: "$.next[*]")))
+        XCTAssertTrue(text.contains("第一段"))
+        XCTAssertTrue(text.contains("第二段"))
+        XCTAssertFalse(BookContentService.shared.hasCachedChapter(bookUrl: bookUrl, chapterIndex: 0))
+    }
+
+    func testParallelPagesDeduplicateAndStopBeforeNextChapter() async throws {
+        stub([
+            "/c1": (#"{"body":"第一段","next":["/c1","/c2","/c2","/nextChapter","/unreachable"]}"#, [:]),
+            "/c2": (#"{"body":"第二段"}"#, [:])
+        ])
+        let chapter = BookChapter(bookUrl: bookUrl, url: "https://paged.test/c1", title: "第一章", index: 0)
+        let text = try await BookContentService.shared.fetchChapterContent(
+            chapter: chapter, source: source(ruleContent: ContentRule(content: "$.body", nextContentUrl: "$.next[*]")),
+            nextChapterUrl: "https://paged.test/nextChapter")
+        XCTAssertEqual(text, "第一段\n第二段")
+        XCTAssertEqual(seenURLs, ["https://paged.test/c1", "https://paged.test/c2"])
+    }
+
+    func testFailedParallelTocPageIsMarkedIncomplete() async throws {
+        stub([
+            "/toc": ("<ul><li><a href='/one'>第一章</a></li></ul><a class='next' href='/toc2'>2</a><a class='next' href='/missing'>3</a>", [:]),
+            "/toc2": ("<ul><li><a href='/two'>第二章</a></li></ul>", [:])
+        ])
+        let result = try await BookContentService.shared.fetchBookDetailResult(
+            book: Book(bookUrl: bookUrl, name: "书", author: "作者", tocUrl: "https://paged.test/toc"),
+            source: source(ruleContent: ContentRule(content: "text"), ruleToc: TocRule(
+                chapterList: "li", chapterName: "a@text", chapterUrl: "a@href", nextTocUrl: "a.next@href")))
+        XCTAssertEqual(result.chapters.map(\.title), ["第一章", "第二章"])
+        XCTAssertFalse(result.complete)
+    }
+
+    func testCachedLocalEditOverridesOriginalFile() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
+        try "原文件".write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let chapter = BookChapter(bookUrl: bookUrl, url: file.absoluteString, title: "第一章", index: 0)
+        BookContentService.shared.saveCachedChapterContent(bookUrl: bookUrl, chapterIndex: 0, content: "编辑后的正文")
+        let edited = try await BookContentService.shared.fetchChapterContent(chapter: chapter)
+        XCTAssertEqual(edited, "编辑后的正文")
+        BookContentService.shared.clearCachedChapter(bookUrl: bookUrl, chapterIndex: 0)
+        let original = try await BookContentService.shared.fetchChapterContent(chapter: chapter)
+        XCTAssertEqual(original, "原文件")
+    }
+}
+
+extension PagedFetchTests {
+    func testSearchKeepsParameterNamesContainingSearchKey() async throws {
+        stub(["/search": (#"{"books":[{"name":"书","author":"作者","url":"/book"}]}"#, [:])])
+        var src = source(ruleContent: ContentRule(content: "text"))
+        src.searchUrl = "/search?searchKey={{key}}&page={{page}}"
+        src.ruleSearch = SearchRule(bookList: "$.books[*]", name: "$.name", author: "$.author", bookUrl: "$.url")
+        let books = try await BookSearchService.shared.search(source: src, key: "test", page: 2)
+        XCTAssertEqual(books.count, 1)
+        XCTAssertEqual(seenURLs, ["https://paged.test/search?searchKey=test&page=2"])
+    }
+
+    func testParallelContentCannotExceedTotalPageCap() async throws {
+        let next = (1...BookContentService.maxContentPages + 5).map { "/p\($0)" }
+        let initial = String(data: try JSONSerialization.data(withJSONObject: ["body": "开始", "next": next]), encoding: .utf8)!
+        var routes = ["/c1": (body: initial, headers: [String: String]())]
+        for path in next { routes[path] = (#"{"body":"续页"}"#, [:]) }
+        stub(routes)
+        let chapter = BookChapter(bookUrl: bookUrl, url: "https://paged.test/c1", title: "章", index: 0)
+        _ = try await BookContentService.shared.fetchChapterContent(
+            chapter: chapter, source: source(ruleContent: ContentRule(content: "$.body", nextContentUrl: "$.next[*]")))
+        XCTAssertEqual(seenURLs.count, BookContentService.maxContentPages)
+        XCTAssertFalse(BookContentService.shared.hasCachedChapter(bookUrl: bookUrl, chapterIndex: 0))
+    }
+}
+
+extension PagedFetchTests {
+    func testJavaPostUsesSourceHeadersAndRelativeUrls() throws {
+        MockWebDAVURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://paged.test/login")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "session=source")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Custom"), "explicit")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("ok".utf8))
+        }
+        var src = source(ruleContent: ContentRule(content: "text"))
+        src.header = #"{"Cookie":"session=source"}"#
+        let engine = JSEngine(bookSource: src, baseUrl: src.bookSourceUrl)
+        XCTAssertEqual(engine.eval(script: #"java.post('/login', '{}', {'X-Custom':'explicit'}).body()"#) as? String, "ok")
+    }
+
+    func testHeaderScriptCanFetchWithoutRecursiveHeaderEvaluation() {
+        stub(["/header": ("header-value", [:])])
+        var src = source(ruleContent: ContentRule(content: "text"))
+        src.header = #"<js>JSON.stringify({'X-Value':java.ajax('/header')})</js>"#
+        let header = JSEngine.resolvedSourceHeader(src)
+        XCTAssertTrue(header?.contains("header-value") == true)
+        XCTAssertEqual(seenURLs, ["https://paged.test/header"])
+    }
+}
+
+extension PagedFetchTests {
+    func testDirectoryFormattingRunsAfterPaginationDeduplicationAndReverse() async throws {
+        stub([
+            "/toc": (#"{"chapters":[{"name":"第三章","url":"/3","vip":"yes"},{"name":"第二章","url":"/2"}],"next":"/toc2"}"#, [:]),
+            "/toc2": (#"{"chapters":[{"name":"第二章重复","url":"/2"},{"name":"第一章","url":"/1"}]}"#, [:])
+        ])
+        let rule = TocRule(chapterList: "-$.chapters[*]", chapterName: "$.name", chapterUrl: "$.url",
+                           formatJs: "++gInt + ':' + index + ':' + title", isVip: "$.vip", nextTocUrl: "$.next")
+        let result = try await BookContentService.shared.fetchBookDetailResult(
+            book: Book(bookUrl: bookUrl, name: "书", author: "作者", tocUrl: "https://paged.test/toc"),
+            source: source(ruleContent: ContentRule(content: "text"), ruleToc: rule))
+        XCTAssertTrue(result.complete)
+        XCTAssertEqual(result.chapters.map(\.title), ["1:1:第一章", "2:2:第二章", "3:3:第三章"])
+        XCTAssertEqual(result.chapters.map(\.index), [0, 1, 2])
+        XCTAssertEqual(result.chapters.last?.isVip, true)
+        XCTAssertEqual(result.book.latestChapterTitle, "3:3:第三章")
+    }
+
+    func testFormattedLinklessVolumeDoesNotMakeNetworkRequest() async throws {
+        stub(["/toc": (#"{"chapters":[{"name":"第一卷","volume":"true","intro":"卷介绍"}]}"#, [:])])
+        let result = try await BookContentService.shared.fetchBookDetailResult(
+            book: Book(bookUrl: bookUrl, name: "书", author: "作者", tocUrl: "https://paged.test/toc"),
+            source: source(ruleContent: ContentRule(content: "text"), ruleToc: TocRule(
+                chapterList: "$.chapters[*]", chapterName: "$.name", chapterUrl: "$.url",
+                formatJs: "title + '（卷）'", isVolume: "$.volume", updateTime: "$.intro")))
+        let volume = try XCTUnwrap(result.chapters.first)
+        XCTAssertEqual(volume.title, "第一卷（卷）")
+        let text = try await BookContentService.shared.fetchChapterContent(chapter: volume, source: source(ruleContent: ContentRule(content: "text")))
+        XCTAssertEqual(text, "卷介绍")
+        XCTAssertEqual(seenURLs, ["https://paged.test/toc"])
+        BookContentService.shared.saveCachedChapterContent(bookUrl: bookUrl, chapterIndex: 0, content: "编辑卷介绍")
+        let edited = try await BookContentService.shared.fetchChapterContent(chapter: volume)
+        XCTAssertEqual(edited, "编辑卷介绍")
+    }
+}
+
+extension PagedFetchTests {
+    func testDetailInitAndTemplatedIntroExecuteTogether() async throws {
+        stub([
+            "/book": (#"{"payload":{"name":"正确书名","introductionZh":"真正的简介","toc":"/toc","syncAt":1700000000}}"#, [:]),
+            "/toc": ("<li><a href='/one'>第一章</a></li>", [:])
+        ])
+        var src = source(ruleContent: ContentRule(content: "text"), ruleToc: TocRule(
+            chapterList: "li", chapterName: "a@text", chapterUrl: "a@href"))
+        src.ruleBookInfo = BookInfoRule(
+            initRule: "<js>JSON.stringify(JSON.parse(result).payload)</js>", name: "$.name",
+            intro: "<js>var data = JSON.parse(result); '最近同步：' + java.timeFormat('{{$.syncAt}}' * 1000) + '\\n' + data.introductionZh;</js>",
+            tocUrl: "$.toc")
+        let result = try await BookContentService.shared.fetchBookDetailResult(
+            book: Book(bookUrl: bookUrl, name: "旧书名", author: "作者"), source: src)
+        XCTAssertTrue(result.complete)
+        XCTAssertEqual(result.book.name, "正确书名")
+        XCTAssertTrue(result.book.intro?.hasPrefix("最近同步：2023-11-") == true)
+        XCTAssertTrue(result.book.intro?.hasSuffix("真正的简介") == true)
+        XCTAssertFalse(result.book.intro?.contains("var data") == true)
+        XCTAssertEqual(result.chapters.count, 1)
     }
 }

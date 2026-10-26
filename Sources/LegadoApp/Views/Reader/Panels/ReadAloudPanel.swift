@@ -89,8 +89,8 @@ struct ReadAloudPanel: View {
                 Text(label)
                     .font(.system(size: 10))
             }
-            .foregroundColor(enabled ? (emphasized ? .accentColor : config.theme.textColor)
-                                     : config.theme.textColor.opacity(0.3))
+            .foregroundColor(enabled ? (emphasized ? .accentColor : config.effectiveTextColor)
+                                     : config.effectiveTextColor.opacity(0.3))
             .frame(maxWidth: .infinity)
         }
         .disabled(!enabled)
@@ -104,7 +104,7 @@ struct ReadAloudPanel: View {
                 Spacer()
                 Text(audio.timerMinutes == 0 ? "不开启" : "\(audio.timerMinutes) 分钟")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(config.theme.textColor.opacity(0.7))
+                    .foregroundColor(config.effectiveTextColor.opacity(0.7))
             }
             Slider(value: Binding(get: { Double(audio.timerMinutes) },
                                   set: { audio.timerMinutes = Int($0.rounded()) }),
@@ -121,7 +121,7 @@ struct ReadAloudPanel: View {
                         RoundedRectangle(cornerRadius: 6)
                             .fill(audio.timerMinutes == minutes
                                   ? Color.accentColor.opacity(0.18)
-                                  : config.theme.textColor.opacity(0.06))
+                                  : config.effectiveTextColor.opacity(0.06))
                     )
                 }
             }
@@ -151,7 +151,7 @@ struct ReadAloudPanel: View {
                 Text(audio.followSystemRate ? "跟随系统"
                                             : String(format: "%.1fx", Double(audio.effectiveRate / AVSpeechUtteranceDefaultSpeechRate)))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(config.theme.textColor.opacity(0.7))
+                    .foregroundColor(config.effectiveTextColor.opacity(0.7))
                 Button {
                     audio.followSystemRate.toggle()
                 } label: {
@@ -174,7 +174,7 @@ struct ReadAloudPanel: View {
                 Slider(value: $audio.pitch, in: 0.5...1.8)
                 Text(String(format: "%.1f", audio.pitch))
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(config.theme.textColor.opacity(0.7))
+                    .foregroundColor(config.effectiveTextColor.opacity(0.7))
                     .frame(width: 34, alignment: .trailing)
             }
         }
@@ -188,7 +188,7 @@ struct ReadAloudPanel: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(config.theme.textColor.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 8).fill(config.effectiveTextColor.opacity(0.06)))
         }
         .buttonStyle(.plain)
     }

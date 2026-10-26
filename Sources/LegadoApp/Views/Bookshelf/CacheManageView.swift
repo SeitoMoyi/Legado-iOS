@@ -19,7 +19,6 @@ public struct CacheManageView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var exportTarget: ExportTarget? = nil
-    @State private var exportedURL: URL? = nil
     @State private var shareItems: [Any]? = nil
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""

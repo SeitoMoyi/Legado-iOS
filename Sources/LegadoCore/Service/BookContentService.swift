@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 
 public class BookContentService {
     public static let shared = BookContentService()
@@ -25,6 +26,10 @@ public class BookContentService {
 
     public func fetchBookDetail(book: Book, source: BookSource) async throws -> (book: Book, chapters: [BookChapter]) {
         let result = try await fetchBookDetailResult(book: book, source: source)
+        guard result.complete else {
+            throw NSError(domain: "Legado.TOC", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "目录抓取未完成，请重试"])
+        }
         return (result.book, result.chapters)
     }
 
@@ -33,16 +38,48 @@ public class BookContentService {
             return TocResult(book: book, chapters: [], complete: false)
         }
 
-        let targetUrl = !book.tocUrl.isEmpty ? book.tocUrl : book.bookUrl
         let headerToUse = JSEngine.resolvedSourceHeader(source)
-
-        print("[BookDetail] 🚀 [\(source.bookSourceName)] Fetching details and TOC from: \(targetUrl)")
-        guard let parsedReq = NetworkClient.parseLegadoUrl(targetUrl, defaultHeader: headerToUse, baseUrl: source.bookSourceUrl) else {
-            print("[BookDetail] ❌ [\(source.bookSourceName)] Failed to parse URL: \(targetUrl)")
-            return TocResult(book: book, chapters: [], complete: false)
+        let detailUrl = source.ruleBookInfo == nil && !book.tocUrl.isEmpty ? book.tocUrl : book.bookUrl
+        guard let detailRequest = NetworkClient.parseLegadoUrl(detailUrl, defaultHeader: headerToUse,
+                                                               baseUrl: source.bookSourceUrl) else {
+            throw URLError(.badURL)
         }
-
-        let analyzer = try await makeAnalyzer(for: parsedReq, source: source)
+        let detailAnalyzer = try await makeAnalyzer(for: detailRequest, source: source, book: book)
+        var updatedBook = book
+        var latestFromRule = ""
+        if let infoRule = source.ruleBookInfo {
+            let infoAnalyzer: RuleAnalyzer
+            if let rule = infoRule.initRule, !rule.isEmpty,
+               let root = detailAnalyzer.getElements(rule).first {
+                infoAnalyzer = RuleAnalyzer(content: root, baseUrl: detailRequest.url.absoluteString,
+                                            bookSource: source, jsEngine: detailAnalyzer.jsEngine)
+            } else {
+                infoAnalyzer = detailAnalyzer
+            }
+            let name = infoAnalyzer.getString(infoRule.name)
+            if !name.isEmpty { updatedBook.name = name }
+            let author = infoAnalyzer.getString(infoRule.author)
+            if !author.isEmpty { updatedBook.author = author }
+            let intro = infoAnalyzer.getString(infoRule.intro)
+            if !intro.isEmpty { updatedBook.intro = Self.cleanHtml(intro) }
+            let kinds = infoAnalyzer.getStringList(infoRule.kind)
+            if !kinds.isEmpty { updatedBook.kind = kinds.joined(separator: ",") }
+            let wordCount = infoAnalyzer.getString(infoRule.wordCount)
+            if !wordCount.isEmpty { updatedBook.wordCount = wordCount }
+            let cover = infoAnalyzer.getString(infoRule.coverUrl, isUrl: true)
+            if !cover.isEmpty { updatedBook.coverUrl = cover }
+            latestFromRule = infoAnalyzer.getString(infoRule.lastChapter)
+            let tocUrl = infoAnalyzer.getString(infoRule.tocUrl, isUrl: true)
+            if !tocUrl.isEmpty { updatedBook.tocUrl = tocUrl }
+        }
+        if updatedBook.tocUrl.isEmpty { updatedBook.tocUrl = detailRequest.url.absoluteString }
+        guard let tocRequest = NetworkClient.parseLegadoUrl(updatedBook.tocUrl, defaultHeader: headerToUse,
+                                                            baseUrl: detailRequest.url.absoluteString) else {
+            throw URLError(.badURL)
+        }
+        let analyzer = pageKey(tocRequest) == pageKey(detailRequest)
+            ? detailAnalyzer
+            : try await makeAnalyzer(for: tocRequest, source: source, book: updatedBook)
         let jsEngine = analyzer.jsEngine
 
         // 1. Parse Chapters, following `nextTocUrl` when the source paginates its TOC
@@ -52,93 +89,21 @@ public class BookContentService {
 
         if let nextTocRule = tocRule.nextTocUrl, !nextTocRule.isEmpty {
             let extra = try await collectTocPages(
-                firstAnalyzer: analyzer, nextTocRule: nextTocRule, tocRule: tocRule,
+                firstAnalyzer: analyzer, firstRequest: tocRequest, nextTocRule: nextTocRule, tocRule: tocRule,
                 bookUrl: book.bookUrl, source: source, header: headerToUse)
             chapters.append(contentsOf: extra.chapters)
             complete = extra.complete
         }
 
         chapters = BookContentService.normalizeToc(chapters, listRule: tocRule.chapterList)
+        chapters = try Self.formatChapters(chapters, script: tocRule.formatJs)
 
-        // 2. Parse Book Metadata (Author, Intro, Kind, WordCount)
-        var updatedBook = book
         updatedBook.totalChapterNum = chapters.count
-        if let lastCh = chapters.last, updatedBook.latestChapterTitle == nil || updatedBook.latestChapterTitle?.isEmpty == true {
-            updatedBook.latestChapterTitle = lastCh.title
+        if !latestFromRule.isEmpty {
+            updatedBook.latestChapterTitle = latestFromRule
+        } else if let last = chapters.last {
+            updatedBook.latestChapterTitle = last.title
         }
-
-        // Apply ruleBookInfo if configured
-        if let infoRule = source.ruleBookInfo {
-            let authorVal = analyzer.getString(infoRule.author)
-            if !authorVal.isEmpty { updatedBook.author = authorVal }
-
-            let introVal = analyzer.getString(infoRule.intro)
-            if !introVal.isEmpty { updatedBook.intro = BookContentService.cleanHtml(introVal) }
-
-            // Android `BookInfo.kt`: getStringList(...)?.joinToString(",") — the kind rule
-            // usually resolves to a LIST (e.g. `$.keywords`); getString() kept only the first
-            // element, which is why the detail page showed a fraction of Android's tags.
-            let kindList = analyzer.getStringList(infoRule.kind)
-            if !kindList.isEmpty { updatedBook.kind = kindList.joined(separator: ",") }
-
-            let wordCountVal = analyzer.getString(infoRule.wordCount)
-            if !wordCountVal.isEmpty { updatedBook.wordCount = wordCountVal }
-
-            let coverVal = analyzer.getString(infoRule.coverUrl, isUrl: true)
-            if !coverVal.isEmpty { updatedBook.coverUrl = coverVal }
-        }
-
-        // Apply intelligent JSON metadata extraction (e.g. for Novelia and generic novel REST APIs)
-        if let body = analyzer.content as? String,
-           let data = body.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-
-            // Author extraction from JSON
-            if updatedBook.author.isEmpty || updatedBook.author == "未知作者" {
-                if let authorsArr = json["authors"] as? [[String: Any]] {
-                    let names = authorsArr.compactMap { $0["name"] as? String }.filter { !$0.isEmpty }
-                    if !names.isEmpty {
-                        updatedBook.author = names.joined(separator: ", ")
-                    }
-                } else if let authorStr = json["author"] as? String, !authorStr.isEmpty {
-                    updatedBook.author = authorStr
-                }
-            }
-
-            // Real Introduction extraction from JSON
-            if let introZh = json["introductionZh"] as? String, !introZh.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updatedBook.intro = introZh
-            } else if let introJp = json["introductionJp"] as? String, !introJp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updatedBook.intro = introJp
-            } else if let desc = json["description"] as? String, !desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updatedBook.intro = desc
-            } else if let intro = json["intro"] as? String, !intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                updatedBook.intro = intro
-            }
-
-            // Word Count
-            if updatedBook.wordCount == nil || updatedBook.wordCount?.isEmpty == true {
-                if let totalChars = json["totalCharacters"] as? Int {
-                    if totalChars > 10000 {
-                        updatedBook.wordCount = String(format: "%.1f万字", Double(totalChars) / 10000.0)
-                    } else {
-                        updatedBook.wordCount = "\(totalChars)字"
-                    }
-                }
-            }
-
-            // Kind / Tags
-            if updatedBook.kind == nil || updatedBook.kind?.isEmpty == true {
-                var tags: [String] = []
-                if let t = json["type"] as? String, !t.isEmpty { tags.append(t) }
-                if let kws = json["keywords"] as? [String] { tags.append(contentsOf: kws) }
-                if !tags.isEmpty {
-                    updatedBook.kind = tags.joined(separator: ",")
-                }
-            }
-        }
-
-        print("[BookDetail] ✅ [\(source.bookSourceName)] Parsed book '\(updatedBook.name)' by '\(updatedBook.author)', intro length: \(updatedBook.intro?.count ?? 0), chapters: \(chapters.count)")
         return TocResult(book: updatedBook, chapters: chapters, complete: complete)
     }
 
@@ -161,8 +126,19 @@ public class BookContentService {
     public func fetchChapterContent(chapter: BookChapter, source: BookSource? = nil,
                                     nextChapterUrl: String? = nil,
                                     context: ProcessContext? = nil) async throws -> String {
-        // If chapter points to a local file, extract directly from disk
-        if chapter.url.hasPrefix("file://") || chapter.url.hasPrefix("epub://") || chapter.url.hasPrefix("txt://") || chapter.bookUrl.hasPrefix("file://") || chapter.bookUrl.hasPrefix("txt://") || chapter.url.contains(".xhtml") || chapter.url.contains(".html") || chapter.url.contains(".txt") {
+        // An edited local chapter is an explicit cache override, just like a network chapter.
+        if let cached = getCachedChapterContent(bookUrl: chapter.bookUrl, chapterIndex: chapter.index), !cached.isEmpty {
+            return await finalize(cached, context: context, chapter: chapter)
+        }
+        // Linkless volume headings have no HTTP resource. Formatting may change their title,
+        // so identify them by a stable synthetic URL rather than a title prefix.
+        if chapter.isVolume == true, chapter.url.hasPrefix("legado-volume://") {
+            return await finalize(chapter.tag ?? "", context: context, chapter: chapter)
+        }
+        // File extensions alone do not make an HTTP chapter a local file.
+        let localSchemes = ["file", "epub", "txt"]
+        if localSchemes.contains(URL(string: chapter.url)?.scheme?.lowercased() ?? "")
+            || localSchemes.contains(URL(string: chapter.bookUrl)?.scheme?.lowercased() ?? "") {
             if chapter.url.contains(".txt") {
                 var localPath = ""
                 if let u = URL(string: chapter.url), u.isFileURL {
@@ -187,32 +163,19 @@ public class BookContentService {
             }
         }
 
-        // Check local chapter cache first
-        if let cached = getCachedChapterContent(bookUrl: chapter.bookUrl, chapterIndex: chapter.index), !cached.isEmpty {
-            return await finalize(cached, context: context, chapter: chapter)
-        }
-
         guard let source = source, let contentRule = source.ruleContent else {
             return ""
         }
 
-        var chapterUrl = chapter.url
-        if chapterUrl.contains("/chapter/"), !chapterUrl.contains("/api/novel/"), chapter.bookUrl.contains("/api/novel/") {
-            if let chapterId = chapterUrl.components(separatedBy: "/chapter/").last?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespacesAndNewlines), !chapterId.isEmpty {
-                let trimmedBookUrl = chapter.bookUrl.hasSuffix("/") ? String(chapter.bookUrl.dropLast()) : chapter.bookUrl
-                chapterUrl = "\(trimmedBookUrl)/chapter/\(chapterId)"
-            }
-        }
-
         let headerToUse = JSEngine.resolvedSourceHeader(source)
 
-        print("[Content] 🚀 [\(source.bookSourceName)] Fetching chapter '\(chapter.title)' from: \(chapterUrl)")
+        print("[Content] 🚀 [\(source.bookSourceName)] Fetching chapter '\(chapter.title)' from: \(chapter.url)")
         let collected = try await collectContentFragments(
-            startUrl: chapterUrl, source: source, contentRule: contentRule,
+            startUrl: chapter.url, source: source, contentRule: contentRule,
             header: headerToUse, nextChapterUrl: nextChapterUrl)
 
         guard let firstPageUrl = collected.firstPageUrl else {
-            print("[Content] ❌ [\(source.bookSourceName)] Failed to parse chapter URL: \(chapterUrl)")
+            print("[Content] ❌ [\(source.bookSourceName)] Failed to parse chapter URL: \(chapter.url)")
             return ""
         }
 
@@ -243,7 +206,7 @@ public class BookContentService {
         // The chapter, not the caller, owns the cache key so 「起效的替换」 can find this run.
         scoped.cacheKey = "\(chapter.bookUrl)|\(chapter.index)"
         let processed = await ContentProcessor.shared.process(rawContent: text, context: scoped)
-        return processed.bodyText.isEmpty ? processed.text : processed.bodyText
+        return processed.bodyText
     }
 
     // MARK: - Paginated sources (`nextTocUrl` / `nextContentUrl`)
@@ -261,14 +224,19 @@ public class BookContentService {
     /// Bounded fan-out for the multi-URL branch, mirroring Android's `threadCount`.
     static let maxConcurrentPages = 8
 
-    private func makeAnalyzer(for parsed: NetworkClient.ParsedRequest, source: BookSource) async throws -> RuleAnalyzer {
+    private func makeAnalyzer(for parsed: NetworkClient.ParsedRequest, source: BookSource,
+                              book: Book? = nil) async throws -> RuleAnalyzer {
         let response = try await NetworkClient.shared.request(parsed: parsed)
+        guard (200..<400).contains(response.statusCode) else {
+            throw NSError(domain: "Legado.HTTP", code: response.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "HTTP \(response.statusCode)"])
+        }
         let absolute = parsed.url.absoluteString
         return RuleAnalyzer(
             content: response.bodyString,
             baseUrl: absolute,
             bookSource: source,
-            jsEngine: JSEngine(bookSource: source, baseUrl: absolute)
+            jsEngine: JSEngine(bookSource: source, book: book, baseUrl: absolute)
         )
     }
 
@@ -277,89 +245,172 @@ public class BookContentService {
                               bookUrl: String, jsEngine: JSEngine) -> [BookChapter] {
         let pageUrl = analyzer.baseUrl ?? ""
         var chapters: [BookChapter] = []
-        for (_, item) in analyzer.getElements(tocRule.chapterList).enumerated() {
+        var listRule = tocRule.chapterList?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if listRule.hasPrefix("-") || listRule.hasPrefix("+") { listRule.removeFirst() }
+        for (itemIndex, item) in analyzer.getElements(listRule).enumerated() {
             let itemAnalyzer = RuleAnalyzer(content: item, baseUrl: pageUrl,
                                             bookSource: nil, jsEngine: jsEngine)
-            let title = itemAnalyzer.getString(tocRule.chapterName)
-            let url = itemAnalyzer.getString(tocRule.chapterUrl, isUrl: true)
-            guard !title.isEmpty, !url.isEmpty else { continue }
-            chapters.append(BookChapter(bookUrl: bookUrl, url: url, title: title, index: chapters.count))
+            var chapter = BookChapter(bookUrl: bookUrl, url: "", title: "", index: 0)
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            chapter.title = itemAnalyzer.getString(tocRule.chapterName)
+            guard !chapter.title.isEmpty else { continue }
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            let rawUrl = itemAnalyzer.getString(tocRule.chapterUrl).trimmingCharacters(in: .whitespacesAndNewlines)
+            chapter.url = rawUrl
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            chapter.tag = itemAnalyzer.getString(tocRule.updateTime)
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            let isVolume = ruleIsTrue(itemAnalyzer.getString(tocRule.isVolume))
+            let url: String
+            if rawUrl.isEmpty, isVolume {
+                url = "legado-volume://\(CryptoUtils.md5(pageUrl))/\(itemIndex)"
+            } else {
+                url = rawUrl.isEmpty ? pageUrl : itemAnalyzer.resolveUrl(rawUrl)
+            }
+            guard !url.isEmpty else { continue }
+            chapter.url = url
+            chapter.isVolume = isVolume
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            chapter.isVip = ruleIsTrue(itemAnalyzer.getString(tocRule.isVip))
+            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            chapter.isPay = ruleIsTrue(itemAnalyzer.getString(tocRule.isPay))
+            chapter.index = chapters.count
+            chapters.append(chapter)
         }
         return chapters
+    }
+
+    /// Android String.isTrue: any nonblank value except null / false / no / not / 0.
+    static func ruleIsTrue(_ value: String) -> Bool {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value != "null" else { return false }
+        return !["false", "no", "not", "0"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    private static func chapterBindings(_ chapter: BookChapter) -> [String: Any] {
+        ["bookUrl": chapter.bookUrl, "url": chapter.url, "title": chapter.title,
+         "index": chapter.index, "isVolume": chapter.isVolume ?? false,
+         "isVip": chapter.isVip ?? false, "isPay": chapter.isPay ?? false,
+         "tag": chapter.tag ?? ""]
+    }
+
+    /// Android formats the final deduplicated, ordered list, sharing gInt across chapters.
+    /// Script errors preserve the original title and do not prevent later titles formatting.
+    static func formatChapters(_ chapters: [BookChapter], script: String?) throws -> [BookChapter] {
+        guard let script = script, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return chapters }
+        let engine = JSEngine()
+        var failed = false
+        engine.context.exceptionHandler = { _, _ in failed = true }
+        engine.context.setObject(0, forKeyedSubscript: "gInt" as NSString)
+        let body = JSEngine.extractJSScript(from: script) ?? script
+        return try chapters.map { chapter in
+            try Task.checkCancellation()
+            failed = false
+            var formatted = chapter
+            engine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            engine.context.setObject(chapter.index + 1, forKeyedSubscript: "index" as NSString)
+            engine.context.setObject(chapter.title, forKeyedSubscript: "title" as NSString)
+            if let result = engine.context.evaluateScript(body), !failed, !result.isNull, !result.isUndefined,
+               let title = result.toString() {
+                formatted.title = title
+            }
+            return formatted
+        }
     }
 
     /// Follows `nextTocUrl` past the first TOC page. A single next URL is crawled serially;
     /// several URLs mean the source exposes them all at once, so they are fetched with
     /// bounded concurrency and not recursed into — same split as Android.
-    private func collectTocPages(firstAnalyzer: RuleAnalyzer, nextTocRule: String, tocRule: TocRule,
-                                 bookUrl: String, source: BookSource,
-                                 header: String?) async throws -> (chapters: [BookChapter], complete: Bool) {
+    private func collectTocPages(firstAnalyzer: RuleAnalyzer, firstRequest: NetworkClient.ParsedRequest,
+                                 nextTocRule: String, tocRule: TocRule, bookUrl: String,
+                                 source: BookSource, header: String?) async throws
+        -> (chapters: [BookChapter], complete: Bool) {
         var collected: [BookChapter] = []
-        var visited: Set<String> = [firstAnalyzer.baseUrl ?? ""]
+        var visited: Set<String> = [pageKey(firstRequest)]
         var pages = 0
         let deadline = Date().addingTimeInterval(Self.tocTimeBudget)
+        var candidates = firstAnalyzer.getStringList(nextTocRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
 
-        let candidates = firstAnalyzer.getStringList(nextTocRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
-        guard let first = candidates.first else { return (collected, true) }
-
-        if candidates.count > 1 {
-            collected.append(contentsOf: await fetchChaptersConcurrently(
-                urls: candidates, tocRule: tocRule, bookUrl: bookUrl, source: source, header: header))
-            return (collected, true)
-        }
-        var pageUrl = first
-
-        while !pageUrl.isEmpty {
-            // Hitting a cap is a truncation; a `break` further down means the source simply
-            // had no next page, which is a complete answer.
-            if pages >= Self.maxTocPages || Date() >= deadline { return (collected, false) }
-            guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
-                                                            baseUrl: source.bookSourceUrl) else { break }
-            let absolute = parsed.url.absoluteString
-            if visited.contains(absolute) { break }
-            visited.insert(absolute)
-            pages += 1
-
-            let analyzer = try await makeAnalyzer(for: parsed, source: source)
-            collected.append(contentsOf: BookContentService.parseChapters(
-                from: analyzer, tocRule: tocRule, bookUrl: bookUrl, jsEngine: analyzer.jsEngine))
-
-            let nexts = analyzer.getStringList(nextTocRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
-            if nexts.count > 1 {
-                collected.append(contentsOf: await fetchChaptersConcurrently(
-                    urls: nexts, tocRule: tocRule, bookUrl: bookUrl, source: source, header: header))
-                break
+        while let pageUrl = candidates.first {
+            try Task.checkCancellation()
+            if candidates.count > 1 {
+                let batch = try await fetchPagesConcurrently(
+                    urls: candidates, source: source, header: header, visited: &visited,
+                    limit: Self.maxTocPages - pages, deadline: deadline) { analyzer in
+                        Self.parseChapters(from: analyzer, tocRule: tocRule, bookUrl: bookUrl,
+                                           jsEngine: analyzer.jsEngine)
+                    }
+                collected.append(contentsOf: batch.values.flatMap { $0 })
+                return (collected, batch.complete)
             }
-            pageUrl = nexts.first ?? ""
+            guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
+                                                            baseUrl: source.bookSourceUrl) else {
+                return (collected, false)
+            }
+            if visited.contains(pageKey(parsed)) { break }
+            guard pages < Self.maxTocPages, Date() < deadline else { return (collected, false) }
+            visited.insert(pageKey(parsed))
+            pages += 1
+            let analyzer = try await makeAnalyzer(for: parsed, source: source)
+            collected.append(contentsOf: Self.parseChapters(
+                from: analyzer, tocRule: tocRule, bookUrl: bookUrl, jsEngine: analyzer.jsEngine))
+            candidates = analyzer.getStringList(nextTocRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
         }
         return (collected, true)
     }
 
-    private func fetchChaptersConcurrently(urls: [String], tocRule: TocRule, bookUrl: String,
-                                           source: BookSource, header: String?) async -> [BookChapter] {
-        var results = Array<[BookChapter]>(repeating: [], count: urls.count)
+    /// Include POST bodies: a paginated API may use the same URL for every page.
+    private func pageKey(_ request: NetworkClient.ParsedRequest) -> String {
+        request.method + " " + request.url.absoluteString + " " + (request.body?.base64EncodedString() ?? "")
+    }
+
+    /// Shared bounded fan-out. Preserve document order and propagate failed / omitted pages
+    /// instead of silently turning a partial result into a complete cache entry.
+    private func fetchPagesConcurrently<Value>(urls: [String], source: BookSource, header: String?,
+                                               visited: inout Set<String>, limit: Int, deadline: Date,
+                                               parse: @escaping (RuleAnalyzer) -> Value?) async throws
+        -> (values: [Value], complete: Bool) {
+        var requests: [NetworkClient.ParsedRequest] = []
+        var complete = true
+        for url in urls {
+            guard let request = NetworkClient.parseLegadoUrl(url, defaultHeader: header,
+                                                             baseUrl: source.bookSourceUrl) else {
+                complete = false
+                continue
+            }
+            let key = pageKey(request)
+            guard !visited.contains(key) else { continue }
+            guard requests.count < limit else { complete = false; break }
+            visited.insert(key)
+            requests.append(request)
+        }
+        var values: [Value] = []
         var index = 0
-        while index < urls.count {
-            let chunk = Array(urls[index..<min(index + Self.maxConcurrentPages, urls.count)])
-            let offset = index
-            await withTaskGroup(of: (Int, [BookChapter]).self) { group in
-                for (i, url) in chunk.enumerated() {
+        while index < requests.count {
+            try Task.checkCancellation()
+            guard Date() < deadline else { return (values, false) }
+            let chunk = Array(requests[index..<min(index + Self.maxConcurrentPages, requests.count)])
+            let batch = await withTaskGroup(of: (Int, Value?).self) { group in
+                for (position, request) in chunk.enumerated() {
                     group.addTask {
-                        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: header,
-                                                                        baseUrl: source.bookSourceUrl),
-                              let analyzer = try? await self.makeAnalyzer(for: parsed, source: source)
-                        else { return (offset + i, []) }
-                        return (offset + i, BookContentService.parseChapters(
-                            from: analyzer, tocRule: tocRule, bookUrl: bookUrl, jsEngine: analyzer.jsEngine))
+                        do {
+                            try Task.checkCancellation()
+                            let analyzer = try await self.makeAnalyzer(for: request, source: source)
+                            return (position, parse(analyzer))
+                        } catch {
+                            return (position, nil)
+                        }
                     }
                 }
-                for await (position, chapters) in group {
-                    results[position] = chapters
-                }
+                var results = Array<Value?>(repeating: nil, count: chunk.count)
+                for await (position, value) in group { results[position] = value }
+                return results
             }
+            try Task.checkCancellation()
+            if batch.contains(where: { $0 == nil }) { complete = false }
+            values.append(contentsOf: batch.compactMap { $0 })
             index += chunk.count
         }
-        return results.flatMap { $0 }
+        return (values, complete)
     }
 
     /// Deduplicates by chapter URL keeping first-seen order, then re-indexes.
@@ -391,65 +442,47 @@ public class BookContentService {
         var fragments: [String] = []
         var visited: Set<String> = []
         var pageUrl = startUrl
-        var firstPageUrl: String? = nil
+        var pages = 0
+        var firstPageUrl: String?
+        var complete = true
         let deadline = Date().addingTimeInterval(Self.contentTimeBudget)
 
         while !pageUrl.isEmpty {
-            if fragments.count >= Self.maxContentPages || Date() >= deadline {
+            try Task.checkCancellation()
+            guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
+                                                             baseUrl: source.bookSourceUrl) else {
                 return (fragments, firstPageUrl, false)
             }
-            guard let parsed = NetworkClient.parseLegadoUrl(pageUrl, defaultHeader: header,
-                                                             baseUrl: source.bookSourceUrl) else { break }
-            let absolute = parsed.url.absoluteString
-            if visited.contains(absolute) { break }
-            visited.insert(absolute)
-            if firstPageUrl == nil { firstPageUrl = absolute }
-
+            let key = pageKey(parsed)
+            if visited.contains(key) { break }
+            guard pages < Self.maxContentPages, Date() < deadline else {
+                return (fragments, firstPageUrl, false)
+            }
+            visited.insert(key)
+            pages += 1
+            if firstPageUrl == nil { firstPageUrl = parsed.url.absoluteString }
             let analyzer = try await makeAnalyzer(for: parsed, source: source)
             let text = analyzer.getString(contentRule.content)
-            if !text.isEmpty { fragments.append(text) }
+            if text.isEmpty { complete = false } else { fragments.append(text) }
 
             guard let nextRule = contentRule.nextContentUrl, !nextRule.isEmpty else { break }
-            let candidates = analyzer.getStringList(nextRule, isUrl: true).map(trimmed).filter { !$0.isEmpty }
+            // Stop before the next chapter even when a rule returns an array of page links.
+            let candidates = Array(analyzer.getStringList(nextRule, isUrl: true)
+                .map(trimmed).filter { !$0.isEmpty }.prefix { $0 != nextChapterUrl })
             guard let first = candidates.first else { break }
-
             if candidates.count > 1 {
-                fragments.append(contentsOf: await fetchContentsConcurrently(
-                    urls: candidates, contentRule: contentRule, source: source, header: header))
-                break
+                let batch = try await fetchPagesConcurrently(
+                    urls: candidates, source: source, header: header, visited: &visited,
+                    limit: Self.maxContentPages - pages, deadline: deadline) { analyzer -> String? in
+                        let text = analyzer.getString(contentRule.content)
+                        return text.isEmpty ? nil : text
+                    }
+                fragments.append(contentsOf: batch.values)
+                return (fragments, firstPageUrl, complete && batch.complete)
             }
-
-            // Stop when the "next page" is really the next chapter.
-            if let stop = nextChapterUrl, stop == first { break }
             pageUrl = first
         }
-        return (fragments, firstPageUrl, true)
-    }
-
-    private func fetchContentsConcurrently(urls: [String], contentRule: ContentRule,
-                                           source: BookSource, header: String?) async -> [String] {
-        var results = Array<String>(repeating: "", count: urls.count)
-        var index = 0
-        while index < urls.count {
-            let chunk = Array(urls[index..<min(index + Self.maxConcurrentPages, urls.count)])
-            let offset = index
-            await withTaskGroup(of: (Int, String).self) { group in
-                for (i, url) in chunk.enumerated() {
-                    group.addTask {
-                        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: header,
-                                                                        baseUrl: source.bookSourceUrl),
-                              let analyzer = try? await self.makeAnalyzer(for: parsed, source: source)
-                        else { return (offset + i, "") }
-                        return (offset + i, analyzer.getString(contentRule.content))
-                    }
-                }
-                for await (position, text) in group {
-                    results[position] = text
-                }
-            }
-            index += chunk.count
-        }
-        return results.filter { !$0.isEmpty }
+        return (fragments, firstPageUrl, complete)
     }
 
     private func trimmed(_ value: String) -> String {

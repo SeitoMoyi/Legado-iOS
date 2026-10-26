@@ -37,9 +37,8 @@ struct BookmarkSheet: View {
                             row(bookmark)
                         }
                         .onDelete { offsets in
-                            for index in offsets {
-                                bookStore.deleteBookmark(time: results[index].time)
-                            }
+                            let times = offsets.map { results[$0].time }
+                            for time in times { bookStore.deleteBookmark(time: time) }
                         }
                     }
                     .listStyle(.plain)

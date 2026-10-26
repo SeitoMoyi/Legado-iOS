@@ -39,9 +39,8 @@ public struct ReplaceRuleListView: View {
                 ruleRow(rule)
             }
             .onDelete { offsets in
-                for index in offsets {
-                    bookStore.deleteReplaceRule(id: bookStore.replaceRules[index].id)
-                }
+                let ids = offsets.map { bookStore.replaceRules[$0].id }
+                for id in ids { bookStore.deleteReplaceRule(id: id) }
             }
             .onMove { source, destination in
                 bookStore.moveReplaceRule(from: source, to: destination)

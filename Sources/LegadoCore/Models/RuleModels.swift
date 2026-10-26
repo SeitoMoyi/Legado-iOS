@@ -15,7 +15,9 @@ public func decodeRule<T: Decodable>(_ type: T.Type, from container: KeyedDecodi
 
 // MARK: - SearchRule
 
-public struct SearchRule: Codable, Equatable {
+public struct SearchRule: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
+
     public var checkKeyWord: String?
     public var bookList: String?
     public var name: String?
@@ -53,11 +55,52 @@ public struct SearchRule: Codable, Equatable {
         self.coverUrl = coverUrl
         self.wordCount = wordCount
     }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case checkKeyWord, bookList, name, author, intro, kind, lastChapter, updateTime, bookUrl, coverUrl, wordCount
+    }
+
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        checkKeyWord = try container.decodeIfPresent(String.self, forKey: .checkKeyWord)
+        bookList = try container.decodeIfPresent(String.self, forKey: .bookList)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        intro = try container.decodeIfPresent(String.self, forKey: .intro)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        lastChapter = try container.decodeIfPresent(String.self, forKey: .lastChapter)
+        updateTime = try container.decodeIfPresent(String.self, forKey: .updateTime)
+        bookUrl = try container.decodeIfPresent(String.self, forKey: .bookUrl)
+        coverUrl = try container.decodeIfPresent(String.self, forKey: .coverUrl)
+        wordCount = try container.decodeIfPresent(String.self, forKey: .wordCount)
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(checkKeyWord, forKey: .checkKeyWord)
+        try container.encodeIfPresent(bookList, forKey: .bookList)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(intro, forKey: .intro)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(lastChapter, forKey: .lastChapter)
+        try container.encodeIfPresent(updateTime, forKey: .updateTime)
+        try container.encodeIfPresent(bookUrl, forKey: .bookUrl)
+        try container.encodeIfPresent(coverUrl, forKey: .coverUrl)
+        try container.encodeIfPresent(wordCount, forKey: .wordCount)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 // MARK: - ExploreRule
 
-public struct ExploreRule: Codable, Equatable {
+public struct ExploreRule: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
+
     public var bookList: String?
     public var name: String?
     public var author: String?
@@ -92,11 +135,50 @@ public struct ExploreRule: Codable, Equatable {
         self.coverUrl = coverUrl
         self.wordCount = wordCount
     }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case bookList, name, author, intro, kind, lastChapter, updateTime, bookUrl, coverUrl, wordCount
+    }
+
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bookList = try container.decodeIfPresent(String.self, forKey: .bookList)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        intro = try container.decodeIfPresent(String.self, forKey: .intro)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        lastChapter = try container.decodeIfPresent(String.self, forKey: .lastChapter)
+        updateTime = try container.decodeIfPresent(String.self, forKey: .updateTime)
+        bookUrl = try container.decodeIfPresent(String.self, forKey: .bookUrl)
+        coverUrl = try container.decodeIfPresent(String.self, forKey: .coverUrl)
+        wordCount = try container.decodeIfPresent(String.self, forKey: .wordCount)
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(bookList, forKey: .bookList)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(intro, forKey: .intro)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(lastChapter, forKey: .lastChapter)
+        try container.encodeIfPresent(updateTime, forKey: .updateTime)
+        try container.encodeIfPresent(bookUrl, forKey: .bookUrl)
+        try container.encodeIfPresent(coverUrl, forKey: .coverUrl)
+        try container.encodeIfPresent(wordCount, forKey: .wordCount)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 // MARK: - TocRule
 
-public struct TocRule: Codable, Equatable {
+public struct TocRule: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
+
     public var preUpdateJs: String?
     public var chapterList: String?
     public var chapterName: String?
@@ -131,11 +213,50 @@ public struct TocRule: Codable, Equatable {
         self.updateTime = updateTime
         self.nextTocUrl = nextTocUrl
     }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case preUpdateJs, chapterList, chapterName, chapterUrl, formatJs, isVolume, isVip, isPay, updateTime, nextTocUrl
+    }
+
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        preUpdateJs = try container.decodeIfPresent(String.self, forKey: .preUpdateJs)
+        chapterList = try container.decodeIfPresent(String.self, forKey: .chapterList)
+        chapterName = try container.decodeIfPresent(String.self, forKey: .chapterName)
+        chapterUrl = try container.decodeIfPresent(String.self, forKey: .chapterUrl)
+        formatJs = try container.decodeIfPresent(String.self, forKey: .formatJs)
+        isVolume = try container.decodeIfPresent(String.self, forKey: .isVolume)
+        isVip = try container.decodeIfPresent(String.self, forKey: .isVip)
+        isPay = try container.decodeIfPresent(String.self, forKey: .isPay)
+        updateTime = try container.decodeIfPresent(String.self, forKey: .updateTime)
+        nextTocUrl = try container.decodeIfPresent(String.self, forKey: .nextTocUrl)
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(preUpdateJs, forKey: .preUpdateJs)
+        try container.encodeIfPresent(chapterList, forKey: .chapterList)
+        try container.encodeIfPresent(chapterName, forKey: .chapterName)
+        try container.encodeIfPresent(chapterUrl, forKey: .chapterUrl)
+        try container.encodeIfPresent(formatJs, forKey: .formatJs)
+        try container.encodeIfPresent(isVolume, forKey: .isVolume)
+        try container.encodeIfPresent(isVip, forKey: .isVip)
+        try container.encodeIfPresent(isPay, forKey: .isPay)
+        try container.encodeIfPresent(updateTime, forKey: .updateTime)
+        try container.encodeIfPresent(nextTocUrl, forKey: .nextTocUrl)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 // MARK: - ContentRule
 
-public struct ContentRule: Codable, Equatable {
+public struct ContentRule: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
+
     public var content: String?
     public var title: String?
     public var nextContentUrl: String?
@@ -167,11 +288,48 @@ public struct ContentRule: Codable, Equatable {
         self.imageDecode = imageDecode
         self.payAction = payAction
     }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case content, title, nextContentUrl, webJs, sourceRegex, replaceRegex, imageStyle, imageDecode, payAction
+    }
+
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        nextContentUrl = try container.decodeIfPresent(String.self, forKey: .nextContentUrl)
+        webJs = try container.decodeIfPresent(String.self, forKey: .webJs)
+        sourceRegex = try container.decodeIfPresent(String.self, forKey: .sourceRegex)
+        replaceRegex = try container.decodeIfPresent(String.self, forKey: .replaceRegex)
+        imageStyle = try container.decodeIfPresent(String.self, forKey: .imageStyle)
+        imageDecode = try container.decodeIfPresent(String.self, forKey: .imageDecode)
+        payAction = try container.decodeIfPresent(String.self, forKey: .payAction)
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(content, forKey: .content)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(nextContentUrl, forKey: .nextContentUrl)
+        try container.encodeIfPresent(webJs, forKey: .webJs)
+        try container.encodeIfPresent(sourceRegex, forKey: .sourceRegex)
+        try container.encodeIfPresent(replaceRegex, forKey: .replaceRegex)
+        try container.encodeIfPresent(imageStyle, forKey: .imageStyle)
+        try container.encodeIfPresent(imageDecode, forKey: .imageDecode)
+        try container.encodeIfPresent(payAction, forKey: .payAction)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 // MARK: - BookInfoRule
 
-public struct BookInfoRule: Codable, Equatable {
+public struct BookInfoRule: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
+
     public var initRule: String?
     public var name: String?
     public var author: String?
@@ -182,6 +340,30 @@ public struct BookInfoRule: Codable, Equatable {
     public var coverUrl: String?
     public var tocUrl: String?
     public var wordCount: String?
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case initRule = "init"
+        case name, author, intro, kind, lastChapter, updateTime, coverUrl, tocUrl, wordCount
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey { case initRule }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        initRule = try container.decodeIfPresent(String.self, forKey: .initRule)
+            ?? legacy.decodeIfPresent(String.self, forKey: .initRule)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        intro = try container.decodeIfPresent(String.self, forKey: .intro)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        lastChapter = try container.decodeIfPresent(String.self, forKey: .lastChapter)
+        updateTime = try container.decodeIfPresent(String.self, forKey: .updateTime)
+        coverUrl = try container.decodeIfPresent(String.self, forKey: .coverUrl)
+        tocUrl = try container.decodeIfPresent(String.self, forKey: .tocUrl)
+        wordCount = try container.decodeIfPresent(String.self, forKey: .wordCount)
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
 
     public init(
         initRule: String? = nil,
@@ -206,6 +388,24 @@ public struct BookInfoRule: Codable, Equatable {
         self.tocUrl = tocUrl
         self.wordCount = wordCount
     }
+
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue)).union(["initRule"])
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(initRule, forKey: .initRule)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(intro, forKey: .intro)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(lastChapter, forKey: .lastChapter)
+        try container.encodeIfPresent(updateTime, forKey: .updateTime)
+        try container.encodeIfPresent(coverUrl, forKey: .coverUrl)
+        try container.encodeIfPresent(tocUrl, forKey: .tocUrl)
+        try container.encodeIfPresent(wordCount, forKey: .wordCount)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 // MARK: - TxtTocRule (Android TxtTocRule.kt Counterpart)

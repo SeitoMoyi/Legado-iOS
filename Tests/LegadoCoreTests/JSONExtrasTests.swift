@@ -150,3 +150,87 @@ final class JSONExtrasTests: XCTestCase {
         XCTAssertNotNil(BookSource.decodeListWithExtras(from: jsonArray([])))
     }
 }
+
+extension JSONExtrasTests {
+    func testObjectOrArrayImportKeepsUnknownFields() throws {
+        let object = json(["bookSourceUrl": "https://example.com", "jsLib": "custom script"])
+        let imported = try XCTUnwrap(BookSource.decodeListOrObjectWithExtras(from: object))
+        XCTAssertEqual(imported.count, 1)
+        XCTAssertEqual(imported[0].extra["jsLib"], .string("custom script"))
+        XCTAssertEqual(BookSource.decodeListOrObjectWithExtras(from: Data("[]".utf8)), [])
+    }
+
+    func testTolerantDecodePreservesOptionalFieldsAbsentFromFallback() throws {
+        let data = json(["origin": "feed", "title": "标题", "link": "https://example.com", "content": "完整正文", "image": "cover.png"])
+        let star = try XCTUnwrap(TolerantJSON.decode(RssStar.self, from: data, fallback: RssStar()))
+        XCTAssertEqual(star.content, "完整正文")
+        XCTAssertEqual(star.image, "cover.png")
+    }
+
+    func testBookInfoInitUsesAndroidKeyAndReadsLegacyIosKey() throws {
+        let android = try JSONDecoder().decode(BookInfoRule.self, from: json(["init": "$.data"]))
+        let legacy = try JSONDecoder().decode(BookInfoRule.self, from: json(["initRule": "$.data"]))
+        XCTAssertEqual(android.initRule, "$.data")
+        XCTAssertEqual(legacy.initRule, android.initRule)
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(android)) as? [String: Any])
+        XCTAssertEqual(encoded["init"] as? String, "$.data")
+        XCTAssertNil(encoded["initRule"])
+    }
+}
+
+extension JSONExtrasTests {
+    func testNestedRulesSurviveEditingPersistenceAndBackup() throws {
+        let unknown: [String: Any] = ["future": ["options": [true, 42, "值"]], "nullable": NSNull()]
+        let keys = ["ruleSearch", "ruleExplore", "ruleBookInfo", "ruleToc", "ruleContent"]
+        var raw: [String: Any] = ["bookSourceUrl": "https://nested.test", "bookSourceName": "嵌套规则"]
+        for key in keys { raw[key] = unknown }
+        var source = try XCTUnwrap(BookSource.decodeWithExtras(from: json(raw)))
+        source.ruleSearch?.name = "h1@text"
+        source.ruleExplore?.name = "h2@text"
+        source.ruleBookInfo?.initRule = "$.data"
+        source.ruleToc?.chapterName = "a@text"
+        source.ruleContent?.content = "#content@text"
+        let persisted = try JSONEncoder().encode(source)
+        let reloaded = try JSONDecoder().decode(BookSource.self, from: persisted)
+        XCTAssertEqual(reloaded, source)
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: persisted) as? [String: Any])
+        for key in keys {
+            let rule = try XCTUnwrap(encoded[key] as? [String: Any])
+            XCTAssertEqual(rule["future"] as? NSDictionary, unknown["future"] as? NSDictionary, key)
+            XCTAssertTrue(rule["nullable"] is NSNull, key)
+            XCTAssertNil(rule["extra"], key)
+        }
+        let backup = try WebDAVService.shared.createBackupZip(
+            books: [], sources: [reloaded], bookmarks: [], replaceRules: [], searchHistory: [],
+            readConfig: ReadStyleConfig(), txtTocRules: [], readRecords: [], rssSources: [], rssStars: [])
+        let restored = try WebDAVService.shared.restorePayloadFromZip(data: backup.data)
+        XCTAssertEqual(restored.sources?.first, source)
+    }
+
+    func testStringEncodedRulesPreserveUnknownFields() throws {
+        let keys = ["ruleSearch", "ruleExplore", "ruleBookInfo", "ruleToc", "ruleContent"]
+        var raw: [String: Any] = ["bookSourceUrl": "https://nested.test"]
+        for key in keys { raw[key] = #"{"future":{"enabled":true},"nullable":null}"# }
+        let source = try XCTUnwrap(TolerantJSON.decode(BookSource.self, from: json(raw),
+            fallback: BookSource(bookSourceUrl: "", bookSourceName: "")))
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as? [String: Any])
+        for key in keys {
+            let rule = try XCTUnwrap(encoded[key] as? [String: Any])
+            XCTAssertEqual((rule["future"] as? [String: Any])?["enabled"] as? Bool, true, key)
+            XCTAssertTrue(rule["nullable"] is NSNull, key)
+        }
+    }
+
+    func testNestedExtrasCannotOverrideEditedKnownFields() throws {
+        var rule = TocRule(chapterName: "new")
+        rule.extra = ["chapterName": .string("old"), "future": .bool(true)]
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(rule)) as? [String: Any])
+        XCTAssertEqual(encoded["chapterName"] as? String, "new")
+        XCTAssertEqual(encoded["future"] as? Bool, true)
+        let legacy = try JSONDecoder().decode(BookInfoRule.self, from: json(["initRule": "$.old", "future": 7]))
+        let exported = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
+        XCTAssertEqual(exported["init"] as? String, "$.old")
+        XCTAssertNil(exported["initRule"])
+        XCTAssertEqual(exported["future"] as? Int, 7)
+    }
+}

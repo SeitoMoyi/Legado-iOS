@@ -12,10 +12,12 @@ public class BookStore: ObservableObject {
     @Published public var bookmarks: [Bookmark] = []
     @Published public var searchHistory: [SearchKeyword] = []
 
+    private let defaults: UserDefaults
     private let booksKey = "legado_bookshelf_v1"
     private let sourcesKey = "legado_sources_v1"
 
-    public init() {
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         loadData()
         bindContentProcessor()
     }
@@ -41,37 +43,37 @@ public class BookStore: ObservableObject {
     public func loadData() {
         // Load sources (element-wise tolerant decode keeps undeclared Android fields in `extra`)
         if let decodedSources = BookSource.decodeListWithExtras(
-            from: UserDefaults.standard.data(forKey: sourcesKey) ?? Data()), !decodedSources.isEmpty {
+            from: defaults.data(forKey: sourcesKey) ?? Data()) {
             self.sources = decodedSources
         }
 
-        replaceRules = ReplaceRuleStore.load()
-        bookmarks = BookmarkStore.load()
-        searchHistory = SearchHistoryStore.load()
+        replaceRules = ReplaceRuleStore.load(from: defaults)
+        bookmarks = BookmarkStore.load(from: defaults)
+        searchHistory = SearchHistoryStore.load(from: defaults)
 
         // Load bookshelf
         if let decodedBooks = Book.decodeListWithExtras(
-            from: UserDefaults.standard.data(forKey: booksKey) ?? Data()), !decodedBooks.isEmpty {
+            from: defaults.data(forKey: booksKey) ?? Data()) {
             self.bookshelf = decodedBooks
         }
     }
 
     public func saveSources() {
         if let data = try? JSONEncoder().encode(sources) {
-            UserDefaults.standard.set(data, forKey: sourcesKey)
+            defaults.set(data, forKey: sourcesKey)
         }
     }
 
     public func saveBookshelf() {
         if let data = try? JSONEncoder().encode(bookshelf) {
-            UserDefaults.standard.set(data, forKey: booksKey)
+            defaults.set(data, forKey: booksKey)
         }
     }
 
     // MARK: - 替换净化 Rules
 
     public func saveReplaceRules() {
-        ReplaceRuleStore.save(replaceRules)
+        ReplaceRuleStore.save(replaceRules, to: defaults)
         ContentProcessor.shared.rules = replaceRules
     }
 
@@ -124,7 +126,7 @@ public class BookStore: ObservableObject {
     // MARK: - 书签
 
     public func saveBookmarks() {
-        BookmarkStore.save(bookmarks)
+        BookmarkStore.save(bookmarks, to: defaults)
     }
 
     public func addBookmark(_ bookmark: Bookmark) {
@@ -182,7 +184,11 @@ public class BookStore: ObservableObject {
         if let newBooks = payload.books {
             for b in newBooks {
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
-                    bookshelf[idx] = b
+                    var progress = BookProgress(book: bookshelf[idx])
+                    // URL identifies this shelf entry even when restored metadata renames it.
+                    progress.name = b.name
+                    progress.author = b.author
+                    bookshelf[idx] = progress.applying(to: b)
                 } else {
                     bookshelf.append(b)
                     booksCount += 1
@@ -205,7 +211,7 @@ public class BookStore: ObservableObject {
 
         if let newBookmarks = payload.bookmarks, !newBookmarks.isEmpty {
             let before = bookmarks.count
-            var map = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.time, $0) })
+            var map = Dictionary(bookmarks.map { ($0.time, $0) }, uniquingKeysWith: { _, newest in newest })
             for bm in newBookmarks {
                 map[bm.time] = bm
             }
@@ -241,11 +247,11 @@ public class BookStore: ObservableObject {
             saveSearchHistory()
         }
         if let style = payload.readConfig {
-            ReaderStore.save(style)
+            ReaderStore.save(style, to: defaults)
         }
 
         if let newTxtRules = payload.txtTocRules, !newTxtRules.isEmpty {
-            let currentRules = TxtTocRuleStore.load()
+            let currentRules = TxtTocRuleStore.load(from: defaults)
             var merged = currentRules
             for r in newTxtRules {
                 if let idx = merged.firstIndex(where: { $0.id == r.id || $0.name == r.name }) {
@@ -254,25 +260,25 @@ public class BookStore: ObservableObject {
                     merged.append(r)
                 }
             }
-            TxtTocRuleStore.save(merged)
+            TxtTocRuleStore.save(merged, to: defaults)
         }
 
         if let newRecords = payload.readRecords, !newRecords.isEmpty {
-            let currentRecords = ReadRecordStore.load()
+            let currentRecords = ReadRecordStore.load(from: defaults)
             var merged = currentRecords
             for rec in newRecords {
-                if let idx = merged.firstIndex(where: { $0.bookName == rec.bookName }) {
+                if let idx = merged.firstIndex(where: { $0.deviceId == rec.deviceId && $0.bookName == rec.bookName }) {
                     merged[idx].readTime = max(merged[idx].readTime, rec.readTime)
                     merged[idx].lastRead = max(merged[idx].lastRead, rec.lastRead)
                 } else {
                     merged.append(rec)
                 }
             }
-            ReadRecordStore.save(merged)
+            ReadRecordStore.save(merged, to: defaults)
         }
 
         if let newRssSources = payload.rssSources, !newRssSources.isEmpty {
-            let current = RssStore.loadSources()
+            let current = RssStore.loadSources(from: defaults)
             var merged = current
             for s in newRssSources {
                 if let idx = merged.firstIndex(where: { $0.sourceUrl == s.sourceUrl }) {
@@ -281,18 +287,18 @@ public class BookStore: ObservableObject {
                     merged.append(s)
                 }
             }
-            RssStore.saveSources(merged)
+            RssStore.saveSources(merged, to: defaults)
         }
 
         if let newRssStars = payload.rssStars, !newRssStars.isEmpty {
-            let current = RssStore.loadStars()
+            let current = RssStore.loadStars(from: defaults)
             var merged = current
             for star in newRssStars {
                 if !merged.contains(where: { $0.link == star.link }) {
                     merged.append(star)
                 }
             }
-            RssStore.saveStars(merged)
+            RssStore.saveStars(merged, to: defaults)
         }
 
         return (booksCount, sourcesCount, bookmarksCount, rulesCount)
@@ -309,7 +315,7 @@ public class BookStore: ObservableObject {
             if !book.name.isEmpty { existing.name = book.name }
             if !book.author.isEmpty && book.author != "未知作者" { existing.author = book.author }
             if let cover = book.coverUrl, !cover.isEmpty { existing.coverUrl = book.coverUrl }
-            if let intro = book.intro, !intro.isEmpty, !intro.hasPrefix("源站：") { existing.intro = intro }
+            if let intro = book.intro, !intro.isEmpty { existing.intro = intro }
             if let kind = book.kind, !kind.isEmpty { existing.kind = kind }
             if let wordCount = book.wordCount, !wordCount.isEmpty { existing.wordCount = wordCount }
             if let latest = book.latestChapterTitle, !latest.isEmpty { existing.latestChapterTitle = latest }
@@ -336,7 +342,8 @@ public class BookStore: ObservableObject {
     /// Next manual position for a newly added book: Android's `BookInfoViewModel` pushes new
     /// books to the top with `order = minOrder - 1`.
     public var nextManualOrder: Int {
-        (bookshelf.map(\.order).min() ?? 1) - 1
+        let minimum = bookshelf.map(\.order).min() ?? 1
+        return minimum == Int.min ? Int.min : minimum - 1
     }
 
     /// Applies a drag-reorder from the (possibly group-filtered) shelf view.
@@ -346,12 +353,8 @@ public class BookStore: ObservableObject {
     /// reshuffle the 全部 view; permuting keeps every non-dragged book exactly where it was,
     /// and degenerates to a plain 0…n-1 reindex when the view shows the whole shelf.
     public func applyManualOrder(_ orderedBooks: [Book]) {
-        let urlSet = Set(orderedBooks.map(\.bookUrl))
-        let slotValues = bookshelf.filter { urlSet.contains($0.bookUrl) }
-            .map(\.order).sorted()
-        guard slotValues.count == orderedBooks.count else { return }
-        let newOrder: [String: Int] = Dictionary(uniqueKeysWithValues:
-            orderedBooks.enumerated().map { ($1.bookUrl, slotValues[$0]) })
+        guard let newOrder = reorderedPositions(current: bookshelf.map { ($0.bookUrl, $0.order) },
+                                                ids: orderedBooks.map(\.bookUrl)) else { return }
         for i in 0..<bookshelf.count {
             if let o = newOrder[bookshelf[i].bookUrl] {
                 bookshelf[i].order = o
@@ -366,12 +369,8 @@ public class BookStore: ObservableObject {
     /// its own `customOrder` slots so sources outside the view keep their priority, and the
     /// full-list case degenerates to a plain 0…n-1 reindex.
     public func applySourceOrder(_ orderedSources: [BookSource]) {
-        let urlSet = Set(orderedSources.map(\.bookSourceUrl))
-        let slotValues = sources.filter { urlSet.contains($0.bookSourceUrl) }
-            .compactMap(\.customOrder).sorted()
-        guard slotValues.count == orderedSources.count else { return }
-        let newOrder: [String: Int] = Dictionary(uniqueKeysWithValues:
-            orderedSources.enumerated().map { ($1.bookSourceUrl, slotValues[$0]) })
+        guard let newOrder = reorderedPositions(current: sources.map { ($0.bookSourceUrl, $0.customOrder ?? 0) },
+                                                ids: orderedSources.map(\.bookSourceUrl)) else { return }
         for i in 0..<sources.count {
             if let o = newOrder[sources[i].bookSourceUrl] {
                 sources[i].customOrder = o
@@ -379,6 +378,21 @@ public class BookStore: ObservableObject {
         }
         sources.sort { ($0.customOrder ?? 0) < ($1.customOrder ?? 0) }
         saveSources()
+    }
+
+    /// Normalize tied / missing imported positions before permuting the visible subset.
+    /// A stable tie-break keeps hidden rows in the same relative positions.
+    private func reorderedPositions(current: [(id: String, order: Int)], ids: [String]) -> [String: Int]? {
+        let visible = Set(ids)
+        guard visible.count == ids.count, Set(current.map(\.id)).count == current.count else { return nil }
+        let sorted = current.enumerated().sorted {
+            $0.element.order == $1.element.order ? $0.offset < $1.offset : $0.element.order < $1.element.order
+        }.map(\.element)
+        var positions = Dictionary(uniqueKeysWithValues: sorted.enumerated().map { ($1.id, $0) })
+        let slots = sorted.indices.filter { visible.contains(sorted[$0].id) }
+        guard slots.count == ids.count else { return nil }
+        for (id, slot) in zip(ids, slots) { positions[id] = slot }
+        return positions
     }
 
     public func removeBooks(bookUrls: Set<String>) {
@@ -394,6 +408,7 @@ public class BookStore: ObservableObject {
         guard let index = bookshelf.firstIndex(where: { $0.bookUrl == bookUrl }) else { return }
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         var item = bookshelf.remove(at: index)
+        item.order = nextManualOrder
         item.durChapterTime = now
         item.lastCheckTime = now
         bookshelf.insert(item, at: 0)
@@ -500,60 +515,57 @@ public class BookStore: ObservableObject {
         }
     }
 
+    /// Apply a remote timestamp without treating a download as a new local reading event.
+    @discardableResult
+    public func applyRemoteProgress(_ progress: BookProgress, bookUrl: String) -> Book? {
+        guard let index = bookshelf.firstIndex(where: { $0.bookUrl == bookUrl }) else { return nil }
+        bookshelf[index] = progress.applying(to: bookshelf[index])
+        saveBookshelf()
+        return bookshelf[index]
+    }
+
     /// Refreshes all network books on the bookshelf concurrently
+    @MainActor
     public func refreshAllBooks() async {
-        let networkBooks = bookshelf.filter { $0.origin != "local" }
-        guard !networkBooks.isEmpty else { return }
-
-        print("[Bookshelf] 🔄 Starting full refresh for \(networkBooks.count) network books...")
-
-        await withTaskGroup(of: Book?.self) { group in
-            for book in networkBooks {
+        // Snapshot published state before starting workers; cache and shelf mutations stay here.
+        let jobs = bookshelf.filter { !$0.isLocalBook }.compactMap { book -> (Book, BookSource)? in
+            guard let source = findSource(for: book) else { return nil }
+            return (book, source)
+        }
+        await withTaskGroup(of: (Book, [BookChapter])?.self) { group in
+            for (book, source) in jobs {
                 group.addTask {
-                    guard let source = self.findSource(for: book) else { return nil }
-
                     do {
-                        let (detailedBook, chapters) = try await BookContentService.shared.fetchBookDetail(book: book, source: source)
-                        // 目录也要落盘（Android loadChapter 保存章节列表）：只更新元数据不存
-                        // 章节的话，书架刷新后阅读器仍读旧目录。
-                        if !chapters.isEmpty {
-                            self.saveChapters(chapters, for: book.bookUrl)
-                        }
-                        var updated = detailedBook
-                        updated.totalChapterNum = chapters.count
-                        if let lastCh = chapters.last {
-                            updated.latestChapterTitle = lastCh.title
-                        }
-                        return updated
+                        return try await BookContentService.shared.fetchBookDetail(book: book, source: source)
                     } catch {
-                        print("[Bookshelf] ⚠️ Failed to refresh '\(book.name)': \(error.localizedDescription)")
                         return nil
                     }
                 }
             }
-
             for await result in group {
-                if let updatedBook = result {
-                    _ = await MainActor.run {
-                        self.saveOrUpdateBook(updatedBook)
-                    }
+                if Task.isCancelled { group.cancelAll(); break }
+                if let (updatedBook, chapters) = result {
+                    // A book removed while the refresh ran must not reappear on the shelf.
+                    guard bookshelf.contains(where: { $0.bookUrl == updatedBook.bookUrl }) else { continue }
+                    if !chapters.isEmpty { saveChapters(chapters, for: updatedBook.bookUrl) }
+                    _ = saveOrUpdateBook(updatedBook)
                 }
             }
         }
-        print("[Bookshelf] ✅ Finished refresh for all books")
     }
 
     // MARK: - Source Management
     public func importSources(json: String) throws -> Int {
         guard let data = json.data(using: .utf8) else { return 0 }
-        let imported = BookSource.decodeListWithExtras(from: data) ?? []
+        let imported = (BookSource.decodeListOrObjectWithExtras(from: data) ?? [])
+            .filter { !$0.bookSourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !imported.isEmpty else {
             throw NSError(domain: "BookStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "未在 JSON 中发现有效书源"])
         }
 
         var count = 0
         for s in imported {
-            if let idx = sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl || $0.bookSourceName == s.bookSourceName }) {
+            if let idx = sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
                 sources[idx] = s
             } else {
                 sources.append(s)
@@ -724,9 +736,13 @@ public class BookStore: ObservableObject {
             capturedHeader = newH
         }
 
-        _ = jsEngine.eval(script: loginScript)
+        _ = jsEngine.eval(script: JSEngine.extractJSScript(from: loginScript) ?? loginScript)
+        if let exception = jsEngine.context.exception {
+            throw NSError(domain: "BookStore", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: exception.toString() ?? "登录脚本执行失败"])
+        }
 
-        guard let finalHeader = capturedHeader ?? updatedSource.loginHeader, !finalHeader.isEmpty else {
+        guard let finalHeader = capturedHeader, !finalHeader.isEmpty else {
             throw NSError(domain: "BookStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "登录未返回有效凭据，请检查账号密码"])
         }
 
@@ -752,7 +768,7 @@ public class BookStore: ObservableObject {
     // MARK: - 搜索历史
 
     public func saveSearchHistory() {
-        SearchHistoryStore.save(searchHistory)
+        SearchHistoryStore.save(searchHistory, to: defaults)
     }
 
     /// Android bumps the counter on a repeat rather than adding a duplicate row.
@@ -780,6 +796,7 @@ public class BookStore: ObservableObject {
     }
 
     // MARK: - EPUB & Chapter Storage
+    private let chapterCacheLock = NSRecursiveLock()
     private var chaptersCache: [String: [BookChapter]] = [:]
     /// How long a cached TOC may be trusted before something should re-crawl it. The rules live
     /// in `TocCache` so they can be unit-tested without a reader on screen.
@@ -787,13 +804,13 @@ public class BookStore: ObservableObject {
     /// When this book's TOC was last successfully crawled. Kept in `UserDefaults` rather than
     /// inside `chapters_<md5>.json` so that file keeps the shape it always had.
     public func tocFetchedAt(bookUrl: String) -> Date? {
-        let seconds = UserDefaults.standard.double(forKey: TocCache.defaultsKey(bookUrl: bookUrl))
+        let seconds = defaults.double(forKey: TocCache.defaultsKey(bookUrl: bookUrl))
         guard seconds > 0 else { return nil }
         return Date(timeIntervalSince1970: seconds)
     }
 
     public func markTocFetched(bookUrl: String, at date: Date = Date()) {
-        UserDefaults.standard.set(date.timeIntervalSince1970,
+        defaults.set(date.timeIntervalSince1970,
                                   forKey: TocCache.defaultsKey(bookUrl: bookUrl))
     }
 
@@ -802,6 +819,8 @@ public class BookStore: ObservableObject {
     }
 
     public func saveChapters(_ chapters: [BookChapter], for bookUrl: String) {
+        chapterCacheLock.lock()
+        defer { chapterCacheLock.unlock() }
         chaptersCache[bookUrl] = chapters
         let chapterFile = getDocumentsDirectory().appendingPathComponent("chapters_\(CryptoUtils.md5(bookUrl)).json")
         if let data = try? JSONEncoder().encode(chapters) {
@@ -810,6 +829,8 @@ public class BookStore: ObservableObject {
     }
 
     public func getChapters(for bookUrl: String) -> [BookChapter] {
+        chapterCacheLock.lock()
+        defer { chapterCacheLock.unlock() }
         if let memory = chaptersCache[bookUrl] {
             return memory
         }
@@ -873,7 +894,7 @@ public class BookStore: ObservableObject {
 
         if matches.isEmpty {
             // Try all enabled rules in TxtTocRuleStore in order
-            let enabledRules = TxtTocRuleStore.load().filter { $0.enable }
+            let enabledRules = TxtTocRuleStore.load(from: defaults).filter { $0.enable }
             for r in enabledRules {
                 if let regex = try? NSRegularExpression(pattern: r.rule, options: [.anchorsMatchLines]) {
                     let candidateMatches = regex.matches(in: content, range: NSRange(location: 0, length: nsString.length))

@@ -32,7 +32,7 @@ public enum TolerantJSON {
             // Not a JSON object — nothing to merge onto; let a strict decode try anyway.
             return try? JSONDecoder().decode(type, from: data)
         }
-        for (key, value) in stored where merged[key] != nil && !(value is NSNull) {
+        for (key, value) in stored where !(value is NSNull) {
             merged[key] = value
         }
         guard let mergedData = try? JSONSerialization.data(withJSONObject: merged) else { return nil }

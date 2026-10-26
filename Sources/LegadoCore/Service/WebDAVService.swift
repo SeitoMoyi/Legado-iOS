@@ -232,10 +232,9 @@ public class WebDAVService {
             }
         }
 
-        return "连接成功 (HTTP \(httpResponse.statusCode))"
+        throw WebDAVError.serverError(httpResponse.statusCode, "连接测试失败")
     }
 
-    /// Creates the directory via MKCOL if it doesn't exist
     /// Creates the directory via MKCOL if it doesn't exist
     public func createDirectoryIfNeeded(config: WebDAVConfig) async throws {
         guard let dirUrl = config.directoryURL else { throw WebDAVError.invalidURL }
@@ -245,11 +244,12 @@ public class WebDAVService {
     public func createDirectoryIfNeeded(url: URL, config: WebDAVConfig) async throws {
         let req = makeRequest(url: url, method: "MKCOL", config: config)
         let (_, response) = try await session.data(for: req)
-        if let httpResponse = response as? HTTPURLResponse {
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw WebDAVError.unauthorized
-            }
-            // 201 Created or 405 Method Not Allowed (already exists) are fine
+        guard let http = response as? HTTPURLResponse else {
+            throw WebDAVError.custom("创建远程目录无响应")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 { throw WebDAVError.unauthorized }
+        guard (200...299).contains(http.statusCode) || http.statusCode == 405 else {
+            throw WebDAVError.serverError(http.statusCode, "创建远程目录失败")
         }
     }
 
@@ -313,6 +313,11 @@ public class WebDAVService {
         public var rssSources: [RssSource]?
         public var rssStars: [RssStar]?
         public var backupName: String?
+
+        var hasSupportedMembers: Bool {
+            books != nil || sources != nil || bookmarks != nil || replaceRules != nil || searchHistory != nil
+                || readConfig != nil || txtTocRules != nil || readRecords != nil || rssSources != nil || rssStars != nil
+        }
 
         public init(
             books: [Book]? = nil,
@@ -394,7 +399,7 @@ public class WebDAVService {
             try writeEntry(resolvedHistory, name: "searchHistory.json")
         }
         if let style = readConfig ?? ReaderStore.loadStyle() {
-            try writeEntry(style, name: "readConfig.json")
+            try writeEntry([style], name: "readConfig.json")
         }
 
         let resolvedTxtRules = txtTocRules ?? TxtTocRuleStore.load()
@@ -707,7 +712,10 @@ public class WebDAVService {
         // 1. Try finding and downloading Android-compatible backup*.zip files first
         if let remoteBackups = try? await listRemoteBackups(config: config), !remoteBackups.isEmpty {
             let targetBackup: RemoteBackupInfo
-            if let specificName = backupFileName, let found = remoteBackups.first(where: { $0.fileName == specificName }) {
+            if let specificName = backupFileName {
+                guard let found = remoteBackups.first(where: { $0.fileName == specificName }) else {
+                    throw WebDAVError.backupNotFound
+                }
                 targetBackup = found
             } else {
                 targetBackup = remoteBackups[0]
@@ -722,8 +730,10 @@ public class WebDAVService {
             }
         }
 
-        // 2. If no zip was restored, try loose bookshelf.json and bookSource.json
-        if payload.books == nil {
+        if backupFileName != nil && payload.backupName == nil { throw WebDAVError.backupNotFound }
+        let restoredArchive = payload.backupName?.hasSuffix(".zip") == true
+        // Never mix a selected archive with loose files from another backup snapshot.
+        if !restoredArchive && payload.books == nil {
             let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
             let booksReq = makeRequest(url: booksUrl, method: "GET", config: config)
             if let (booksData, booksResponse) = try? await session.data(for: booksReq),
@@ -740,7 +750,7 @@ public class WebDAVService {
             }
         }
 
-        if payload.sources == nil {
+        if !restoredArchive && payload.sources == nil {
             let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
             let sourcesReq = makeRequest(url: sourcesUrl, method: "GET", config: config)
             if let (sourcesData, sourcesResponse) = try? await session.data(for: sourcesReq),
@@ -805,19 +815,8 @@ public class WebDAVService {
                                 }
 
                                 for await (idx, progOpt) in group {
-                                    if let prog = progOpt, idx < books.count {
-                                        if prog.durChapterIndex > books[idx].durChapterIndex ||
-                                            (prog.durChapterIndex == books[idx].durChapterIndex && prog.durChapterPos >= books[idx].durChapterPos) {
-                                            books[idx].durChapterIndex = prog.durChapterIndex
-                                            books[idx].durChapterPos = prog.durChapterPos
-                                            if let title = prog.durChapterTitle, !title.isEmpty {
-                                                books[idx].durChapterTitle = title
-                                            }
-                                            if let time = prog.durChapterTime {
-                                                books[idx].durChapterTime = time
-                                                books[idx].lastCheckTime = time
-                                            }
-                                        }
+                                    if let progress = progOpt, idx < books.count {
+                                        books[idx] = progress.applying(to: books[idx])
                                     }
                                 }
                             }
@@ -828,7 +827,7 @@ public class WebDAVService {
             }
         }
 
-        if payload.books == nil && payload.sources == nil && payload.bookmarks == nil && payload.replaceRules == nil {
+        if !payload.hasSupportedMembers {
             throw WebDAVError.backupNotFound
         }
 
@@ -887,49 +886,49 @@ public class WebDAVService {
     public func parseArchivePayload(_ archive: Archive) throws -> BackupRestorePayload {
         var payload = BackupRestorePayload()
 
-        func extractData(named fileName: String) -> Data? {
+        func extractData(named fileName: String) throws -> Data? {
             guard let entry = archive[fileName] ?? archive.first(where: { $0.path.hasSuffix("/\(fileName)") || $0.path == fileName }) else {
                 return nil
             }
             var data = Data()
-            _ = try? archive.extract(entry) { chunk in
+            _ = try archive.extract(entry) { chunk in
                 data.append(chunk)
             }
             return data.isEmpty ? nil : data
         }
 
         // 1. bookshelf.json
-        if let data = extractData(named: "bookshelf.json"),
+        if let data = try extractData(named: "bookshelf.json"),
            let decoded = Book.decodeListWithExtras(from: data) {
             payload.books = decoded
         }
 
         // 2. bookSource.json
-        if let data = extractData(named: "bookSource.json"),
+        if let data = try extractData(named: "bookSource.json"),
            let decoded = BookSource.decodeListWithExtras(from: data) {
             payload.sources = decoded
         }
 
         // 3. bookmark.json
-        if let data = extractData(named: "bookmark.json"),
+        if let data = try extractData(named: "bookmark.json"),
            let decoded = TolerantJSON.decodeList(Bookmark.self, from: data, fallback: Bookmark(bookName: "")) {
             payload.bookmarks = decoded
         }
 
         // 4. replaceRule.json
-        if let data = extractData(named: "replaceRule.json"),
+        if let data = try extractData(named: "replaceRule.json"),
            let decoded = TolerantJSON.decodeList(ReplaceRule.self, from: data, fallback: ReplaceRule()) {
             payload.replaceRules = decoded
         }
 
         // 5. searchHistory.json
-        if let data = extractData(named: "searchHistory.json"),
+        if let data = try extractData(named: "searchHistory.json"),
            let decoded = TolerantJSON.decodeList(SearchKeyword.self, from: data, fallback: SearchKeyword(word: "")) {
             payload.searchHistory = decoded
         }
 
         // 6. readConfig.json
-        if let data = extractData(named: "readConfig.json") {
+        if let data = try extractData(named: "readConfig.json") {
             if let single = TolerantJSON.decode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()) {
                 payload.readConfig = single
             } else if let list = TolerantJSON.decodeList(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()),
@@ -939,25 +938,25 @@ public class WebDAVService {
         }
 
         // 7. txtTocRule.json
-        if let data = extractData(named: "txtTocRule.json"),
+        if let data = try extractData(named: "txtTocRule.json"),
            let decoded = TolerantJSON.decodeList(TxtTocRule.self, from: data, fallback: TxtTocRule()) {
             payload.txtTocRules = decoded
         }
 
         // 8. readRecord.json
-        if let data = extractData(named: "readRecord.json"),
+        if let data = try extractData(named: "readRecord.json"),
            let decoded = TolerantJSON.decodeList(ReadRecord.self, from: data, fallback: ReadRecord()) {
             payload.readRecords = decoded
         }
 
         // 9. rssSources.json
-        if let data = extractData(named: "rssSources.json"),
+        if let data = try extractData(named: "rssSources.json"),
            let decoded = TolerantJSON.decodeList(RssSource.self, from: data, fallback: RssSource()) {
             payload.rssSources = decoded
         }
 
         // 10. rssStar.json
-        if let data = extractData(named: "rssStar.json"),
+        if let data = try extractData(named: "rssStar.json"),
            let decoded = TolerantJSON.decodeList(RssStar.self, from: data, fallback: RssStar()) {
             payload.rssStars = decoded
         }
@@ -968,7 +967,7 @@ public class WebDAVService {
             let path = entry.path
             if (path.hasPrefix("bookProgress/") || path.contains("/bookProgress/")) && path.hasSuffix(".json") {
                 var pData = Data()
-                _ = try? archive.extract(entry) { chunk in
+                _ = try archive.extract(entry) { chunk in
                     pData.append(chunk)
                 }
                 if let prog = try? JSONDecoder().decode(BookProgress.self, from: pData) {
@@ -982,24 +981,14 @@ public class WebDAVService {
         if var books = payload.books, !progressMap.isEmpty {
             for i in 0..<books.count {
                 let key = "\(books[i].name)_\(books[i].author)"
-                if let prog = progressMap[key] {
-                    if prog.durChapterIndex >= books[i].durChapterIndex {
-                        books[i].durChapterIndex = prog.durChapterIndex
-                        books[i].durChapterPos = prog.durChapterPos
-                        if let title = prog.durChapterTitle, !title.isEmpty {
-                            books[i].durChapterTitle = title
-                        }
-                        if let time = prog.durChapterTime {
-                            books[i].durChapterTime = time
-                            books[i].lastCheckTime = time
-                        }
-                    }
+                if let progress = progressMap[key] {
+                    books[i] = progress.applying(to: books[i])
                 }
             }
             payload.books = books
         }
 
-        if payload.books == nil && payload.sources == nil && payload.bookmarks == nil && payload.replaceRules == nil && payload.searchHistory == nil && payload.readConfig == nil && payload.txtTocRules == nil && payload.readRecords == nil {
+        if !payload.hasSupportedMembers {
             throw WebDAVError.backupNotFound
         }
 
@@ -1025,18 +1014,8 @@ public class WebDAVService {
 
         for i in 0..<books.count {
             let key = "\(books[i].name)_\(books[i].author)"
-            if let prog = progressMap[key] {
-                if prog.durChapterIndex >= books[i].durChapterIndex {
-                    books[i].durChapterIndex = prog.durChapterIndex
-                    books[i].durChapterPos = prog.durChapterPos
-                    if let title = prog.durChapterTitle, !title.isEmpty {
-                        books[i].durChapterTitle = title
-                    }
-                    if let time = prog.durChapterTime {
-                        books[i].durChapterTime = time
-                        books[i].lastCheckTime = time
-                    }
-                }
+            if let progress = progressMap[key] {
+                books[i] = progress.applying(to: books[i])
             }
         }
     }

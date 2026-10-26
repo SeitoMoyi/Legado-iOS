@@ -343,3 +343,13 @@ final class ChineseConverterTests: XCTestCase {
         XCTAssertEqual(ChineseConverter.convert("", mode: 2), "")
     }
 }
+
+extension ReplaceRuleTests {
+    func testRegexProgressCanInterruptCatastrophicBacktracking() {
+        let rule = ReplaceRule(pattern: "(a+)+$", replacement: "x", isRegex: true, timeoutMillisecond: 5)
+        let start = Date()
+        let result = ContentProcessor.applyRuleSync(rule, to: String(repeating: "a", count: 30_000) + "!")
+        guard case .timedOut = result else { return XCTFail("pathological regex must stop without a partial replacement") }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+    }
+}

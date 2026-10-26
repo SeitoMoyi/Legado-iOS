@@ -529,7 +529,7 @@ public struct SourceManagerView: View {
                             do {
                                 let results = try await BookSearchService.shared.search(
                                     source: src,
-                                    key: "我的",
+                                    key: (src.ruleSearch?.checkKeyWord).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? "我的",
                                     page: 1
                                 )
                                 let elapsed = Int64(Date().timeIntervalSince(start) * 1000)

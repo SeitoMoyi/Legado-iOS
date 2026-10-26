@@ -75,10 +75,6 @@ public struct BookDetailView: View {
 
     private var displayIntro: String? {
         guard let intro = currentBook.intro, !intro.isEmpty else { return nil }
-        // Filter out debug/search metadata that is not real story synopsis
-        if intro.hasPrefix("源站：") || intro.contains("最近同步：") {
-            return nil
-        }
         let cleaned = BookContentService.cleanHtml(intro)
         return cleaned.isEmpty ? nil : cleaned
     }
@@ -538,22 +534,6 @@ public struct BookDetailView: View {
     }
 
     // MARK: - Tags Section
-
-    private var tagsSection: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(tags, id: \.self) { tag in
-                    Text(tag)
-                        .font(.caption)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.secondary.opacity(0.12))
-                        .foregroundColor(.secondary)
-                        .cornerRadius(12)
-                }
-            }
-        }
-    }
 
     // MARK: - Intro Section
 

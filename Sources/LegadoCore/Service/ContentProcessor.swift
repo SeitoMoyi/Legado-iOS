@@ -70,10 +70,19 @@ public final class ContentProcessor {
 
     /// Set by the app layer so it stays the single source of truth. `nil` means read the
     /// store directly, which keeps core usable in tests and for callers outside the app.
-    public var rules: [ReplaceRule]?
+    private let stateLock = NSLock()
+    private var storedRules: [ReplaceRule]?
+    public var rules: [ReplaceRule]? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return storedRules }
+        set { stateLock.lock(); storedRules = newValue; stateLock.unlock() }
+    }
 
     /// Called when a rule is auto-disabled after a timeout, so the app can persist it.
-    public var onRuleAutoDisabled: ((ReplaceRule) -> Void)?
+    private var ruleDisabledHandler: ((ReplaceRule) -> Void)?
+    public var onRuleAutoDisabled: ((ReplaceRule) -> Void)? {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return ruleDisabledHandler }
+        set { stateLock.lock(); ruleDisabledHandler = newValue; stateLock.unlock() }
+    }
 
     private var currentRules: [ReplaceRule] { rules ?? ReplaceRuleStore.load() }
 
@@ -91,11 +100,15 @@ public final class ContentProcessor {
     /// The pipeline output for a chapter, used by 「起效的替换」 to show which rules actually
     /// changed this chapter rather than merely which ones match the book.
     public func result(forKey key: String) -> ProcessedContent? {
-        results[key]
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return results[key]
     }
 
 
     private func record(_ result: ProcessedContent, for key: String) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         // Reading forward through a long book would otherwise grow this without bound.
         if results.count > 40 { results.removeAll(keepingCapacity: true) }
         results[key] = result
@@ -137,29 +150,32 @@ public final class ContentProcessor {
 
     public func process(rawContent: String, context: ProcessContext) async -> ProcessedContent {
         guard !rawContent.isEmpty, rawContent != "null" else {
-            return ProcessedContent(title: context.chapterTitle, text: context.chapterTitle,
-                                    lines: [context.chapterTitle], effectiveRules: [],
-                                    sameTitleRemoved: false)
+            let empty = ProcessedContent(title: context.chapterTitle, text: context.chapterTitle,
+                                         lines: [context.chapterTitle], effectiveRules: [], sameTitleRemoved: false)
+            record(empty, for: context.cacheKey)
+            return empty
         }
 
+        let chapterRules = currentRules
         let contentRules = context.replacesEnabled
             ? Self.matchingRules(bookName: context.bookName, bookOrigin: context.bookOrigin,
-                                 from: currentRules, forTitle: false)
+                                 from: chapterRules, forTitle: false)
             : []
         let titleRules = context.replacesEnabled
             ? Self.matchingRules(bookName: context.bookName, bookOrigin: context.bookOrigin,
-                                 from: currentRules, forTitle: true)
+                                 from: chapterRules, forTitle: true)
             : []
 
+        // Title rules are independent of the body; evaluate once, including the duplicate-title retry.
+        let title = await applyTitleRules(titleRules, to: context.chapterTitle)
         // 1. duplicated title at the head of the body
         var body = removeDuplicatedTitle(from: rawContent, title: context.chapterTitle,
                                          bookName: context.bookName)
         let sameTitleRemoved = body != rawContent
         if !sameTitleRemoved && !titleRules.isEmpty {
             // Android retries with the title *after* title rules have been applied.
-            let displayed = await applyTitleRules(titleRules, to: context.chapterTitle)
-            if !displayed.isEmpty, displayed != context.chapterTitle,
-               let retitled = strip(body, prefix: displayed) {
+            if !title.isEmpty, title != context.chapterTitle,
+               let retitled = strip(body, prefix: title) {
                 body = retitled.text
             }
         }
@@ -176,6 +192,7 @@ public final class ContentProcessor {
             .joined(separator: "\n")
         var effective: [ReplaceRule] = []
         for rule in contentRules {
+            if Task.isCancelled { break }
             let outcome = await applySingle(rule, to: body)
             switch outcome {
             case .changed(let replaced):
@@ -188,8 +205,7 @@ public final class ContentProcessor {
             }
         }
 
-        // 5. title rules + re-attach the title
-        let title = await applyTitleRules(titleRules, to: context.chapterTitle)
+        // 5. re-attach the processed title below
 
         // 6. Android only does this on API 26-27 because of a StaticLayout crash; iOS can
         //    always normalise the non-breaking space.
@@ -289,82 +305,108 @@ public final class ContentProcessor {
         case failed
     }
 
-    /// Runs one rule against `text`, aborting after the rule's own timeout.
-    private func applySingle(_ rule: ReplaceRule, to text: String) async -> RuleOutcome {
-        guard !rule.pattern.isEmpty else { return .unchanged }
-        let timeout = rule.effectiveTimeout
+    /// One-shot completion shared by the worker, timeout and cancellation. Unlike a
+    /// TaskGroup race, the caller does not wait for an uncooperative synchronous worker.
+    private final class RuleCompletion {
+        private let lock = NSLock()
+        private var outcome: RuleOutcome?
+        private var continuation: CheckedContinuation<RuleOutcome, Never>?
 
-        return await withTaskGroup(of: RuleOutcome.self) { group in
-            group.addTask {
-                await self.runRegex(rule: rule, text: text)
+        var isFinished: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return outcome != nil
+        }
+
+        func install(_ continuation: CheckedContinuation<RuleOutcome, Never>) {
+            lock.lock()
+            if let outcome = outcome {
+                lock.unlock()
+                continuation.resume(returning: outcome)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000)
-                return .timedOut
-            }
-            let outcome = await group.next() ?? .unchanged
-            group.cancelAll()
-            return outcome
+        }
+
+        func finish(_ value: RuleOutcome) {
+            lock.lock()
+            guard outcome == nil else { lock.unlock(); return }
+            outcome = value
+            let waiting = continuation
+            continuation = nil
+            lock.unlock()
+            waiting?.resume(returning: value)
         }
     }
 
-    /// Applies the title-scoped rules. A replacement that leaves nothing is discarded, which
-    /// is Android's behaviour: a chapter cannot be titled "".
+    private func applySingle(_ rule: ReplaceRule, to text: String) async -> RuleOutcome {
+        guard !rule.pattern.isEmpty else { return .unchanged }
+        let completion = RuleCompletion()
+        // Clamp scheduling arithmetic for corrupt / extreme imported timeout values.
+        let timeout = Double(min(rule.effectiveTimeout, 60_000)) / 1000
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                completion.install(continuation)
+                let timer = DispatchWorkItem { completion.finish(.timedOut) }
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: timer)
+                regexQueue.async {
+                    guard !completion.isFinished else { timer.cancel(); return }
+                    let outcome = Self.applyRuleSync(rule, to: text, shouldStop: { completion.isFinished })
+                    completion.finish(outcome)
+                    timer.cancel()
+                }
+            }
+        }, onCancel: { completion.finish(.unchanged) })
+    }
+
     private func applyTitleRules(_ rules: [ReplaceRule], to text: String) async -> String {
         var result = text
         for rule in rules {
-            guard case .changed(let replaced) = await applySingle(rule, to: result) else { continue }
-            if replaced.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            result = replaced
+            if Task.isCancelled { break }
+            switch await applySingle(rule, to: result) {
+            case .changed(let replaced):
+                if !replaced.trimmingCharacters(in: .whitespaces).isEmpty { result = replaced }
+            case .timedOut:
+                onRuleAutoDisabled?(rule)
+            case .unchanged, .failed:
+                break
+            }
         }
         return result
     }
 
-    private func runRegex(rule: ReplaceRule, text: String) async -> RuleOutcome {
-        await withCheckedContinuation { continuation in
-            regexQueue.async {
-                continuation.resume(returning: Self.applyRuleSync(rule, to: text))
-            }
-        }
-    }
-
-    static func applyRuleSync(_ rule: ReplaceRule, to text: String) -> RuleOutcome {
-        if rule.replacement.hasPrefix("@js:") {
-            return replaceWithJS(rule: rule, text: text)
-        }
+    static func applyRuleSync(_ rule: ReplaceRule, to text: String,
+                              shouldStop: (() -> Bool)? = nil) -> RuleOutcome {
+        let deadline = ProcessInfo.processInfo.systemUptime + Double(min(rule.effectiveTimeout, 60_000)) / 1000
         guard rule.isRegex else {
+            guard !rule.replacement.hasPrefix("@js:") else { return .failed }
             guard text.range(of: rule.pattern) != nil else { return .unchanged }
             return .changed(text.replacingOccurrences(of: rule.pattern, with: rule.replacement))
         }
         guard let regex = try? NSRegularExpression(pattern: rule.pattern) else { return .failed }
-        let ns = text as NSString
-        // `$1` / `\1` group references are handled by stringByReplacingMatches.
-        let result = regex.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: ns.length),
-                                                   withTemplate: rule.replacement)
-        return result == text ? .unchanged : .changed(result)
-    }
-
-    /// `replacement` starting with `@js:` is evaluated per match with `result` bound to the
-    /// matched text, as Android does.
-    private static func replaceWithJS(rule: ReplaceRule, text: String) -> RuleOutcome {
-        guard rule.isRegex, let regex = try? NSRegularExpression(pattern: rule.pattern) else {
-            return .failed
-        }
-        let script = String(rule.replacement.dropFirst(4))
-        let engine = JSEngine()
+        let script = rule.replacement.hasPrefix("@js:") ? String(rule.replacement.dropFirst(4)) : nil
+        let engine = script.map { _ in JSEngine() }
         let ns = text as NSString
         var result = ""
         var cursor = 0
-        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+        var timedOut = false
+        regex.enumerateMatches(in: text, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { match, _, stop in
+            if shouldStop?() == true || ProcessInfo.processInfo.systemUptime >= deadline {
+                timedOut = true
+                stop.pointee = true
+                return
+            }
+            guard let match = match else { return }
             result += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-            let matched = ns.substring(with: match.range)
-            if let value = engine.eval(script: script, result: matched) {
-                result += "\(value)"
+            if let script = script, let engine = engine {
+                let matched = ns.substring(with: match.range)
+                result += engine.eval(script: script, result: matched).map { "\($0)" } ?? matched
             } else {
-                result += matched
+                result += regex.replacementString(for: match, in: text, offset: 0, template: rule.replacement)
             }
             cursor = NSMaxRange(match.range)
         }
+        if timedOut { return .timedOut }
         result += ns.substring(from: cursor)
         return result == text ? .unchanged : .changed(result)
     }

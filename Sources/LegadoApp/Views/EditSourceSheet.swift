@@ -249,6 +249,7 @@ public struct EditSourceSheet: View {
             ruleField("下一页目录 (nextTocUrl)", placeholder: "text.下一页@href", text: tocRuleBinding(\.nextTocUrl))
             ruleField("分卷标识 (isVolume)", placeholder: "", text: tocRuleBinding(\.isVolume))
             ruleField("VIP 标识 (isVip)", placeholder: "", text: tocRuleBinding(\.isVip))
+            ruleField("已购买标识 (isPay)", placeholder: "", text: tocRuleBinding(\.isPay))
             ruleField("更新时间 (updateTime)", placeholder: "", text: tocRuleBinding(\.updateTime))
             ruleMultilineField("目录前处理 JS (preUpdateJs)", placeholder: "", text: tocRuleBinding(\.preUpdateJs))
             ruleMultilineField("章节标题格式化 JS (formatJs)", placeholder: "", text: tocRuleBinding(\.formatJs))

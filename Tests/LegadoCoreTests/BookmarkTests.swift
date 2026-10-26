@@ -131,3 +131,34 @@ final class BookmarkTests: XCTestCase {
         XCTAssertTrue(markdown.contains("#### 第二章"))
     }
 }
+
+final class ProgressConflictTests: XCTestCase {
+    func testNewerRereadPositionWinsAndTocRefreshTimeDoesNotAffectProgress() {
+        let local = Book(bookUrl: "b", name: "书", author: "作者", durChapterIndex: 10, durChapterPos: 100,
+                         durChapterTime: 100, lastCheckTime: 10_000)
+        let remote = BookProgress(name: "书", author: "作者", durChapterIndex: 2, durChapterPos: 20, durChapterTime: 200)
+        let updated = remote.applying(to: local)
+        XCTAssertEqual(updated.durChapterIndex, 2)
+        XCTAssertEqual(updated.durChapterPos, 20)
+        XCTAssertEqual(updated.durChapterTime, 200)
+        XCTAssertEqual(updated.lastCheckTime, 10_000)
+    }
+
+    func testStaleOrInvalidProgressCannotOverrideCurrentPosition() {
+        let local = Book(bookUrl: "b", name: "书", author: "作者", durChapterIndex: 2, durChapterPos: 20, durChapterTime: 200)
+        let stale = BookProgress(name: "书", author: "作者", durChapterIndex: 10, durChapterPos: 100, durChapterTime: 100)
+        XCTAssertEqual(stale.applying(to: local), local)
+        let invalid = BookProgress(name: "书", author: "作者", durChapterIndex: -1, durChapterPos: 0, durChapterTime: 300)
+        XCTAssertFalse(invalid.isNewer(than: local))
+        let different = BookProgress(name: "另一书", author: "作者", durChapterIndex: 20, durChapterPos: 0, durChapterTime: 300)
+        XCTAssertFalse(different.isNewer(than: local))
+    }
+
+    func testLegacyProgressWithoutTimeUsesChapterThenOffset() {
+        let local = Book(bookUrl: "b", name: "书", author: "作者", durChapterIndex: 2, durChapterPos: 20)
+        let further = BookProgress(name: "书", author: "作者", durChapterIndex: 2, durChapterPos: 30)
+        let earlier = BookProgress(name: "书", author: "作者", durChapterIndex: 1, durChapterPos: 300)
+        XCTAssertTrue(further.isNewer(than: local))
+        XCTAssertFalse(earlier.isNewer(than: local))
+    }
+}

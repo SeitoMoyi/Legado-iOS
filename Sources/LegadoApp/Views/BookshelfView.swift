@@ -160,9 +160,8 @@ public struct BookshelfView: View {
                                     }
                                 }
                                 .onDelete { indexSet in
-                                    for idx in indexSet {
-                                        bookStore.removeBook(bookUrl: sortedBookshelf[idx].bookUrl)
-                                    }
+                                    let urls = indexSet.map { sortedBookshelf[$0].bookUrl }
+                                    for url in urls { bookStore.removeBook(bookUrl: url) }
                                 }
                                 .onMove { source, destination in
                                     var reordered = sortedBookshelf
@@ -793,7 +792,7 @@ struct BookGroupManageSheet: View {
                         }
                     }
                     .onDelete { indexSet in
-                        for idx in indexSet where groups[idx].groupId > 0 {
+                        for idx in indexSet.sorted(by: >) where groups[idx].groupId > 0 {
                             groups.remove(at: idx)
                         }
                         BookGroupStore.save(groups)

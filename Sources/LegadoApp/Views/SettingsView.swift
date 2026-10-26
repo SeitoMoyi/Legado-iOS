@@ -770,10 +770,8 @@ public struct ReadRecordListView: View {
                         .padding(.vertical, 2)
                     }
                     .onDelete { indexSet in
-                        for idx in indexSet {
-                            let target = filteredRecords[idx]
-                            records.removeAll { $0.bookName == target.bookName }
-                        }
+                        let ids = Set(indexSet.map { filteredRecords[$0].id })
+                        records.removeAll { ids.contains($0.id) }
                         ReadRecordStore.save(records)
                     }
                 }
@@ -1111,7 +1109,7 @@ public struct HttpTTSListView: View {
                     }
                 }
                 .onDelete { indexSet in
-                    for idx in indexSet where engines[idx].id != 1 {
+                    for idx in indexSet.sorted(by: >) where engines[idx].id != 1 {
                         engines.remove(at: idx)
                     }
                     HttpTTSStore.save(engines)

@@ -1,5 +1,6 @@
 import XCTest
 import CoreText
+import ZIPFoundation
 @testable import LegadoCore
 
 final class LegadoCoreTests: XCTestCase {
@@ -154,8 +155,7 @@ final class LegadoCoreTests: XCTestCase {
         let epubUrl = URL(fileURLWithPath: epubPath)
 
         guard FileManager.default.fileExists(atPath: epubPath) else {
-            print("Skipping epub test: LEGADO_TEST_EPUB not set or file missing")
-            return
+            throw XCTSkip("Skipping epub test: LEGADO_TEST_EPUB not set or file missing")
         }
 
         let parsed = try EpubParser.shared.parse(epubUrl: epubUrl)
@@ -205,8 +205,7 @@ final class LegadoCoreTests: XCTestCase {
         let epubUrl = URL(fileURLWithPath: epubPath)
 
         guard FileManager.default.fileExists(atPath: epubPath) else {
-            print("Skipping akuyaku epub test: LEGADO_TEST_EPUB not set or file missing")
-            return
+            throw XCTSkip("Skipping akuyaku epub test: LEGADO_TEST_EPUB not set or file missing")
         }
 
         let parsed = try EpubParser.shared.parse(epubUrl: epubUrl)
@@ -486,8 +485,7 @@ final class LegadoCoreTests: XCTestCase {
         // Android backup zip. Without it the test self-skips on any machine.
         let zipPath = ProcessInfo.processInfo.environment["LEGADO_TEST_BACKUP_ZIP"] ?? ""
         guard FileManager.default.fileExists(atPath: zipPath) else {
-            print("Skipping local test: LEGADO_TEST_BACKUP_ZIP not set or file missing")
-            return
+            throw XCTSkip("Skipping local test: LEGADO_TEST_BACKUP_ZIP not set or file missing")
         }
         let zipUrl = URL(fileURLWithPath: zipPath)
         let result = try WebDAVService.shared.restoreFromZip(fileUrl: zipUrl)
@@ -747,3 +745,35 @@ class MockWebDAVURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+
+extension LegadoCoreTests {
+    func testBackupStyleUsesAndroidArrayAndAcceptsLegacySingleStyle() throws {
+        let style = ReadStyleConfig(textSize: 23)
+        let backup = try WebDAVService.shared.createBackupZip(books: [], sources: [], readConfig: style)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+        try backup.data.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let archive = try Archive(url: file, accessMode: .read)
+        let entry = try XCTUnwrap(archive["readConfig.json"])
+        var data = Data()
+        _ = try archive.extract(entry) { data.append($0) }
+        let list = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        XCTAssertEqual(list.first?["textSize"] as? Double, 23)
+        XCTAssertEqual(try WebDAVService.shared.restorePayloadFromZip(data: backup.data).readConfig?.textSize, 23)
+    }
+
+    func testRssOnlyArchiveIsAValidRestorePayload() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+        defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            let archive = try Archive(url: file, accessMode: .create)
+            let data = try JSONEncoder().encode([RssSource(sourceUrl: "https://rss.test", sourceName: "订阅")])
+            try archive.addEntry(with: "rssSources.json", type: .file, uncompressedSize: Int64(data.count)) { position, size in
+                data.subdata(in: Int(position)..<Int(position) + size)
+            }
+        }
+        let payload = try WebDAVService.shared.restorePayloadFromZip(fileUrl: file)
+        XCTAssertEqual(payload.rssSources?.first?.sourceName, "订阅")
+        XCTAssertNil(payload.books)
+    }
+}

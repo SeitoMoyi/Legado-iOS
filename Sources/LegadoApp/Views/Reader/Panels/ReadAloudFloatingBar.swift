@@ -33,7 +33,7 @@ struct ReadAloudFloatingBar: View {
             Capsule().fill(config.theme.backgroundColor.opacity(0.92))
         )
         .overlay(
-            Capsule().stroke(config.theme.textColor.opacity(0.15), lineWidth: 0.5)
+            Capsule().stroke(config.effectiveTextColor.opacity(0.15), lineWidth: 0.5)
         )
         .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 2)
     }
@@ -55,7 +55,7 @@ struct ReadAloudFloatingBar: View {
     }
 
     private func disabledColor(enabled: Bool, highlight: Bool) -> Color {
-        if !enabled { return config.theme.textColor.opacity(0.28) }
-        return highlight ? .accentColor : config.theme.textColor
+        if !enabled { return config.effectiveTextColor.opacity(0.28) }
+        return highlight ? .accentColor : config.effectiveTextColor
     }
 }

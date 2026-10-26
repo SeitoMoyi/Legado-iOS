@@ -133,3 +133,38 @@ final class TocCacheTests: XCTestCase {
         XCTAssertTrue(TocCache.isAppendOnly([], [chapter("第一章", "https://a/1")]))
     }
 }
+
+extension TocCacheTests {
+    func testMetadataOnlyChangesRefreshReaderWithoutDroppingContent() {
+        let original = BookChapter(bookUrl: "b", url: "u", title: "章", index: 0)
+        let fields: [WritableKeyPath<BookChapter, Bool?>] = [\.isVolume, \.isVip, \.isPay]
+        for field in fields {
+            var updated = original
+            updated[keyPath: field] = true
+            XCTAssertFalse(TocCache.isSameList([original], [updated]))
+            XCTAssertTrue(TocCache.isAppendOnly([original], [updated]))
+        }
+        var updated = original
+        updated.tag = "更新时间"
+        XCTAssertFalse(TocCache.isSameList([original], [updated]))
+        XCTAssertTrue(TocCache.isAppendOnly([original], [updated]))
+    }
+
+    func testLegacyMissingFlagsMatchFalseAndIgnoreIndexChanges() {
+        let original = BookChapter(bookUrl: "b", url: "u", title: "章", index: 0)
+        var legacy = original
+        legacy.isVolume = nil
+        legacy.isVip = nil
+        legacy.isPay = nil
+        legacy.index = 7
+        legacy.tag = ""
+        XCTAssertTrue(TocCache.isSameList([original], [legacy]))
+    }
+
+    func testMiddleChapterChangesAreNotHiddenByMatchingEndpoints() {
+        let original = (0..<3).map { BookChapter(bookUrl: "b", url: "\($0)", title: "章\($0)", index: $0) }
+        var updated = original
+        updated[1].url = "new-url"
+        XCTAssertFalse(TocCache.isSameList(original, updated))
+    }
+}

@@ -75,25 +75,25 @@ struct ReadStylePanel: View {
                             HStack {
                                 Text("背景色")
                                     .font(.caption)
-                                    .foregroundColor(config.theme.textColor.opacity(0.8))
+                                    .foregroundColor(config.effectiveTextColor.opacity(0.8))
                                 TextField("#F5EAD8", text: $config.customBgHex)
                                     .font(.system(.caption, design: .monospaced))
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(config.theme.textColor.opacity(0.08))
+                            .background(config.effectiveTextColor.opacity(0.08))
                             .cornerRadius(6)
 
                             HStack {
                                 Text("文字色")
                                     .font(.caption)
-                                    .foregroundColor(config.theme.textColor.opacity(0.8))
+                                    .foregroundColor(config.effectiveTextColor.opacity(0.8))
                                 TextField("#332211", text: $config.customTextHex)
                                     .font(.system(.caption, design: .monospaced))
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(config.theme.textColor.opacity(0.08))
+                            .background(config.effectiveTextColor.opacity(0.08))
                             .cornerRadius(6)
                         }
                     }
@@ -104,7 +104,7 @@ struct ReadStylePanel: View {
                         Spacer()
                         Text("点击正文区域可自定义翻页")
                             .font(.caption2)
-                            .foregroundColor(config.theme.textColor.opacity(0.5))
+                            .foregroundColor(config.effectiveTextColor.opacity(0.5))
                     }
                 }
             }
@@ -123,7 +123,7 @@ struct ReadStylePanel: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 12))
-                .foregroundColor(config.theme.textColor.opacity(0.6))
+                .foregroundColor(config.effectiveTextColor.opacity(0.6))
             HStack(spacing: 6) {
                 ForEach(options, id: \.self) { option in
                     let selected = isSelected(option)
@@ -132,12 +132,12 @@ struct ReadStylePanel: View {
                     } label: {
                         Text(label(option))
                             .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                            .foregroundColor(selected ? Color.white : config.theme.textColor)
+                            .foregroundColor(selected ? Color.white : config.effectiveTextColor)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .fill(selected ? Color.accentColor : config.theme.textColor.opacity(0.08))
+                                    .fill(selected ? Color.accentColor : config.effectiveTextColor.opacity(0.08))
                             )
                     }
                     .buttonStyle(.plain)
@@ -167,7 +167,7 @@ struct ReadStylePanel: View {
             .frame(height: 34)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : config.theme.textColor.opacity(0.15),
+                    .stroke(isSelected ? Color.accentColor : config.effectiveTextColor.opacity(0.15),
                             lineWidth: isSelected ? 1.5 : 0.5)
             )
         }

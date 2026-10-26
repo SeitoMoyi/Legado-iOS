@@ -151,6 +151,8 @@ public final class ChapterTypography: Identifiable {
 // MARK: - Unified Typography Engine (Single Source of Layout Truth)
 
 public enum TypographyEngine {
+    public static let titleFontName = "PingFangSC-Semibold"
+
     public static func typeset(
         chapter: BookChapter,
         content: String,
@@ -173,7 +175,7 @@ public enum TypographyEngine {
         // 1. Wrap Chapter Title into multiple lines if long
         let titleFontSize = fontSize + 4.0
         let titleLineHeight = titleFontSize * 1.35 + lineSpacing
-        let titleFont = CTFontCreateWithName("PingFangSC-Semibold" as CFString, titleFontSize, nil)
+        let titleFont = CTFontCreateWithName(titleFontName as CFString, titleFontSize, nil)
         var titleAttrs: [CFString: Any] = [kCTFontAttributeName: titleFont]
         if letterSpacing != 0 {
             titleAttrs[kCTKernAttributeName] = letterSpacing

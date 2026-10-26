@@ -136,7 +136,7 @@ public final class ChapterCanvasLayerView: UIView {
 
         // 1. Draw Chapter Title (Multi-line wrapped, unified with Slide mode!)
         let titleFontSize = fontSize + 4.0
-        let titleFont = CTFontCreateWithName("PingFangSC-Semibold" as CFString, titleFontSize, nil)
+        let titleFont = CTFontCreateWithName(TypographyEngine.titleFontName as CFString, titleFontSize, nil)
         var titleAttrs: [CFString: Any] = [
             kCTFontAttributeName: titleFont,
             kCTForegroundColorAttributeName: textColor.cgColor
@@ -871,7 +871,7 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
     public let currentChapterIndex: Int
     public let scrollSessionId: UUID
     public let targetCharPos: Int?
-    public let readerConfig: ReaderConfig
+    @ObservedObject public var readerConfig: ReaderConfig
     public let aloudParagraph: String
     public let aloudIsActive: Bool
 
@@ -926,18 +926,9 @@ public struct ReaderScrollCanvasView: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> ContinuousScrollReaderUIView {
         let view = ContinuousScrollReaderUIView(frame: .zero)
-        view.onChapterChange = onChapterChange
-        view.onCharOffsetChange = onCharOffsetChange
-        view.onTapZone = onTapZone
-        view.onRequestChapter = onRequestChapter
-        view.isTextSelectionEnabled = isTextSelectionEnabled
-        view.onSelectionChanged = onSelectionChanged
-
-        context.coordinator.currentSessionId = scrollSessionId
-        context.coordinator.renderedChapterIndex = loadedChapter?.chapter.index
-        if let chapter = loadedChapter {
-            view.resetToChapter(loaded: chapter, targetCharPos: targetCharPos)
-        }
+        // Configure the restored palette and layout before installing the first chapter.
+        // updateUIView also records the rendered chapter, so a later network result still resets it.
+        updateUIView(view, context: context)
         return view
     }
 

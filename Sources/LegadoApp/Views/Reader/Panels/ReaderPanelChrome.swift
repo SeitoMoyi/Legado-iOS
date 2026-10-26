@@ -36,7 +36,7 @@ struct ReaderPanelCard<Content: View>: View {
             .frame(maxWidth: .infinity)
             // Rows that only set a font inherit this, which is what keeps a light theme readable
             // when the system is in dark mode.
-            .foregroundColor(config.theme.textColor)
+            .foregroundColor(config.effectiveTextColor)
             .background(
                 config.theme.backgroundColor
                     .opacity(0.98)
@@ -44,7 +44,7 @@ struct ReaderPanelCard<Content: View>: View {
                     .ignoresSafeArea(edges: .bottom)
             )
             .clipShape(shape)
-            .overlay(shape.stroke(config.theme.textColor.opacity(0.12), lineWidth: 0.5))
+            .overlay(shape.stroke(config.effectiveTextColor.opacity(0.12), lineWidth: 0.5))
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
     }
@@ -84,13 +84,13 @@ struct ReaderPanelHeader<Accessory: View>: View {
         HStack {
             Text(title)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundColor(config.theme.textColor)
+                .foregroundColor(config.effectiveTextColor)
             accessory()
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(config.theme.textColor.opacity(0.6))
+                    .foregroundColor(config.effectiveTextColor.opacity(0.6))
             }
             .buttonStyle(.plain)
         }
@@ -105,7 +105,7 @@ struct ReaderPanelSection: View {
     var body: some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(config.theme.textColor.opacity(0.5))
+            .foregroundColor(config.effectiveTextColor.opacity(0.5))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -122,7 +122,7 @@ struct ReaderPanelRow<Trailing: View>: View {
         HStack(spacing: 12) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(config.theme.textColor.opacity(0.7))
+                .foregroundColor(config.effectiveTextColor.opacity(0.7))
                 .frame(width: labelWidth, alignment: .leading)
             trailing()
         }
@@ -140,7 +140,7 @@ struct ReaderPanelValue: View {
     var body: some View {
         Text(text)
             .font(.system(size: 12, weight: .medium, design: .monospaced))
-            .foregroundColor(config.theme.textColor.opacity(0.7))
+            .foregroundColor(config.effectiveTextColor.opacity(0.7))
             .lineLimit(1)
             .frame(minWidth: ReaderPanelMetrics.valueWidth, alignment: .trailing)
     }
@@ -158,12 +158,12 @@ struct ReaderPanelCapsule: View {
                 .font(.system(size: 10))
         }
         .font(.system(size: 13))
-        .foregroundColor(config.theme.textColor)
+        .foregroundColor(config.effectiveTextColor)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(config.theme.textColor.opacity(0.06))
+                .fill(config.effectiveTextColor.opacity(0.06))
         )
     }
 }
@@ -256,7 +256,7 @@ struct ReaderPanelNavRow: View {
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(config.theme.textColor.opacity(0.4))
+                    .foregroundColor(config.effectiveTextColor.opacity(0.4))
             }
         }
         .buttonStyle(.plain)

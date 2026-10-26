@@ -427,18 +427,9 @@ public enum RssStore {
 
     public static func importSourcesJSON(_ json: String, into current: [RssSource]) -> [RssSource] {
         guard let data = json.data(using: .utf8) else { return current }
-        var imported: [RssSource] = []
-        let list = RssSource.decodeListWithExtras(from: data) ?? []
-        if list.count > 1 {
-            imported = list
-        } else if let single = RssSource.decodeWithExtras(from: data) {
-            imported = [single]
-        } else if let first = list.first {
-            imported = [first]
-        }
-        guard !imported.isEmpty else { return current }
+        guard let imported = RssSource.decodeListOrObjectWithExtras(from: data), !imported.isEmpty else { return current }
         var result = current
-        for s in imported {
+        for s in imported where !s.sourceUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if let idx = result.firstIndex(where: { $0.sourceUrl == s.sourceUrl }) {
                 result[idx] = s
             } else {

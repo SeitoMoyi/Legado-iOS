@@ -289,19 +289,10 @@ public struct ScanResultSheet: View {
     }
 
     private func importRssSources(_ json: String) -> Int {
-        guard let decoded = decodeList(RssSource.self, from: json) else { return 0 }
-        var existing = RssStore.loadSources()
-        var added = 0
-        for source in decoded {
-            if let idx = existing.firstIndex(where: { $0.sourceUrl == source.sourceUrl }) {
-                existing[idx] = source
-            } else {
-                existing.append(source)
-                added += 1
-            }
-        }
-        RssStore.saveSources(existing)
-        return added
+        let existing = RssStore.loadSources()
+        let merged = RssStore.importSourcesJSON(json, into: existing)
+        RssStore.saveSources(merged)
+        return merged.count - existing.count
     }
 
     private func importDictRules(_ json: String) -> Int {

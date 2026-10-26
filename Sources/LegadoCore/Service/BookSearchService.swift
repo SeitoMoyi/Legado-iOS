@@ -28,12 +28,6 @@ public class BookSearchService {
                 renderedUrl = result
             }
         } else {
-            renderedUrl = renderedUrl
-                .replacingOccurrences(of: "searchKey", with: key)
-                .replacingOccurrences(of: "{{key}}", with: key)
-                .replacingOccurrences(of: "{{page}}", with: "\(page)")
-                .replacingOccurrences(of: "{{searchPage}}", with: "\(page)")
-
             renderedUrl = jsEngine.renderTemplate(renderedUrl, variables: [
                 "key": key,
                 "searchKey": key,
@@ -128,9 +122,10 @@ public class BookSearchService {
         print("[Search] 🔍 Multi-source search initiated for '\(key)' (page: \(page)) across \(enabledSources.count) enabled sources: \(enabledSources.map { $0.bookSourceName }.joined(separator: ", "))")
 
         return AsyncStream { continuation in
-            Task {
+            let task = Task {
                 await withTaskGroup(of: (BookSource, [SearchBook]).self) { group in
                     for source in enabledSources {
+                        if Task.isCancelled { break }
                         group.addTask {
                             do {
                                 let books = try await self.search(source: source, key: key, page: page)
@@ -143,18 +138,20 @@ public class BookSearchService {
                     }
 
                     for await result in group {
+                        if Task.isCancelled { group.cancelAll(); break }
                         continuation.yield(result)
                     }
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 
     /// Searches across multiple sources concurrently (defaults to page 1), returning an AsyncStream of book batches
     public func searchMultiSources(sources: [BookSource], key: String) -> AsyncStream<[SearchBook]> {
         return AsyncStream { continuation in
-            Task {
+            let task = Task {
                 for await (_, books) in self.searchMultiSources(sources: sources, key: key, page: 1) {
                     if !books.isEmpty {
                         continuation.yield(books)
@@ -162,6 +159,7 @@ public class BookSearchService {
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
         }
     }
 }

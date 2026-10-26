@@ -301,11 +301,11 @@ public struct ReaderView: View {
     private func hintBubble(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
-            .foregroundColor(readerConfig.theme.textColor)
+            .foregroundColor(readerConfig.effectiveTextColor)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Capsule().fill(readerConfig.theme.textColor.opacity(0.08)))
+            .background(Capsule().fill(readerConfig.effectiveTextColor.opacity(0.08)))
             .padding(.bottom, 8)
             .transition(.opacity)
     }
@@ -499,7 +499,7 @@ public struct ReaderView: View {
             ProgressView()
             Text("正在加载章节内容...")
                 .font(.subheadline)
-                .foregroundColor(readerConfig.theme.textColor.opacity(0.7))
+                .foregroundColor(readerConfig.effectiveTextColor.opacity(0.7))
             Spacer()
         }
     }
@@ -512,7 +512,7 @@ public struct ReaderView: View {
                 .foregroundColor(.orange)
             Text("加载失败")
                 .font(.headline)
-                .foregroundColor(readerConfig.theme.textColor)
+                .foregroundColor(readerConfig.effectiveTextColor)
             Text(error)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
@@ -521,7 +521,7 @@ public struct ReaderView: View {
             if let guidance = errorGuidance {
                 Text(guidance)
                     .font(.caption)
-                    .foregroundColor(readerConfig.theme.textColor.opacity(0.7))
+                    .foregroundColor(readerConfig.effectiveTextColor.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
@@ -568,7 +568,7 @@ public struct ReaderView: View {
                         .foregroundColor(.accentColor)
                     Text("自动翻页 (\(Int(autoTurnIntervalSeconds))s)")
                         .font(.caption.bold())
-                        .foregroundColor(readerConfig.theme.textColor)
+                        .foregroundColor(readerConfig.effectiveTextColor)
 
                     Button("-1s") {
                         autoTurnIntervalSeconds = max(2.0, autoTurnIntervalSeconds - 1.0)
@@ -577,7 +577,7 @@ public struct ReaderView: View {
                     .font(.caption)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(readerConfig.theme.textColor.opacity(0.1))
+                    .background(readerConfig.effectiveTextColor.opacity(0.1))
                     .cornerRadius(4)
 
                     Button("+1s") {
@@ -587,7 +587,7 @@ public struct ReaderView: View {
                     .font(.caption)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(readerConfig.theme.textColor.opacity(0.1))
+                    .background(readerConfig.effectiveTextColor.opacity(0.1))
                     .cornerRadius(4)
 
                     Button {
@@ -751,16 +751,22 @@ public struct ReaderView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         // If it's page 0, display Chapter Title at top
                         if currentPageIndex == 0, let cur = currentLoadedChapter {
-                            VStack(alignment: .leading, spacing: 3) {
-                                ForEach(Array(cur.typography.titleLines.enumerated()), id: \.offset) { _, tLine in
-                                    Text(tLine)
-                                        .font(.system(size: readerConfig.fontSize + 4, weight: .bold))
-                                        .foregroundColor(readerConfig.theme.textColor)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                            .padding(.bottom, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // These lines were already wrapped by TypographyEngine. Draw them
+                            // with the same CoreText font instead of asking SwiftUI to wrap again.
+                            CoreTextPageView(
+                                lines: cur.typography.titleLines,
+                                isParagraphEnd: Array(repeating: true, count: cur.typography.titleLines.count),
+                                fontSize: readerConfig.fontSize + 4,
+                                lineSpacing: readerConfig.lineSpacing,
+                                textColor: readerConfig.effectiveTextColor,
+                                width: usableWidth,
+                                height: cur.typography.titleTotalHeight,
+                                letterSpacing: readerConfig.letterSpacing,
+                                justify: false,
+                                fontName: TypographyEngine.titleFontName,
+                                lineHeight: cur.typography.titleLineHeight
+                            )
+                            .frame(width: usableWidth, height: cur.typography.titleTotalHeight, alignment: .topLeading)
                         }
 
                         // Page Content
@@ -980,7 +986,7 @@ public struct ReaderView: View {
             VStack(spacing: 8) {
                 Text(selectionText)
                     .font(.system(size: 12))
-                    .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                    .foregroundColor(readerConfig.effectiveTextColor.opacity(0.6))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1004,7 +1010,7 @@ public struct ReaderView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(readerConfig.theme.textColor.opacity(0.14), lineWidth: 0.5)
+                    .stroke(readerConfig.effectiveTextColor.opacity(0.14), lineWidth: 0.5)
             )
             .position(x: centerX, y: min(max(menuY, 84), size.height - 96))
             .transition(.opacity)
@@ -1020,7 +1026,7 @@ public struct ReaderView: View {
                 Text(title)
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(readerConfig.theme.textColor)
+            .foregroundColor(readerConfig.effectiveTextColor)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
@@ -1117,7 +1123,7 @@ public struct ReaderView: View {
                     Text("书架")
                         .font(.system(size: 16))
                 }
-                .foregroundColor(readerConfig.theme.textColor)
+                .foregroundColor(readerConfig.effectiveTextColor)
                 .contentShape(Rectangle())
             }
 
@@ -1127,12 +1133,12 @@ public struct ReaderView: View {
             VStack(spacing: 2) {
                 Text(book.name)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(readerConfig.theme.textColor)
+                    .foregroundColor(readerConfig.effectiveTextColor)
                     .lineLimit(1)
                 if readerConfig.prefs.showReadTitleAddition && currentChapterIndex < chapters.count {
                     Text(chapters[currentChapterIndex].title)
                         .font(.system(size: 11))
-                        .foregroundColor(readerConfig.theme.textColor.opacity(0.6))
+                        .foregroundColor(readerConfig.effectiveTextColor.opacity(0.6))
                         .lineLimit(1)
                 }
             }
@@ -1207,7 +1213,7 @@ public struct ReaderView: View {
                             .font(.system(size: 18))
                     }
             }
-            .foregroundColor(readerConfig.theme.textColor)
+            .foregroundColor(readerConfig.effectiveTextColor)
             .frame(minWidth: 96, alignment: .trailing)
         }
         .padding(.horizontal, 16)
@@ -1220,7 +1226,7 @@ public struct ReaderView: View {
         )
         .overlay(
             Rectangle()
-                .fill(readerConfig.theme.textColor.opacity(0.12))
+                .fill(readerConfig.effectiveTextColor.opacity(0.12))
                 .frame(height: 0.5),
             alignment: .bottom
         )
@@ -1231,7 +1237,7 @@ public struct ReaderView: View {
             chapterNavigationRow
 
             Rectangle()
-                .fill(readerConfig.theme.textColor.opacity(0.12))
+                .fill(readerConfig.effectiveTextColor.opacity(0.12))
                 .frame(height: 0.5)
 
             bottomActionRow
@@ -1254,13 +1260,13 @@ public struct ReaderView: View {
             if !chapters.isEmpty && currentChapterIndex < chapters.count {
                 Text(chapters[currentChapterIndex].title)
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                    .foregroundColor(readerConfig.effectiveTextColor.opacity(0.55))
                     .lineLimit(1)
                     .truncationMode(.tail)
             } else {
                 Text(book.name)
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                    .foregroundColor(readerConfig.effectiveTextColor.opacity(0.55))
                     .lineLimit(1)
             }
 
@@ -1272,11 +1278,11 @@ public struct ReaderView: View {
                 if readerConfig.pageMode == .pageByPage, currentLoadedChapter != nil {
                     Text("\(currentPageIndex + 1)/\(currentChapterTotalPages) · \(String(format: "%.1f%%", progressPercent))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                        .foregroundColor(readerConfig.effectiveTextColor.opacity(0.55))
                 } else {
                     Text("\(currentChapterIndex + 1)/\(chapters.count) (\(String(format: "%.1f%%", progressPercent)))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(readerConfig.theme.textColor.opacity(0.55))
+                        .foregroundColor(readerConfig.effectiveTextColor.opacity(0.55))
                 }
             }
         }
@@ -1308,7 +1314,7 @@ public struct ReaderView: View {
                     Text("上一章")
                 }
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(currentChapterIndex > 0 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+                .foregroundColor(currentChapterIndex > 0 ? readerConfig.effectiveTextColor : readerConfig.effectiveTextColor.opacity(0.3))
             }
             .disabled(currentChapterIndex <= 0)
 
@@ -1356,7 +1362,7 @@ public struct ReaderView: View {
                     Image(systemName: "chevron.right")
                 }
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(currentChapterIndex < chapters.count - 1 ? readerConfig.theme.textColor : readerConfig.theme.textColor.opacity(0.3))
+                .foregroundColor(currentChapterIndex < chapters.count - 1 ? readerConfig.effectiveTextColor : readerConfig.effectiveTextColor.opacity(0.3))
             }
             .disabled(currentChapterIndex >= chapters.count - 1)
         }
@@ -1466,7 +1472,7 @@ public struct ReaderView: View {
             Capsule().fill(readerConfig.effectiveBackgroundColor)
         )
         .overlay(
-            Capsule().stroke(readerConfig.theme.textColor.opacity(0.12), lineWidth: 0.5)
+            Capsule().stroke(readerConfig.effectiveTextColor.opacity(0.12), lineWidth: 0.5)
         )
         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
     }
@@ -1476,10 +1482,10 @@ public struct ReaderView: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(active ? Color.white : readerConfig.theme.textColor)
+                .foregroundColor(active ? Color.white : readerConfig.effectiveTextColor)
                 .frame(width: 36, height: 36)
                 .background(
-                    Circle().fill(active ? Color.accentColor : readerConfig.theme.textColor.opacity(0.08))
+                    Circle().fill(active ? Color.accentColor : readerConfig.effectiveTextColor.opacity(0.08))
                 )
         }
         .buttonStyle(.plain)
@@ -1498,7 +1504,7 @@ public struct ReaderView: View {
     @ViewBuilder
     private func readerBarButton(icon: String, title: String, tinted: Bool = false,
                                 action: @escaping () -> Void) -> some View {
-        let color = readerConfig.theme.textColor
+        let color = readerConfig.effectiveTextColor
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon)
@@ -2208,21 +2214,12 @@ public struct ReaderView: View {
         Task { @MainActor in
             do {
                 let remoteProg = try await WebDAVService.shared.downloadBookProgress(book: book, config: config)
-                let localTime = max(book.durChapterTime, book.lastCheckTime)
                 if let remote = remoteProg,
-                   (remote.durChapterTime ?? 0) > localTime,
+                   remote.isNewer(than: book),
                    remote.durChapterIndex >= 0,
                    remote.durChapterIndex < chapters.count {
-                    BookStore.shared.updateProgress(
-                        bookUrl: book.bookUrl,
-                        chapterIndex: remote.durChapterIndex,
-                        chapterTitle: remote.durChapterTitle ?? chapters[remote.durChapterIndex].title,
-                        chapterPos: remote.durChapterPos
-                    )
-                    book.durChapterIndex = remote.durChapterIndex
-                    book.durChapterPos = remote.durChapterPos
-                    book.durChapterTitle = remote.durChapterTitle
-                    book.durChapterTime = remote.durChapterTime ?? Int64(Date().timeIntervalSince1970 * 1000)
+                    book = BookStore.shared.applyRemoteProgress(remote, bookUrl: book.bookUrl)
+                        ?? remote.applying(to: book)
                     currentChapterIndex = remote.durChapterIndex
                     currentPageIndex = 0
                     loadInitialChapter(at: remote.durChapterIndex, targetCharPos: remote.durChapterPos)
@@ -2763,10 +2760,12 @@ enum CoreTextPageRenderer {
         containerWidth: CGFloat,
         letterSpacing: CGFloat,
         paragraphSpacing: CGFloat,
-        justify: Bool
+        justify: Bool,
+        fontName: String = "PingFangSC-Regular",
+        lineHeight: CGFloat? = nil
     ) {
-        let ctFont = CTFontCreateWithName("PingFangSC-Regular" as CFString, fontSize, nil)
-        let effectiveLineHeight = fontSize * 1.25 + lineSpacing
+        let ctFont = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let effectiveLineHeight = lineHeight ?? (fontSize * 1.25 + lineSpacing)
         let targetWidth = Double(max(100, containerWidth))
 
         for (index, lineText) in lines.enumerated() {
@@ -2778,7 +2777,7 @@ enum CoreTextPageRenderer {
             if letterSpacing != 0 { attrs[kCTKernAttributeName] = letterSpacing }
             guard let attrStr = CFAttributedStringCreate(nil, lineText as CFString, attrs as CFDictionary) else { continue }
             let typesetter = CTTypesetterCreateWithAttributedString(attrStr)
-            let ctLine = CTTypesetterCreateLine(typesetter, CFRange(location: 0, length: lineText.count))
+            let ctLine = CTTypesetterCreateLine(typesetter, CFRange(location: 0, length: lineText.utf16.count))
 
             let isEnd = (index < isParagraphEnd.count) ? isParagraphEnd[index] : false
             let finalLine: CTLine
@@ -2820,6 +2819,8 @@ public struct CoreTextPageView: NSViewRepresentable {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    public var fontName: String = "PingFangSC-Regular"
+    public var lineHeight: CGFloat? = nil
     // Part 4 selection params accepted for call-site parity with iOS; macOS preview builds
     // have no gesture layer, so they are stored unused.
     public var pageLines: [TypographyLine] = []
@@ -2844,6 +2845,8 @@ public struct CoreTextPageView: NSViewRepresentable {
         nsView.letterSpacing = letterSpacing
         nsView.paragraphSpacing = paragraphSpacing
         nsView.justify = justify
+        nsView.fontName = fontName
+        nsView.lineHeight = lineHeight
         nsView.needsDisplay = true
     }
 }
@@ -2862,6 +2865,8 @@ public class CoreTextNSView: NSView {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    public var fontName: String = "PingFangSC-Regular"
+    public var lineHeight: CGFloat? = nil
 
     public override var isFlipped: Bool { true }
 
@@ -2872,7 +2877,7 @@ public class CoreTextNSView: NSView {
             fontSize: fontSize, lineSpacing: lineSpacing,
             textColor: textColor.cgColor, containerWidth: containerWidth,
             letterSpacing: letterSpacing, paragraphSpacing: paragraphSpacing,
-            justify: justify)
+            justify: justify, fontName: fontName, lineHeight: lineHeight)
     }
 }
 #endif
@@ -2891,6 +2896,8 @@ public struct CoreTextPageView: UIViewRepresentable {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    public var fontName: String = "PingFangSC-Regular"
+    public var lineHeight: CGFloat? = nil
     // Part 4 selection: the TypographyLine slice behind `lines` plus the live selection.
     public var pageLines: [TypographyLine] = []
     public var chapterIndex: Int = 0
@@ -2915,6 +2922,8 @@ public struct CoreTextPageView: UIViewRepresentable {
         uiView.letterSpacing = letterSpacing
         uiView.paragraphSpacing = paragraphSpacing
         uiView.justify = justify
+        uiView.fontName = fontName
+        uiView.lineHeight = lineHeight
         uiView.pageLines = pageLines
         uiView.chapterIndex = chapterIndex
         uiView.onSelectionChanged = onSelectionChanged
@@ -2940,6 +2949,8 @@ public class CoreTextUIView: UIView {
     public var letterSpacing: CGFloat = 0
     public var paragraphSpacing: CGFloat = 0
     public var justify: Bool = true
+    public var fontName: String = "PingFangSC-Regular"
+    public var lineHeight: CGFloat? = nil
     // Part 4 selection state
     public var pageLines: [TypographyLine] = []
     public var chapterIndex: Int = 0
@@ -3055,7 +3066,7 @@ public class CoreTextUIView: UIView {
             fontSize: fontSize, lineSpacing: lineSpacing,
             textColor: textColor.cgColor, containerWidth: containerWidth,
             letterSpacing: letterSpacing, paragraphSpacing: paragraphSpacing,
-            justify: justify)
+            justify: justify, fontName: fontName, lineHeight: lineHeight)
     }
 }
 #endif

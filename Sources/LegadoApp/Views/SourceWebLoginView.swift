@@ -28,7 +28,7 @@ public struct SourceWebLoginView: View {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = WKWebsiteDataStore.default()
         let wv = WKWebView(frame: .zero, configuration: config)
-        wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        wv.customUserAgent = NetworkClient.defaultUserAgent
         self._webView = State(initialValue: wv)
 
         let initialStr = source.loginUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? source.bookSourceUrl
@@ -209,12 +209,6 @@ public struct SourceWebLoginView: View {
         webView.load(URLRequest(url: url))
     }
 
-    private func loadUrlString(_ str: String) {
-        guard let url = URL(string: str) else { return }
-        self.currentUrl = url
-        webView.load(URLRequest(url: url))
-    }
-
     private func extractCookies() {
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
             let filtered = filterRelevantCookies(cookies)
@@ -230,10 +224,10 @@ public struct SourceWebLoginView: View {
 
         return cookies.filter { c in
             let domain = c.domain.lowercased()
-            if !sourceHost.isEmpty && (domain.contains(sourceHost) || sourceHost.contains(domain)) {
+            if !sourceHost.isEmpty && NetworkClient.cookieDomain(domain, matchesHost: sourceHost) {
                 return true
             }
-            if !loginHost.isEmpty && (domain.contains(loginHost) || loginHost.contains(domain)) {
+            if !loginHost.isEmpty && NetworkClient.cookieDomain(domain, matchesHost: loginHost) {
                 return true
             }
             return false
@@ -293,18 +287,9 @@ public struct SourceWebLoginView: View {
             updatedSource.loginInfo = infoStr
         }
 
-        // 3. Mirror cookies into shared HTTPCookieStorage, and onto the bookSourceUrl host when
-        // the login page lives on a different domain (e.g. www host vs API host)
-        for c in cookiesList {
-            HTTPCookieStorage.shared.setCookie(c)
-            // Mirror to bookSourceUrl domain if different
-            if let targetHost = URL(string: source.bookSourceUrl)?.host, targetHost != c.domain {
-                var props = c.properties ?? [:]
-                props[.domain] = targetHost
-                if let mirror = HTTPCookie(properties: props) {
-                    HTTPCookieStorage.shared.setCookie(mirror)
-                }
-            }
+        // Keep each cookie's original domain; do not broaden its scope to unrelated hosts.
+        for cookie in cookiesList {
+            HTTPCookieStorage.shared.setCookie(cookie)
         }
 
         // 4. Update in BookStore

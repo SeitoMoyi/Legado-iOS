@@ -34,12 +34,16 @@ public enum TocCache {
         }
     }
 
-    /// A cheap sameness check. Chapter lists are long, so comparing count plus the head and
-    /// tail titles is the same signal Android uses (`cList.size > chapterSize`) for "the book
-    /// grew", without hashing every title.
+    /// Metadata and middle-of-list changes must reach the open reader too. Index rewrites
+    /// and cached bodies do not change directory identity; missing legacy flags mean false.
     public static func isSameList(_ lhs: [BookChapter], _ rhs: [BookChapter]) -> Bool {
         guard lhs.count == rhs.count else { return false }
-        guard lhs.first?.title == rhs.first?.title else { return false }
-        return lhs.last?.title == rhs.last?.title
+        return zip(lhs, rhs).allSatisfy { left, right in
+            left.title == right.title && left.url == right.url
+                && (left.isVolume ?? false) == (right.isVolume ?? false)
+                && (left.isVip ?? false) == (right.isVip ?? false)
+                && (left.isPay ?? false) == (right.isPay ?? false)
+                && (left.tag ?? "") == (right.tag ?? "")
+        }
     }
 }

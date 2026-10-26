@@ -1,175 +1,198 @@
-# Legado iOS 迁移蓝图、功能差距清单与演进规划 (Plan.md)
+# Legado iOS 迁移蓝图、功能差距清单与演进规划
 
-> **基准说明**
-> - **Android 对标基线**：`/Users/peibinxu/Downloads/legado-master`（`app/` 813 个 Kotlin 文件，`app/` + `modules/` 合计 844；184 个 layout XML，完整功能版 3.x）。
-> - **iOS 当前工程基线**：`./ios`（`Sources/LegadoCore` + `Sources/LegadoApp`）共 **80 个 Swift 文件 ≈ 29.6k 行**（LegadoCore 38 文件 9.5k 行 + LegadoApp 42 文件 20.1k 行；含 Tests 共 101 文件）。
-> - **单测门禁**：21 个测试文件共 **285 例单元测试**（278 项确定性用例 + 7 项联网嗅探冒烟测试；`swift test --skip LiveSourceTests` 实测 278/278 通过）。
-> - **应用图标**：Android 自适应图标矢量层（`drawable/ic_launcher1_b.xml` 背景 + `drawable/ic_launcher1.xml` 前景）合成为单张 1024px 不透明 PNG（`Assets.xcassets/AppIcon` 单尺寸编译注入），与 Android 8+ 启动器渲染的「阅读 Read 3.0」图标一致。
-> - **工程原则**：业务代码为纯 Swift，仅保留两个轻量 SPM 依赖——SwiftSoup（HTML/XPath 解析）与 ZIPFoundation（EPUB 与备份包解包）；严守 macOS (`swift build` / `swift test`) 与 iOS (`xcodebuild`) 双平台门禁。
-> **当前版本**：`v0.2.8.1`（`VERSION` 文件；版本随 tag 发布）
----
+> **复核日期：2026-10-26；当前版本：`v0.2.8.2`（见 [VERSION](VERSION)）。**
+> - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
+> - iOS 是 `ios/` 内的独立 Git 仓库，本次 `v0.2.8.2` 基于 `84e020a`，包含下列审计修复、目录兼容与阅读器回归修复。`Sources/` 共 80 个 Swift 文件、30,351 行（Core：38 文件 / 9,870 行；App：42 文件 / 20,481 行）；含 Tests 共 106 个 Swift 文件。
+> - 26 个测试文件声明 349 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **342 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - `tools/xcode_add_sources.py --check` 通过。本次 iOS Simulator `xcodebuild` 编译及 `v0.2.8.2` 未签名 iOS Release archive 通过（Xcode 15.1 / iOS 17.2 SDK，未签名）；本轮另在 iPhone 13 / iOS 17.2 模拟器验证自定义主题首开：本地 TXT 连续滚动与本地 HTTP 样本首次联网分页，正文无需切换主题即可显示。另在用户运行中的 iPhone 11 / iOS 15.5 模拟器，用实际「机翻机器人」书源验证详情简介恢复为正文、第 63 话标题恢复两行。未做真机验收；相机、音频后台与其它手势仍待设备验证。
+> - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
+
+本文件记录源码可确认的迁移状态与待办；[README.md](README.md) 面向使用与开发入门。**字段能导入、能编辑、能导出，不代表对应 Android 行为已经执行。** 下表不再使用没有验收分母的百分比；「主流程已实现」也不表示全部分支与 Android 等价。
 
 ## 目录
-- [一、 Android ↔ iOS 当前功能差距对比矩阵](#一-android--ios-当前功能差距对比矩阵)
-- [二、 关键设计决策与 Android 架构偏离备忘](#二-关键设计决策与-android-架构偏离备忘)
-- [三、 后续迭代演进路线图 (Future Roadmap)](#三-后续迭代演进路线图-future-roadmap)
-  - [第一批（v0.2.8）：阅读与书架刚需](#第一批v028阅读与书架刚需)
-  - [第二批（v0.3.x）：生态与数据完整性](#第二批v03x生态与数据完整性)
-  - [第三批（v0.4.x）：格式与体验](#第三批v04x格式与体验)
-  - [第四批（v1.0）：平台深度融合](#第四批v10平台深度融合)
 
----
+- [一、当前功能与差距](#current-gaps)
+- [二、设计决策与平台偏离](#design-decisions)
+- [三、后续迭代与验收条件](#roadmap)
 
-## 一、 Android ↔ iOS 当前功能差距对比矩阵
+<a id="current-gaps"></a>
+## 一、当前功能与差距
 
 ### 标记说明
+
 | 标记 | 含义 |
 |---|---|
-| ✅ | 已实现，核心行为与 Android 基本对齐 |
-| ⚠️ | 部分实现（有入口但功能存在缺口 / 只覆盖核心分支） |
-| ❌ | 完全缺失 |
-| 🍎 | 涉及 Android 专属机制，iOS 需结合平台特性重新定义 |
+| ✅ | 所述具体能力已有实现；验证范围见基准说明 |
+| ⚠️ | 主流程存在，但有兼容性、分支或验收缺口 |
+| ❌ | 未找到实现 |
+| 🍎 | iOS 平台选择，需与功能缺失分开记录 |
 
-### 总体版面完成度矩阵
+### 功能矩阵
 
-| # | 功能版面 | Android | iOS | 完成度 | 现状与核心缺口 |
-|---|---|---|---|---|---|
-| 1 | **应用外壳 / 底部导航** | 4 Tab 可配 | 4 Tab 固定 | **60%** | 书架/发现/订阅/我的 4 Tab 已上线；缺 Tab 显隐、默认主页、角标、启动隐私协议、本地备份密码 |
-| 2 | **书架页** | 极重 | 中等 | **75%** | 列表与三列网格、5 种排序（含手动拖拽排序，`Book.order` 落盘）、分组胶囊（全部/书源/本地/自定义 CRUD）、批量清理/移入/删除、**缓存管理（已缓存/总章节数与体积、一键缓存全本——未抓目录自动先抓、一键缓存全部书籍、单本清除）**、**整书导出 TXT/EPUB（编码可选）与「导出所有」**、**导出书单 JSON**、**添加网址（`bookUrlPattern`/host 匹配书源自动加架）**、**远程书籍（WebDAV 目录浏览导入）**、**书架管理（分组显示开关）**已实现；缺封面文字、网格模式拖拽 |
-| 3 | **书籍详情页** | 完整 | 较完整 | **85%** | 书籍信息编辑、置顶、整书换源、拷贝 URL、**生成分享二维码**、目录正倒序/居中/缓存标识已实现；缺 WebDAV 书籍上传 |
-| 4 | **全屏沉浸阅读器** | 全站最重 | 高度完善 | **80%** | 统一 CoreText 排版引擎、长标题折行、5 档翻页（仿真降级为滑动）、双向无缝长卷滚动、三级菜单、书签、九宫格点击区、换源/刷新快捷键、章节内容编辑、区间下载、双模式文字两端对齐、6 套主题（5 套预设 + 自定义）、TTS 面板与常驻悬浮条已实现；**书内全书并发搜索已实现**（`SearchContentSheet`：缓存优先 + 联网并发抓取、关键字/正则、命中高亮、精准跳转章节字符偏移）；**长按选词与取词联动已实现**（双画布 600ms 长按选词、拖拽扩选、把手调节、复制/查字典/添加书签/朗读所选/创建替换规则浮动菜单）；缺自动翻页在滚动模式下的逐像素平滑滚动 |
-| 5 | **分类 / 发现页** | 书源折叠流 | 三级分类流 | **65%** | 切源胶囊、预设分类矩阵抽屉、标准书籍卡片流、动态 JS 脚本解析已实现；缺按分组筛选、单源操作菜单、ERROR 堆栈查看 |
-| 6 | **搜索页** | 多源并发 | 多源并发 | **85%** | 多源增量并发、精准搜索三桶排序、范围三态选择、书架已有藏书匹配置顶、搜索历史增删、停止与继续已实现；缺空结果智能引导、退后台挂起 |
-| 7 | **RSS 订阅中心** | 独立完整模块 | 深度完善 | **75%** | 独立 Tab、源管理、分类解析、文章流与正文提取、文章收藏夹、**全字段编辑器（24 字段，含 loginUrl/loginUi/variable/header/style 等）**、**三阶段流式调试台（分类→列表→正文）**、**文章 3 种版式切换（左文右图/无图/双列网格，持久化）**、**ruleNextPage 触底翻页自动拼装**、**已读置灰与阅读历史落盘**均已实现；缺交互式登录 WebView（loginUrl 仅可编辑）、订阅源并发校验、啃读模式 |
-| 8 | **书源管理页** | 极重 | 中高 | **82%** | 搜索过滤（含 `group:`）、三态胶囊、批量启/禁/删/导、并发校验与失效标记、长按菜单、3 种导入、**扫码导入**、**单源生成分享二维码**、拖拽排序模式（优先级 = `customOrder` 重排）已实现；缺逐条勾选导入 |
-| 9 | **书源编辑页** | 6 Tab 全字段 | 6 Tab 全字段 | **85%** | 基本/搜索/发现/详情/目录/正文 6 Tab 全规则字段编辑、整源 JSON 拷贝粘贴、直达调试台已实现；缺语法高亮与辅助符号键盘条 |
-| 10 | **书源调试页** | 完整 | 四阶段实时调试台 | **65%** | 搜索→详情→目录→正文四阶段流式实时调试日志已实现；缺阶段原始 HTML 查看器、WebSocket 实时调试 |
-| 11 | **登录 / 内置浏览器** | 完整 | 登录✅ 浏览器❌ | **50%** | 交互式 WebKit 登录、Cookie 域过滤提取并写入 `loginHeader` + 镜像至 `HTTPCookieStorage` 已实现；缺通用内置浏览器、Cloudflare 过盾自动重试、文件下载 |
-| 12 | **设置中心（「我的」）** | 约 140 项设置键 | Android 同构布局 | **50%** | **v0.2.7.1 起对齐 Android `pref_main.xml` 布局**：顶层六行（书源管理 / TXT 目录规则 / 替换净化 / 字典规则 / 主题模式 / Web 服务开关）+「设置」分组（备份与恢复 / 其它设置）+「其它」分组（书签 / 阅读记录 / 关于）；Tab 更名「我的」「发现」与 Android 四 Tab 一致；正文处理/朗读引擎/清缓存收敛进「其它设置」子页；缺帮助文档站、文件管理 |
-| 13 | **规则管理中心** | 4 独立 CRUD 页 | 4 独立 CRUD 页 | **95%** | 替换净化、TXT 目录规则、字典规则、HttpTTS 均已实现 CRUD、预装预设、导入导出、**`EditButton` 拖拽排序**（TXT 重写 `serialNumber`、字典重写 `sortNumber`）与替换规则**扫码导入** |
-| 14 | **文件与数据互通** | 完整 | 完善 | **80%** | WebDAV 10 类数据备份恢复、双向阅读进度同步、离线本地备份包、所有书签汇总与 Markdown 导出、阅读记录统计已实现；缺 Android 备份包剩余 11 个成员（`bookGroup`/`sourceSub`/`httpTTS`/`dictRule`/`servers`/`keyboardAssists`/`directLinkUploadRule`/`shareReadConfig`/`themeConfig`/`coverRule`/`config.xml`）、私有文件浏览器 |
-| 15 | **局域网服务 / 平台集成** | 完整 REST API | 轻量原生服务 | **35%** | 原生 `Network.framework` WiFi 传书门户与上传入库、`legado://` Scheme 导入、主屏快捷操作已实现；缺全套 REST/WebSocket API、后台常驻服务 |
-| 16 | **核心规则解析引擎** | 全语法 | CSS/JSONPath/XPath/JS | **70%** | CSS、JSONPath（含 `$..`）、轻量 XPath 求值器、正则链式清洗、`<js>` / `@js:`、变量读写（`book.getVariable` / `putVariable`）、URL 选项的 `method`/`charset`/`retry`/`headers`/`body` 已实现；缺 URL 选项其余键、`jsLib` 预加载、AES/RSA/HMAC 等加密桥接 |
-| 17 | **本地书籍格式** | 6 种主流格式 | EPUB / TXT | **45%** | EPUB3/EPUB2 图文与分卷解析、TXT 编码嗅探与智能切章已实现；缺 MOBI、AZW3、UMD、PDF 解析 |
-
----
-
-## 二、 关键设计决策与 Android 架构偏离备忘
-
-在迁移过程中，为契合 iOS 原生平台交互规范、沙盒限制与内存生命周期，部分机制进行了主动调整：
-
-| # | 机制项 | iOS 处理方案 | 偏离原因与依据 |
+| # | 功能版面 | 已有实现 | 当前缺口 / 边界 |
 |---|---|---|---|
-| **1** | **仿真翻页动画** | 降级为平滑滑动效果 | iOS 拟真纸张卷曲需复杂 OpenGL/Metal Shader 变换，功耗高且收益低，滑动能提供更干净的视觉体验。 |
-| **2** | **简繁转换** | 基于系统 `CFStringTransform` | 避免打包笨重的 OpenCC 词库，零第三方依赖。实测常用词正确（`头发→頭髮`、`面条→麵條`、`干净→乾淨`、`后来→後來`、`干杯→乾杯`），但**不等价于 Android**：Android `fixT2sDict()` 的 64 词排除表里有 23 词仍会被转换（`模組→模组`、`變數→变数`、`規則→规则`、`離線→离线`、`載入→载入`、`計程車→计程车` 等）；且一字多义仍会误判（`姓钟`→`姓鐘`，应为 `姓鍾`）。 |
-| **3** | **重新分段** | **不实现** `reSegment` | Android 的 `ContentHelp.reSegment` 用 `Math.random()` 决定断句位置（`if (Math.random() * gain < 0.8 + k / 2.5)`），同一章每次打开结果都不同，无法缓存也无法测试；iOS 保留原始换行，只做确定性修剪。 |
-| **4** | **正则替换超时** | 终止 Task、禁用规则并丢弃其结果 | Android 捕获 `RegexTimeoutException` 后禁用该规则，并把「规则名 + 堆栈」写进正文；iOS 同样禁用规则（`onRuleAutoDisabled` → 落盘 `isEnabled = false`），但不污染正文。 |
-| **5** | **离线章节缓存** | 磁盘持久化「未净化原文」，读取时动态净化 | 便于用户修改替换规则或切换开关后即时生效，无需强制清理整本离线缓存。 |
-| **6** | **续页双重限制** | 目录限 200 页 / 120s，正文限 50 页 / 30s | 防止个别书源配置死循环或慢源挂死主流程；被截断的未完成内容一律不写入磁盘缓存。 |
-| **7** | **音量键翻页** | **完全移除** | iOS 拦截音量键的私有手段（`MPVolumeView`）实测会导致系统硬件音量被持续压低至 0，副作用严重。 |
-| **8** | **应用内亮度调节** | **完全移除** | 与 iOS 系统控制中心手势冲突，且应用内浮层在刘海屏设备上存在绘制瑕疵。 |
-| **9** | **常驻系统状态栏** | 阅读器常驻系统顶栏（时间、电量、网络） | 对齐 Android 原生沉浸体验，字体颜色随浅色/暗黑主题自适应，移除冗余的「隐藏状态栏」死开关。 |
-| **10** | **文字两端对齐** | 滑动与连续滚动双模式均生效 | v0.2.5 将连续滚动全面重构为原生 CoreText 画布（`ReaderScrollCanvasView`）并收敛至统一排版引擎，彻底解决原 SwiftUI `Text` 无法两端对齐的限制。 |
-| **11** | **书源分类噪声处理** | 仅在**显示层**过滤判定词与 `good` 标记 | Android 的 `CheckSourceService` 会将校验判定写入分组。`bookSourceGroup` 本身原样保存，仅在渲染胶囊时隐藏，避免把判定词当成真实分类展示。 |
-| **12** | **响应耗时 (`respondTime`)** | 仅在有效测量值 (`0 < ms < 180000`) 时展示 | Android 校验失败时写入 `180000 + 耗时`（属失败标记而非延迟）；iOS 隐藏失败标记以避免将罚时当成速度显示。 |
-| **13** | **单章换源流程** | 自动调用 `ChapterMatcher` 映射章节 | 章节匹配器单测通过率极高，自动映射可避免频繁打断用户翻页。 |
-| **14** | **阅读面板归一** | 统一采用 `ReaderPanelChrome` | 「界面」、「更多设置」、「朗读」面板共用圆角卡片、间距规范与半屏高度限制，消除各面板样式漂移。 |
-| **15** | **JSON 往返字段保真** | **已修复**：三个模型保留 `extra: [String: JSONValue]` 原始字典 | `BookSource` / `RssSource` / `Book` 解码时把未建模的 Android 字段（`jsLib`、`concurrentRate`、`enabledCookieJar`、`ruleReview`、`Book.customTag` / `customIntro` / `charset` / `type` / `order` / `syncTime` 等）收进 `extra`，`encode(to:)` 时**扁平化回写**为顶层键（无 "extra" 包装，Android GSON 直接识别）。`JSONExtrasTests` 8 例锁定往返零丢失。`RssSource` 同时补齐 `loginUrl` / `loginUi` / `variable` 三个 Android 字段。 |
-| **16** | **请求头合并语义** | 统一 `JSEngine.resolvedSourceHeader` | header 规则求值后**叠加** loginHeader（Android `getHeaderMap(hasLoginHeader:)`），严禁 `loginHeader ?? header` 替换式。 |
-| **17** | **getLoginHeader()** | 仅返回登录捕获头 | 不回退静态 `header`——书源 `<js>` 的登录态分支判定依赖此语义（xkvi `level=0/1` 实测教训）。 |
-| **18** | **java.ajax/connect** | 经 `JavaShim.defaultHeaderProvider` 携带书源头 | 对齐 Android `AnalyzeUrl(url, source=)`；裸发请求会被 Cookie 网关拒掉。 |
-| **19** | **`<js>`/`@js:` 拆分** | 统一 `JSEngine.splitJSRule`/`extractJSScript` | 禁止各处手写 range 拆分；kind 类列表规则必须 `getStringList`，单值字段 `getString`。 |
-| **20** | **JSON 往返** | 未建模字段进 `extra`（`JSONExtraPreserving`） | encode 扁平化回写顶层键，Android GSON 直接识别。 |
-| **21** | **分页记账** | 段距挂下一段首行、页首行不收、跨页重置 | Android `prepareNextPageIfNeed(durY + textHeight)` 语义；`TypographyPageFillTests` 锁定不变量。 |
-| **22** | **过滤视图拖拽排序** | 置换可见子集自身序号槽位 | 视图外条目不动；全量视图退化为 0…n-1 重排。 |
-| **23** | **详情页 TabBar** | `TabBarVisibility` 服务 + 全局 Appearance 材质 | 来源页 onAppear 还原（pop 开始瞬间生效）；`.toolbar(.hidden)` 的还原延迟与材质丢失均有坑，禁用。 |
-| **24** | **听书启动/续读** | 统一 `aloudPlayOrResume()` | 可见段落==朗读段落才 resume（保 HttpTTS 中段进度），否则重锚定到当前可见段。 |
-| **25** | **全书搜索基准** | 偏移基于净化后文本（`fetchChapterContent(context:)` 同管线） | 与排版文本同基准才能精准跳转；`source: nil` = 仅离线。 |
+| 1 | 应用外壳 / 导航 | ⚠️ 书架、发现、订阅、我的四个固定 Tab；URL Scheme；主屏快捷操作 | 缺 Tab 显隐、默认主页、角标、启动隐私协议与备份密码处理；主屏快捷操作不是 App Intents。 |
+| 2 | 书架 | ⚠️ 列表 / 三列网格、5 种排序、列表拖拽、分组新增 / 删除 / 显隐、批量操作、缓存与导出、添加网址、WebDAV 远程文件导入 | 缺分组重命名、网格拖拽、独立导入书单与日志入口；Android `main_bookshelf.xml` 并未全量对齐。自定义分组是单组相等匹配，尚未实现 Android 的位掩码多组归属。 |
+| 3 | 书籍详情 | ⚠️ 信息编辑、置顶、整书换源、拷贝 URL、分享二维码、目录过滤 / 倒序 / 缓存标识 | 缺 WebDAV 书籍文件上传；编辑简介写 `Book.intro`，不是 Android `customIntro` 的覆盖语义。详情页未提供独立的双向进度同步入口。 |
+| 4 | 阅读器 | ⚠️ 统一 CoreText 排版、分页 / 双向连续滚动、图文页、5 个翻页选项（仿真降级）、主题与排版、书签、换源、章节编辑、区间下载、选词、全书搜索 | 滚动模式自动翻页实际为定时切下一章，缺逐屏 / 平滑滚动；章节编辑标题仅保留在会话，重置仅清正文缓存；本地正文现已优先读取编辑缓存。长按与把手等仅有几何单测，仍需真机验收。音量键、亮度、状态栏属于平台选择，见 §二。 |
+| 5 | 发现 | ⚠️ 切源胶囊、分类矩阵、JSON / 文本 / JS 分类解析、书籍流分页 | 缺按分组筛选、单源操作菜单、错误堆栈查看；`exploreScreen` 已建模但未接入筛选流程。 |
+| 6 | 搜索 | ⚠️ 多源并发流式结果、书名作者聚合、精准排序、范围选择、书架匹配、历史、停止 / 继续 | 缺空结果引导与后台挂起策略；全书搜索按并发批次完成后按章节顺序输出，并非每个网络请求完成即显示。 |
+| 7 | RSS | ⚠️ 源管理与编辑、分类、文章列表 / 3 种布局 / 分页、已读记录、正文纯文本、收藏、三阶段调试 | `loginUrl` / `loginUi` 仅可编辑，缺 RSS 登录；`style` / `enableJs` / `loadWithBaseUrl` / `singleUrl` 未接入文章渲染行为；分类仅文本 / URL，缺 JSON / JS 分类；规则解析未传入完整 RSS 源脚本环境。 |
+| 8 | 书源管理 | ⚠️ 搜索（含 `group:`）、启用状态筛选、批量操作、5 并发搜索校验、文件 / URL / 剪贴板 / 二维码导入、分享二维码、排序 | 缺逐条选择导入；校验主要验证搜索，不等于 Android 目录 / 正文等完整校验链。扫码直链仅有添加网址 / 复制，未接入规则下载；单对象 / 数组书源导入已统一，未知顶层字段透传。 |
+| 9 | 书源编辑 | ⚠️ 基本 / 搜索 / 发现 / 详情 / 目录 / 正文六分区；整源 JSON 拷贝粘贴 | 不是 Android 全字段编辑：例如 `jsLib`、`concurrentRate`、`enabledCookieJar` 无独立编辑项，`isPay` / `payAction` 等也不完整；缺语法高亮与辅助键盘。若干已展示字段尚未执行，见下表。 |
+| 10 | 书源调试 | ⚠️ 搜索 → 详情 → 目录 → 首章正文四阶段日志 | 缺各阶段原始响应查看、WebSocket 实时调试。 |
+| 11 | 登录 / 浏览器 | ⚠️ WebKit 网页登录、手动 Cookie、头合并；`SourceLoginSheet` 的简单文本 / 密码表单与脚本执行入口 | 表单已拆 `<js>` / `@js:` 包装并拒绝脚本错误 / 未返回新凭据的登录；仍忽略 RowUi 按钮，未执行 `loginCheckJs`。登录浏览器已有前进 / 后退 / 刷新，缺通用浏览器入口、验证页自动重试与下载管理。 |
+| 12 | 我的 / 设置 | ⚠️ 对齐 `pref_main.xml` 的主要分区；备份、规则、主题、其它设置、书签与记录 | 布局接近不代表所有 Android 设置键都有行为；缺帮助文档站、私有文件管理等。 |
+| 13 | 规则管理 | ⚠️ 替换、TXT 目录、字典、HttpTTS 四类 CRUD / 导入导出 / 排序；替换规则扫码导入 | 四类规则页面已具备，不代表备份覆盖：HttpTTS 与字典尚未进入 ZIP；正则已通过进度回调中止超时匹配；JS 超时会返回并禁用规则，但已运行的 JS 仍缺硬中断。 |
+| 14 | 备份 / 数据互通 | ⚠️ WebDAV 与本地 ZIP；10 个已支持文件名、独立远端进度、书签汇总与导出 | Android 有 21 个候选备份成员；仍缺 11 个，且现有成员也有形态与合并语义差异。详见备份表，不能称为完整跨端互通。 |
+| 15 | 局域网 / 平台集成 | ⚠️ `Network.framework` 上传门户、TXT / EPUB 入库、`legado://` / `yuedu://`、主屏快捷操作 | 缺 Android REST / WebSocket 服务、Widgets、App Intents、Share Extension、CarPlay；iOS 后台持续服务需单独评估。 |
+| 16 | 规则与网络引擎 | ⚠️ CSS、部分 JSONPath / XPath、正则清洗、JS / 模板、变量、URL `method` / `headers` / `body` / `charset` / `retry` | JSONPath 递归查找取首个匹配，未实现完整过滤 / 切片；XPath 为子集。缺 jsLib、并发率 / CookieJar 开关语义、WebView 请求及 AES / RSA / HMAC 桥接；charset 已用于字符串请求体编码与响应解码，JSON 请求体仍按 UTF-8 编码。 |
+| 17 | 本地格式 | ⚠️ TXT 编码探测 / 规则切章；EPUB3 nav、EPUB2 NCX、spine 兜底、图片与锚点片段提取 | Android 支持 TXT / EPUB / UMD / PDF / MOBI / AZW3；iOS 缺后四种。编码检测是启发式，不能保证所有文件无乱码。 |
+| 18 | 朗读 / 有声书 | ⚠️ 系统 TTS、HttpTTS、朗读面板 / 悬浮条、锁屏命令；音频书独立 AVPlayer 页面 | 滚动朗读已有段落高亮，缺自动跟随居中；后台、耳机与不同服务端音频格式需设备验收。音频书按书源 type 或 `kind` 的「音频」标签路由，未消费 Android `Book.type`。 |
 
----
+### 影响书源兼容性的具体未接入项
 
-## 三、 后续迭代演进路线图 (Future Roadmap)
+| 字段 / 行为 | 源码可确认的边界 | 依据 |
+|---|---|---|
+| `ruleBookInfo.init` 与详情 → 目录 | 本次已修复 Android `init` 键映射（兼读旧 iOS `initRule`），执行详情根节点预处理、name / author / intro / kind / wordCount / coverUrl / lastChapter / tocUrl，并按规则请求独立目录。仍未消费 updateTime。站点专用 JSON 元数据猜测与章节 API 路径重写已删除。 | [RuleModels.swift](Sources/LegadoCore/Models/RuleModels.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
+| 目录钩子与标记 | `formatJs` 已在跨页合并、去重、反转和重新编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；异常 / null / undefined 保留原标题。目录已求值 `isVolume` / `isVip` / `isPay` / `updateTime`（写入 `tag`），无链接分卷用稳定的合成 URL 保留并直接读取 tag，不请求网络。`preUpdateJs` 仍未执行；章节脚本对象仅提供当前已建模字段，不等价完整 Android Chapter 桥。 | [BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) 的 `parseChapters` |
+| WebView / 解密 / 付费规则 | `coverDecodeJs`、`webJs`、`sourceRegex`、`imageDecode`、`payAction` 等未进入对应执行链；源级 `replaceRegex` 仅支持正则替换对，不能按 Android 完整规则 / JS 求值。 | [EditSourceSheet.swift](Sources/LegadoApp/Views/EditSourceSheet.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
+| JSON 往返 | `BookSource` / `RssSource` / `Book` 的未知顶层键仍须通过 extras 感知解码保留。五类书源嵌套规则（搜索 / 发现 / 详情 / 目录 / 正文）现在直接在 Codable 解码时保留未知键，支持对象及 JSON 字符串规则，编辑 / 持久化 / ZIP 往返已覆盖。已知键类型不兼容、其它嵌套对象不受此保证。`Book.order` 已是正式属性。 | [JSONValue.swift](Sources/LegadoCore/Utils/JSONValue.swift)、[JSONExtrasTests.swift](Tests/LegadoCoreTests/JSONExtrasTests.swift) |
+| 表单登录 | 简单表单、脚本包装拆分和错误检测已有实现；RowUi 按钮与登录校验尚未对齐。 | [SourceManagerView.swift](Sources/LegadoApp/Views/SourceManagerView.swift)、[BookStore.swift](Sources/LegadoApp/Services/BookStore.swift) 的 `performLogin` |
 
-第一批（v0.2.8）三项已全部落地（文本选词、书架二级菜单、二维码全链路，见下文 ✅）。剩余功能**按重要性分批**推进，每批一个版本：
+### 备份成员与语义
 
-```mermaid
-graph TD
-    subgraph 第一批 v0.2.8 阅读与书架刚需 ✅ 已完成
-        A1[Part 4: 文本选词联动 ✅]
-        A2[书架二级菜单对齐 缓存/导出 ✅]
-        A3[Part 3: 二维码全链路 ✅]
-    end
-    subgraph 第二批 v0.3.x 生态与数据完整性
-        B1[Part 6: 内置 WebKit 浏览器]
-        B2[Part 8: WebDAV 21 类对齐]
-        B3[Part 7: 规则订阅 sourceSub]
-    end
-    subgraph 第三批 v0.4.x 格式与体验
-        C1[Part 9: MOBI/AZW3/PDF]
-        C2[Part 10: 主题背景图系统]
-        C3[Part 11: 漫画模式]
-    end
-    subgraph 第四批 v1.0 平台深度融合
-        D1[Widgets / App Intents / Share]
-        D2[VoiceOver / CarPlay]
-        D3[完整局域网 REST API]
-    end
-    第一批 --> 第二批 --> 第三批 --> 第四批
-```
+对照 Android [Backup.kt](../app/src/main/java/io/legado/app/help/storage/Backup.kt)、[Restore.kt](../app/src/main/java/io/legado/app/help/storage/Restore.kt)、[ReadBookConfig.kt](../app/src/main/java/io/legado/app/help/config/ReadBookConfig.kt) 与 iOS [WebDAVService.swift](Sources/LegadoCore/Service/WebDAVService.swift)、[BookStore.swift](Sources/LegadoApp/Services/BookStore.swift)：
 
----
+| 范围 | 当前实现与差异 |
+|---|---|
+| 已支持的 10 个文件名 | `bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json`、`txtTocRule.json`、`readRecord.json`、`rssSources.json`、`rssStar.json`。书架与书源始终写入；其它项按有无数据 / 已存样式决定，不保证每包有十个成员。 |
+| 阅读样式形态 | Android `readConfig.json` 是样式数组；iOS 本次已改为导出单元素数组，仍兼读旧版单对象；恢复数组时仅取第一项，尚未保留 / 管理全部样式。`ReaderPrefs`、自定义主题等也未整体写入 ZIP。 |
+| 缺少的 11 个成员 | `bookGroup.json`、`sourceSub.json`、`httpTTS.json`、`dictRule.json`、`servers.json`、`keyboardAssists.json`、`directLinkUploadRule.json`、`shareReadConfig.json`、`themeConfig.json`、`coverRule.json`、`config.xml`。部分 Android 成员可能按配置不存在；21 是候选清单，不是每包固定数量。 |
+| 分组 | 书籍 `group` 数值被保存，但分组定义不在 ZIP；iOS 自定义组使用时间戳 ID 和单组相等过滤，Android 用位掩码多组匹配。只增加 `bookGroup.json` 仍不足以实现分组互通。 |
+| 书籍与阅读记录 | Android `Book.readConfig` 在 iOS 只作为顶层 extra 保留，iOS 的 `useReplaceRule` 为另一个顶层键，运行语义未映射。阅读记录现已按 Android 主键 `deviceId + bookName` 合并 max，避免混合不同设备记录。 |
+| 进度 | `createBackupZip` **不生成** `bookProgress/`；进度字段在 `bookshelf.json` 中，独立进度文件通过远端 PUT / GET 同步。恢复支持 ZIP 内、邻接目录或远端目录的进度文件。本次已统一为优先比较阅读时间，缺时间或时间相同再比较章节 / 位置；不再以目录检查时间 `lastCheckTime` 判定阅读进度。恢复保留更新的本地进度，手动拉取不再把远端时间改写为当前时间。 |
+| 本地文件与缓存 | ZIP 不含 TXT / EPUB 原文件、解包资源、目录与正文缓存。恢复书架条目不等于恢复本地书籍可读内容；设备路径不可跨端直接使用。 |
+| 未识别成员 | 恢复只提取已支持成员，其余不会存储并在下一次 iOS 备份中重新打包；不能保证 Android → iOS → Android 的完整备份往返。 |
 
-### 第一批（v0.2.8）：阅读与书架刚需 ✅ 已完成
+<a id="design-decisions"></a>
+## 二、设计决策与平台偏离
 
-#### Part 4：阅读器文本选择与取词联动 ✅
-- **目标**：在 CoreText 统一排版画布上建立原生级选词交互。
-- **实施点**：
-  1. 画布挂载长按手势（600ms），由触点坐标反查字符索引并计算包围盒。
-  2. 半透明主色选区高亮 + 左右调节把手拖拽扩选。
-  3. 上下文菜单：复制 / 查字典（联动内置字典 Tab）/ 添加书签（选中句为摘录）/ 朗读所选 / 创建替换规则。
+保留编号，供代码注释与历史任务引用。平台选择与待修问题分别说明，避免把实现限制写成已经解决。
 
-#### 书架二级菜单对齐（`main_bookshelf.xml` 全量）✅
-- **目标**：补齐书架菜单缺失入口，全部可行，按价值排序。
-- **实施点**：
-  1. **缓存/导出（`CacheActivity` 同构）**：书籍缓存管理页——书架列表 + 每本已缓存章数/体积（`BookContentService` 缓存 API 已具备）、点击进入离线下载（`ChapterRangeDownloadSheet` 已有）、单本清除（已有）；**导出缓存为 TXT/EPUB**（TXT 拼接即得；EPUB 用 ZIPFoundation 组包 container.xml + nav，中等工作量）、「导出所有」、导出格式与编码选择、`UIActivityViewController` 分享。
-  2. **导出书单**：`bookshelf.json`（现有编码器）→ 系统分享/文件导出。
-  3. **添加网址**：输入章节 URL → 按书源 `bookUrlPattern` 匹配书源直接加架。
-  4. **远程书籍**：WebDAV 目录浏览 + 文件导入（复用 `WebDAVService` PROPFIND 与本地导入链）。
-  5. **书架管理**：分组显示开关（`BookGroupStore.show` 字段已有）批量勾选页。
-- 已对齐项：更新目录 / 添加本地 / 分组管理 / 书架布局（视图+排序）/ 选择。
+| # | 机制项 | iOS 处理与边界 |
+|---|---|---|
+| **1** | 仿真翻页 | 当前降级为滑动；这是产品实现选择，不意味着 iOS 无法实现卷页动画。 |
+| **2** | 简繁转换 | 系统 `CFStringTransform`，不带 OpenCC 词库；与 Android OpenCC / `fixT2sDict()` 不等价，词组及多义字输出也可能随系统变化。 |
+| **3** | 重新分段 | 当前不实现 Android `reSegment`，保留原始换行并做确定性修剪。Android 算法使用随机断句；随机性不意味着绝对无法测试或缓存。 |
+| **4** | 正则超时 | 本次改为一次性回调竞争超时 / 取消 / 完成，调用者不再等待同步子任务；正文 / 标题统一禁用回调，正则通过进度回调检查截止时间并停止。运行时超时上限 60s；已开始的 JS 无法强制中断，超时后仍可能占用后台线程，不应称为完整 JS 隔离。 |
+| **5** | 离线正文 | 网络缓存保存源级清洗后、全局 `ContentProcessor` 净化前的文本；不是原始 HTTP / HTML。读取时再执行用户净化。手动编辑正文会覆盖该缓存。 |
+| **6** | 分页限制 | 目录串行续页最多 200 次 / 120s 检查预算，正文总计最多 50 页 / 30s。多 URL 分支共用剩余页数 / 时间预算，最多 8 并发，去重并传播失败，正文跳过下一章及其后链接；不完整结果不进入完整正文缓存，旧目录 API 对不完整结果抛错。预算仍在请求之间检查，不是严格网络整体 deadline。 |
+| **7** | 音量键 | 当前不提供音量键翻页，保持系统音量行为。属于 iOS 产品选择，不推断所有实现均会压低系统音量。 |
+| **8** | 亮度 | 当前不提供应用内亮度调节，使用系统控制中心。属于产品选择。 |
+| **9** | 系统状态栏 | 阅读器固定显示系统状态栏，颜色随主题；不等于 Android 所有沉浸设置已对齐。模型中的 `hideStatusBar` 仍存在，但阅读器固定 `.statusBar(hidden: false)`。 |
+| **10** | 两端对齐 | 分页与连续滚动画布共享 CoreText 排版，支持两端对齐。 |
+| **11** | 书源分组噪声 | 仅显示层过滤校验判定词与第三方 `good` 标记，存储保留原分组。 |
+| **12** | 响应耗时 | 只展示 `0 < ms < 180000` 的测量值，隐藏 Android 失败罚时标记。 |
+| **13** | 换源章节映射 | 使用 `ChapterMatcher` 自动匹配；有单元测试，但存在目录歧义时仍可能匹配不准。 |
+| **14** | 阅读面板 | `ReaderPanelChrome` 统一样式与高度限制。 |
+| **15** | JSON 字段透传 | `BookSource` / `RssSource` / `Book` 通过 extras 感知解码保留未知顶层键，encode 扁平回写。五类嵌套书源规则也已保留未知键；定向测试覆盖编辑、持久化与备份往返。不保证所有字段、其它嵌套对象和解码调用零丢失，也不代表透传字段已执行。 |
+| **16** | 请求头合并 | `JSEngine.resolvedSourceHeader` 求值静态 header 后叠加 loginHeader。 |
+| **17** | `getLoginHeader()` | 只返回捕获的登录头，不回退静态 header，供脚本判断登录态。 |
+| **18** | `java.ajax/connect` | 通过 `JavaShim.defaultHeaderProvider` 带书源头；Java 桥仅实现部分 Android API。 |
+| **19** | JS 规则拆分 | 规则引擎使用 `splitJSRule` / `extractJSScript`；表单登录也已接入拆分。列表字段用 `getStringList`，单值字段用 `getString`。 |
+| **20** | JSON 编解码调用约束 | 补充 #15：新增导入 / 恢复 / 持久化路径须用 extras 感知解码；五类书源规则直接使用其 Codable 保真实现；新增其它嵌套对象须单独处理。 |
+| **21** | 分页记账 | 段距挂下一段首行、页首不收、跨页重置；`TypographyPageFillTests` 覆盖相关不变量。 |
+| **22** | 过滤后拖拽 | 先稳定规范化缺失 / 重复序号，再置换可见条目的槽位；隐藏条目的相对位置保持。 |
+| **23** | 详情页 TabBar | 使用 `TabBarVisibility` 与全局 Appearance，来源页恢复显示。 |
+| **24** | 听书启动 / 续读 | 统一 `aloudPlayOrResume()`；可见段与朗读段一致才 resume，否则重锚定。 |
+| **25** | 全书搜索基准 | 阅读器传入 `ProcessContext`，让搜索使用同一净化管线与 UTF-16 字符偏移；`source: nil` 限离线。服务调用不传 context 时无此同排版文本保证。 |
 
-#### Part 3：二维码全链路集成 ✅
-- **目标**：打通多端扫码导入与生成分享闭环。
-- **实施点**：
-  1. `AVFoundation` 扫码页：书源/规则/订阅源/WebDAV 配置 JSON 或导入直链。
-  2. 相册选图 + `CIDetector` 离线识别。
-  3. 详情页与书源管理菜单「生成分享二维码」（CoreImage 生成，保存相册）。
+<a id="roadmap"></a>
+## 三、后续迭代与验收条件
 
-### 第二批（v0.3.x）：生态与数据完整性
+以下为建议优先级与版本目标，不是发布日期承诺。`v0.2.8` 已有的功能保留为完成记录；兼容性与数据缺口先于新格式和平台扩展。
 
-#### Part 6：通用内置 WebKit 浏览器
-封装通用浏览器组件（前进/后退/刷新/复制 URL/Safari 打开/Cookie 管理）；403/503 人机验证页自动弹浏览器过盾，Cookie 回写全局存储后重试正文抓取。
+### v0.2.8.2 发布范围
 
-#### Part 8：WebDAV 21 类全数据对齐
-备份恢复覆盖剩余成员（`bookGroup`/`sourceSub`/`httpTTS`/`dictRule`/`servers`/`keyboardAssists`/`directLinkUploadRule`/`shareReadConfig`/`themeConfig`/`coverRule`/`config.xml`）；恢复时「忽略列表」多选。
+本版本收录目录规则与嵌套字段保真、正文净化 / 网络 / 备份审计修复，以及自定义主题首开、简介 JS 和标题二次换行回归修复。342 项非联网测试（3 skipped、0 失败）、iOS Simulator 编译与未签名 iOS Release archive 通过（应用版本 0.2.8.2 / build 2），实际机翻机器人书源与第 63 话已在 iPhone 11 / iOS 15.5 模拟器验收。`preUpdateJs`、`jsLib`、JS 硬中断与 v0.3.x 数据互通 / 浏览器任务继续保留为待办。
 
-#### Part 7：规则订阅聚合 `sourceSub.json`
-外部规则聚合订阅：导入管理、定期检查更新、合并书源/替换规则/订阅源。
+### 已实现记录（v0.2.8 系列）
 
-### 第三批（v0.4.x）：格式与体验
+- **Part 4 文本选词**：双画布长按、拖拽与把手、复制 / 字典 / 书签 / 朗读 / 替换规则菜单已接入；几何单测通过，真实设备操作待验收。
+- **书架二级菜单**：缓存管理、全书 / 全架下载、TXT / EPUB 缓存导出、导出书单、添加网址、WebDAV 远程导入、分组显隐已有实现。导出仅含已缓存的未净化文本，未缓存章节跳过；EPUB 不嵌入图片。Android 的导入书单 / 日志入口仍缺，不能标为 `main_bookshelf.xml` 全量完成。
+- **Part 3 二维码**：相机 / 相册识别、部分载荷导入、书源 / 书籍二维码生成已接入。扫码规则直链下载未接入；单对象书源与扫码 RSS 字段保真已在本次修复。书籍二维码为详情 URL，不能视为包含书籍文件的跨端迁移；相机权限与相册保存需设备验收。
 
-#### Part 9：本地 MOBI/AZW3/PDF 解析
-轻量纯 Swift 解析器，流式排版接入统一排版引擎。
+### 简介脚本与标题二次换行修复（2026-10-26，v0.2.8.2）
 
-#### Part 10：高级主题与背景图系统
-主题管理中心（新建/命名/导出）；正文背景纹理（对齐 Android 14 张预装 + 相册）；E-Ink 对比度深化。
+- 修复 JS 规则包含 `{{...}}` 时只替换模板、却把整段 JS 作为字符串返回的问题。标量 / 列表 / 元素规则均先插值脚本体再执行；详情 `init` 返回 JSON / HTML 字符串时也可作为新的解析根节点。
+- 分页标题改为直接绘制统一排版引擎已测量的行，与测量 / 滚动标题共用 CoreText Semibold 字体、字距与行高，避免 SwiftUI 使用不同字体对预切行再次换行。页首标题高度按同一排版模型记账；绘制范围按 UTF-16 长度覆盖全部字符。
+- 新增 6 个回归测试，覆盖含模板的简介 JS、列表规则、字符串详情根、执行异常、完整详情链，以及第 63 话标题实际位图只有两行。
+- 本轮全套非联网测试 **342 项、3 skipped、0 失败**，Simulator 构建通过；在用户 iPhone 11 / iOS 15.5 模拟器的实际书源与书籍上确认简介显示文字、标题两行。更新安装保留原数据，验收后停留原第 63 话。
 
-#### Part 11：漫画模式专用交互
-横向整页翻页、PagerSnap 贴靠、双指缩放、图片二值化滤镜。
+### 阅读主题首开修复（2026-10-26，v0.2.8.2）
 
-### 第四批（v1.0）：平台深度融合
+- 修复正文使用自定义色、标题 / 阅读面板却使用主题固定色的不一致；所有阅读文字与控件改为使用同一有效调色板。
+- 颜色解析严格拒绝部分十六进制输入，兼容 `#RGB` / `#RRGGBB` / Android `#AARRGGBB`。无效颜色使用可读默认配色，透明或与背景完全重合的文字使用黑 / 白恢复显示；原始编辑值保留，不抹除导入配置。
+- 恢复预设主题时同时匹配背景与文字色；显式自定义主题保持自定义。主题和阅读偏好合并落盘，避免偏好修改取消尚未写入的主题。
+- 滚动画布直接观察阅读配置，在创建时先应用恢复的颜色 / 排版，再安装首章。
+- 新增 8 个回归测试，覆盖干净安装、冷启动颜色恢复、透明 / 同色 / 无效输入、主题与偏好落盘及正文首帧位图渲染；全套非联网测试 336 项、3 skipped、0 失败。iOS Simulator 编译与上述两个首开交互样本通过；未验证用户真机上的原始书源 / 配置。
 
-- **Widgets**：书架封面墙轮播 + 当前阅读进度。
-- **App Intents / Share Extension**：Siri 与快捷指令搜索/继续阅读；系统分享一键加架。
-- **VoiceOver / CarPlay**：阅读画布与控制面板无障碍标签；听书 CarPlay 模板。
-- **完整局域网 REST API**：对齐 `HttpServer.kt` 12 GET + 14 POST。
+### 本轮目录规则兼容实现（2026-10-26，v0.2.8.2）
+
+- 五类书源嵌套规则保留未知 JSON 键（包括 null / 数组 / 对象），已知字段编辑优先；兼读详情 `initRule`，导出只写 Android `init`。
+- 网络目录执行分卷 / VIP / 已购买 / 更新时间规则；保持无链接卷名；`formatJs` 在完整目录规范化后执行，按 Android 顺序共享计数器。旧目录缓存兼容；仅元数据变化也会更新阅读器，保留仍有效的正文缓存。
+- 修复 HTML 节点直接传入 JavaScriptCore 的 `copyWithZone` 崩溃，节点及节点列表转为 HTML 字符串；这不是完整 Android DOM 桥。
+- 新增 17 个固定样本回归用例，覆盖跨页格式化顺序、脚本异常、章节上下文、旧缓存与嵌套规则备份往返；3 个外部样本测试改为显式 skipped。
+- **边界**：`preUpdateJs`、`jsLib`、详情 updateTime 和 JS 硬中断尚未实现。`formatJs` 的取消只在章节间检查，不能停止已经开始的死循环脚本；不将本轮描述为执行隔离完成。
+
+### 本次代码审计已修复（v0.2.8.2）
+
+- 删除站点专用章节 URL 重写与 JSON 元数据猜测，改为使用书源详情规则；修复 `init` 键与独立目录请求。
+- 统一分页并发代码、限制总页数、传播 HTTP / 分片失败、去重并停止跨章续页；取消传播至搜索及网络重试。
+- 修复相对 URL、带逗号 URL 的选项解析、大小写不敏感的头覆盖、字符串 POST 编码、同步超时请求取消；复用 User-Agent 与 JS 响应包装，补齐 `java.post` 书源头与相对地址。
+- 修复可选字段在宽容解码中丢失、扫码 RSS extras 丢失、单对象书源导入、同名不同 URL 书源互相覆盖、重复书签 ID 导致恢复崩溃、导入序号重复 / 缺失导致排序失效。
+- 修复多条删除索引漂移；批量书架更新在主线程提交状态并跳过刷新期间已删除的书籍；章节缓存与净化结果字典加锁。
+- 修复正则超时等待、标题规则重复执行、标题规则缺少禁用回调；仍需 JS 执行隔离。
+- 修复阅读样式导出形态、RSS 单独备份包误判、指定备份不存在时错读其它快照、解包错误被吞、WebDAV 失败状态被报告成功；统一进度冲突与多设备阅读记录合并。
+- 移除重复 return、重复注释与未使用的视图 / 状态 / URL 方法；SPM 排除由 Xcode 管理的图标资源以消除构建警告。新增回归测试见 `Tests/LegadoAppTests/BookStoreTests.swift` 及核心测试扩展。
+
+### 仍需优先完善
+
+| 优先项 | 建议验收条件 |
+|---|---|
+| 规则钩子与字段保真 | 本轮已覆盖目录格式化 / 标记与五类嵌套规则未知键往返；下一步补 `preUpdateJs` 所需桥接、`jsLib`、详情 updateTime，并扩大 Android 对照样本。 |
+| JS 执行隔离 | 验证不终止脚本的资源回收与可执行的中断方案；现有超时返回不等于终止 JS VM。 |
+| 分组兼容 | 明确单组到 Android 位掩码多组的映射，再接入分组定义备份。 |
+| 数据互通验收 | 用真实 Android ZIP 与 EPUB 样本验证往返；补全部样式 / 偏好 / 剩余备份成员。 |
+
+### 第二批（目标 v0.3.x）：生态与数据完整性
+
+#### Part 6：浏览器与登录链
+
+复用现有登录 WebKit 的前进 / 后退 / 刷新能力，增加通用浏览器入口、URL 操作与下载；补 RowUi 按钮、`loginCheckJs`、RSS 登录及 WebView 请求分支。验证页处理与 Cookie 回写后重试需通过明确样本验收，不能承诺所有站点都能通过验证。
+
+#### Part 8：备份成员与语义对齐
+
+补齐上表 11 个缺少成员，并修复已有成员的形态与合并逻辑：样式数组 / 当前样式选择、`ReaderPrefs`、`Book.readConfig`、位掩码分组、未知成员保留及恢复忽略列表。用真实 Android 包完成 Android → iOS → Android 双向验收；iOS 自身 create / restore 测试只能作为基础。明确区分元数据备份与 TXT / EPUB 文件迁移。
+
+#### Part 7：规则订阅 `sourceSub.json`
+
+实现外部规则订阅管理、更新检查与合并策略。定期更新需结合 iOS 后台调度限制设计；分别验证书源 / 替换规则 / RSS 更新和用户本地修改冲突。
+
+#### RSS 与书架补齐
+
+补扫码规则直链；补 RSS JSON / JS 分类、源脚本上下文、`singleUrl` / 样式 / JS 渲染；补书架分组重命名、导入书单 / 日志；缓存导出明确缺章，并补 EPUB 图片资源打包。
+
+### 第三批（目标 v0.4.x）：格式与体验
+
+- **Part 9 本地格式**：MOBI / AZW3 / UMD / PDF 分别评估；PDF 以页面渲染为主，不预设都能走文本重排。实现方式与依赖选择待技术验证。
+- **Part 10 主题与背景**：命名主题、导入导出、背景图片 / 纹理与 E-Ink 对比度；处理 Android 路径映射。
+- **Part 11 漫画**：专用图片分页、缩放与贴靠；现有正文插图不等于漫画交互已完成。
+- **阅读体验**：连续滚动自动翻页、朗读跟随滚动、章节编辑持久化 / 本地文件覆盖、无障碍与选词真机回归。
+
+### 第四批（目标 v1.0）：平台扩展
+
+- **Widgets / App Intents / Share Extension**：书架与进度展示、搜索 / 继续阅读、系统分享导入。
+- **VoiceOver / CarPlay**：画布和控制无障碍、听书模板；分别制定设备验收清单。
+- **局域网 API**：对齐本快照 [HttpServer.kt](../app/src/main/java/io/legado/app/web/HttpServer.kt) 的 12 GET / 14 POST 路由及相关 WebSocket 调试能力；后台可用性单独按 iOS 生命周期评估。

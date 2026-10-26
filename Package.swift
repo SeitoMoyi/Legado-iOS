@@ -31,7 +31,7 @@ let package = Package(
             dependencies: [
                 "LegadoCore"
             ],
-            exclude: ["Info.plist"]),
+            exclude: ["Info.plist", "Assets.xcassets"]),
         .testTarget(
             name: "LegadoCoreTests",
             dependencies: ["LegadoCore"]),

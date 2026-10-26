@@ -222,6 +222,33 @@ public struct BookProgress: Codable, Equatable {
     public var durChapterTime: Int64?
     public var durChapterTitle: String?
 
+    public init(book: Book) {
+        self.init(name: book.name, author: book.author, durChapterIndex: book.durChapterIndex,
+                  durChapterPos: book.durChapterPos, durChapterTime: book.durChapterTime,
+                  durChapterTitle: book.durChapterTitle)
+    }
+
+    /// Reading time wins over distance: rereading an earlier chapter is a valid newer position.
+    /// Older clients without timestamps fall back to the furthest chapter / offset.
+    public func isNewer(than book: Book) -> Bool {
+        guard name == book.name, author == book.author, durChapterIndex >= 0, durChapterPos >= 0 else { return false }
+        if let remoteTime = durChapterTime, remoteTime > 0, remoteTime != book.durChapterTime {
+            return remoteTime > book.durChapterTime
+        }
+        return durChapterIndex > book.durChapterIndex
+            || (durChapterIndex == book.durChapterIndex && durChapterPos > book.durChapterPos)
+    }
+
+    public func applying(to book: Book) -> Book {
+        guard isNewer(than: book) else { return book }
+        var updated = book
+        updated.durChapterIndex = durChapterIndex
+        updated.durChapterPos = durChapterPos
+        if let title = durChapterTitle, !title.isEmpty { updated.durChapterTitle = title }
+        if let time = durChapterTime, time > 0 { updated.durChapterTime = time }
+        return updated
+    }
+
     public init(
         name: String,
         author: String,
@@ -249,6 +276,9 @@ public struct BookChapter: Codable, Identifiable, Equatable {
     public var title: String
     public var index: Int
     public var isVip: Bool?
+    // Optional so directory caches written before these fields existed still decode.
+    public var isVolume: Bool?
+    public var isPay: Bool?
     public var tag: String?
     public var content: String?
 
@@ -258,6 +288,8 @@ public struct BookChapter: Codable, Identifiable, Equatable {
         title: String,
         index: Int,
         isVip: Bool? = false,
+        isVolume: Bool? = false,
+        isPay: Bool? = false,
         tag: String? = nil,
         content: String? = nil
     ) {
@@ -266,6 +298,8 @@ public struct BookChapter: Codable, Identifiable, Equatable {
         self.title = title
         self.index = index
         self.isVip = isVip
+        self.isVolume = isVolume
+        self.isPay = isPay
         self.tag = tag
         self.content = content
     }

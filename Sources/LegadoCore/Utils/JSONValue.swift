@@ -113,6 +113,16 @@ struct DynamicCodingKey: CodingKey {
     init?(intValue: Int) { nil }
 }
 
+/// Captures undeclared fields directly from a nested rule's decoder, including nulls.
+func decodeJSONExtras(from decoder: Decoder, excluding keys: Set<String>) throws -> [String: JSONValue] {
+    let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+    var extras: [String: JSONValue] = [:]
+    for key in container.allKeys where !keys.contains(key.stringValue) {
+        extras[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
+    }
+    return extras
+}
+
 /// Models that preserve fields they do not declare.
 ///
 /// - `extra` collects raw keys outside `modeledJSONKeys` while decoding; conforming decoders
@@ -148,6 +158,12 @@ extension JSONExtraPreserving {
         guard var model = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
         model.absorbExtras(from: data)
         return model
+    }
+
+    /// Import entry points accept both Android arrays and a single shared entity.
+    public static func decodeListOrObjectWithExtras(from data: Data) -> [Self]? {
+        if let list = decodeListWithExtras(from: data) { return list }
+        return decodeWithExtras(from: data).map { [$0] }
     }
 
     /// Element-wise array decode plus extras capture — malformed elements are skipped instead of

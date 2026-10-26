@@ -78,12 +78,6 @@ public class RuleAnalyzer {
             return ""
         }
 
-        // Handle template expressions {{...}}
-        if rule.contains("{{") && rule.contains("}}") {
-            let expanded = evaluateTemplate(rule)
-            return isUrl ? resolveUrl(expanded) : expanded
-        }
-
         // Handle JS scripts: with or without rule prefix
         let (rulePrefix, jsScript) = JSEngine.splitJSRule(rule)
 
@@ -95,9 +89,18 @@ public class RuleAnalyzer {
                     targetContent = prefixVal
                 }
             }
-            let evalResult = jsEngine.eval(script: script, result: targetContent)
+            let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: targetContent)
             let resStr = evalResult != nil ? "\(evalResult!)" : ""
             return isUrl ? resolveUrl(resStr) : resStr
+        }
+
+        // Templates inside a script are inputs to its execution, not a literal rule result.
+        // Expand only the script body above so quoted literals such as '<js>' cannot
+        // accidentally change the rule's wrapper during interpolation.
+        // Handle template expressions {{...}}
+        if rule.contains("{{") && rule.contains("}}") {
+            let expanded = evaluateTemplate(rule)
+            return isUrl ? resolveUrl(expanded) : expanded
         }
 
         // Handle fallback operator: rule1 || rule2
@@ -134,7 +137,7 @@ public class RuleAnalyzer {
         // If pure JS: @js:script or <js>...</js>
         if rule.starts(with: "@js:") {
             let script = String(rule.dropFirst(4))
-            let evalResult = jsEngine.eval(script: script, result: content)
+            let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: content)
             if let arr = evalResult as? [Any] {
                 return arr.map { "\(isUrl ? resolveUrl("\($0)") : "\($0)")" }
             } else if let single = evalResult {
@@ -143,7 +146,7 @@ public class RuleAnalyzer {
             }
             return []
         } else if let script = JSEngine.extractJSScript(from: rule) {
-            let evalResult = jsEngine.eval(script: script, result: content)
+            let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: content)
             if let arr = evalResult as? [Any] {
                 return arr.map { "\(isUrl ? resolveUrl("\($0)") : "\($0)")" }
             } else if let single = evalResult {
@@ -222,11 +225,14 @@ public class RuleAnalyzer {
                     targetContent = prefixElements
                 }
             }
-            if let evalResult = jsEngine.eval(script: script, result: targetContent) {
+            if let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: targetContent) {
                 if let array = evalResult as? [Any] {
                     return array
                 } else if let dict = evalResult as? [String: Any] {
                     return [dict]
+                } else if let text = evalResult as? String {
+                    // ruleBookInfo.init commonly returns a transformed JSON / HTML string.
+                    return [text]
                 }
             }
             return []

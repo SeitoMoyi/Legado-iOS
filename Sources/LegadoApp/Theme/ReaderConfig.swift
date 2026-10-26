@@ -37,28 +37,83 @@ public enum ReaderTheme: String, CaseIterable, Identifiable {
     public var backgroundColor: Color { Color(hex: backgroundHex) }
     public var textColor: Color { Color(hex: textHex) }
 
-    static func matching(backgroundHex: String) -> ReaderTheme? {
-        let target = backgroundHex.uppercased()
-        return allCases.first { $0 != .custom && $0.backgroundHex.uppercased() == target }
+    static func matching(backgroundHex: String, textHex: String) -> ReaderTheme? {
+        guard let background = ReaderHexColor(hex: backgroundHex),
+              let text = ReaderHexColor(hex: textHex) else { return nil }
+        return allCases.first {
+            $0 != .custom && ReaderHexColor(hex: $0.backgroundHex) == background
+                && ReaderHexColor(hex: $0.textHex) == text
+        }
     }
 
     static let defaultTheme: ReaderTheme = .parchment
 }
 
-extension Color {
-    init(hex: String) {
+/// Shared parser for the editor and restored Android colors (#RRGGBB / #AARRGGBB).
+/// Short RGB is accepted too; partial hex input must never become a partially scanned color.
+struct ReaderHexColor: Equatable {
+    let argb: UInt32
+
+    init?(hex: String) {
         var raw = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.hasPrefix("#") { raw.removeFirst() }
-        var value: UInt64 = 0
-        guard raw.count == 6, Scanner(string: raw).scanHexInt64(&value) else {
-            self = .gray
-            return
+        if raw.count == 3 { raw = raw.map { "\($0)\($0)" }.joined() }
+        guard [6, 8].contains(raw.count),
+              raw.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains($0) }),
+              let value = UInt32(raw, radix: 16) else { return nil }
+        argb = raw.count == 6 ? 0xFF000000 | value : value
+    }
+
+    private init(argb: UInt32) { self.argb = argb }
+
+    var color: Color {
+        Color(red: Double((argb >> 16) & 0xFF) / 255,
+              green: Double((argb >> 8) & 0xFF) / 255,
+              blue: Double(argb & 0xFF) / 255,
+              opacity: Double(argb >> 24) / 255)
+    }
+
+    func composited(over background: ReaderHexColor) -> ReaderHexColor {
+        let alpha = Double(argb >> 24) / 255
+        var rgb: UInt32 = 0
+        for shift: UInt32 in [16, 8, 0] {
+            let front = Double((argb >> shift) & 0xFF)
+            let back = Double((background.argb >> shift) & 0xFF)
+            rgb |= UInt32((front * alpha + back * (1 - alpha)).rounded()) << shift
         }
-        self.init(
-            red: Double((value >> 16) & 0xFF) / 255.0,
-            green: Double((value >> 8) & 0xFF) / 255.0,
-            blue: Double(value & 0xFF) / 255.0
-        )
+        return ReaderHexColor(argb: 0xFF000000 | rgb)
+    }
+
+    var isDark: Bool {
+        let brightness = Double((argb >> 16) & 0xFF) * 0.299
+            + Double((argb >> 8) & 0xFF) * 0.587 + Double(argb & 0xFF) * 0.114
+        return brightness < 128
+    }
+
+    static let black = ReaderHexColor(argb: 0xFF000000)
+    static let white = ReaderHexColor(argb: 0xFFFFFFFF)
+}
+
+/// An invalid editor value used to make both colors gray. Keep the saved input editable,
+/// but draw a valid palette and recover text that would be invisible against its background.
+struct ReaderPalette {
+    let background: ReaderHexColor
+    let text: ReaderHexColor
+
+    init(backgroundHex: String, textHex: String) {
+        let background = (ReaderHexColor(hex: backgroundHex)
+            ?? ReaderHexColor(hex: ReaderTheme.custom.backgroundHex)!).composited(over: .white)
+        let candidate = ReaderHexColor(hex: textHex)
+            ?? ReaderHexColor(hex: ReaderTheme.custom.textHex)!
+        self.background = background
+        text = candidate.composited(over: background) == background
+            ? (background.isDark ? .white : .black) : candidate
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        self = ReaderHexColor(hex: hex)?.color ?? .gray
     }
 }
 
@@ -71,7 +126,7 @@ extension Color {
 public final class ReaderConfig: ObservableObject {
     public static let shared = ReaderConfig()
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     // MARK: Typography
 
@@ -170,19 +225,21 @@ public final class ReaderConfig: ObservableObject {
     private var pendingSave: DispatchWorkItem?
     private var baseStyle = ReadStyleConfig()
 
-    public init() {
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         restore()
         isRestoring = false
     }
 
     // MARK: Derived values used by the renderer
 
-    public var effectiveTextColor: Color {
-        theme == .custom ? Color(hex: customTextHex) : theme.textColor
+    var palette: ReaderPalette {
+        ReaderPalette(backgroundHex: theme == .custom ? customBgHex : theme.backgroundHex,
+                      textHex: theme == .custom ? customTextHex : theme.textHex)
     }
-    public var effectiveBackgroundColor: Color {
-        theme == .custom ? Color(hex: customBgHex) : theme.backgroundColor
-    }
+
+    public var effectiveTextColor: Color { palette.text.color }
+    public var effectiveBackgroundColor: Color { palette.background.color }
 
     /// The Android-shaped style snapshot, handed to `ContentProcessor` per chapter.
     public var styleConfig: ReadStyleConfig { makeStyleConfig() }
@@ -223,17 +280,22 @@ public final class ReaderConfig: ObservableObject {
     /// Slider drags fire dozens of mutations per second; coalesce the disk writes.
     private func persistStyle() {
         guard !isRestoring else { return }
-        scheduleSave { ReaderStore.save(self.makeStyleConfig(), to: self.defaults) }
+        scheduleSave()
     }
 
     private func persistPrefs() {
         guard !isRestoring else { return }
-        scheduleSave { ReaderStore.save(self.prefs, to: self.defaults) }
+        scheduleSave()
     }
 
-    private func scheduleSave(_ action: @escaping () -> Void) {
+    private func scheduleSave() {
         pendingSave?.cancel()
-        let work = DispatchWorkItem(block: action)
+        // A preference change must not cancel a pending theme save (or vice versa).
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            ReaderStore.save(self.makeStyleConfig(), to: self.defaults)
+            ReaderStore.save(self.prefs, to: self.defaults)
+        }
         pendingSave = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
@@ -289,7 +351,8 @@ public final class ReaderConfig: ObservableObject {
         paddingBottom = CGFloat(saved.paddingBottom)
         paddingLeading = CGFloat(saved.paddingLeft)
         paddingTrailing = CGFloat(saved.paddingRight)
-        if let matched = ReaderTheme.matching(backgroundHex: saved.bgStr) {
+        if saved.name != ReaderTheme.custom.rawValue,
+           let matched = ReaderTheme.matching(backgroundHex: saved.bgStr, textHex: saved.textColor) {
             theme = matched
         } else {
             theme = .custom
