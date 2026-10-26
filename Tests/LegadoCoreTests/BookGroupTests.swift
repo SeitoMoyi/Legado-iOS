@@ -113,12 +113,12 @@ final class BookGroupTests: XCTestCase {
 
     func testUserGroupTabMatchesStoredGroupId() {
         let pinned = Book(bookUrl: "https://x.test/1", name: "收藏", author: "作者",
-                          origin: "https://x.test", group: 7)
+                          origin: "https://x.test", group: 4)
         let loose = Book(bookUrl: "https://x.test/2", name: "未分组", author: "作者",
                          origin: "https://x.test", group: 0)
 
-        XCTAssertEqual(ShelfFilter.books([pinned, loose], inGroup: 7).map(\.name), ["收藏"])
-        XCTAssertTrue(ShelfFilter.books([pinned, loose], inGroup: 99).isEmpty)
+        XCTAssertEqual(ShelfFilter.books([pinned, loose], inGroup: 4).map(\.name), ["收藏"])
+        XCTAssertTrue(ShelfFilter.books([pinned, loose], inGroup: 8).isEmpty)
     }
 
     // MARK: - Source group display filtering (display-only, never rewrites the source)

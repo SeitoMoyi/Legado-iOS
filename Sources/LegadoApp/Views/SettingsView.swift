@@ -1073,7 +1073,7 @@ public struct HttpTTSListView: View {
 
     public var body: some View {
         List {
-            Section(header: Text("朗读引擎列表 (\(engines.count) 个)")) {
+            Section(header: Text("HTTP 朗读引擎 (\(engines.count) 个)"), footer: Text("系统原生朗读始终可用，无需添加规则。")) {
                 ForEach(engines) { engine in
                     Button {
                         editingEngine = engine
@@ -1084,7 +1084,7 @@ public struct HttpTTSListView: View {
                                 Text(engine.name)
                                     .font(.subheadline.bold())
                                     .foregroundColor(.primary)
-                                Text(engine.url.isEmpty ? "内置系统语音合成引擎" : engine.url)
+                                Text(engine.url.isEmpty ? "未设置请求网址" : engine.url)
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
@@ -1109,16 +1109,14 @@ public struct HttpTTSListView: View {
                             editingEngine = engine
                             isCreatingNew = false
                         }
-                        if engine.id != 1 {
-                            Button("删除", role: .destructive) {
-                                engines.removeAll { $0.id == engine.id }
-                                HttpTTSStore.save(engines)
-                            }
+                        Button("删除", role: .destructive) {
+                            engines.removeAll { $0.id == engine.id }
+                            HttpTTSStore.save(engines)
                         }
                     }
                 }
                 .onDelete { indexSet in
-                    for idx in indexSet.sorted(by: >) where engines[idx].id != 1 {
+                    for idx in indexSet.sorted(by: >) {
                         engines.remove(at: idx)
                     }
                     HttpTTSStore.save(engines)

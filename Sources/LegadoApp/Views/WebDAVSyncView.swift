@@ -326,7 +326,7 @@ public struct WebDAVSyncView: View {
                 }
             }
 
-            Text("支持直接生成或导入 Android/iOS 通用的 backup*.zip 压缩包（含书架、书源、书签、替换规则、搜索历史、阅读样式、TXT目录规则、阅读记录、订阅源、文章收藏 10 类完整数据），无需配置 WebDAV 也可跨设备迁移。")
+            Text("支持备份书架、书源、分组、字典和朗读规则等 \(WebDAVService.supportedBackupMembers.count) 类数据。不包含书籍文件、章节缓存及全部 Android 设置。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
@@ -418,7 +418,7 @@ public struct WebDAVSyncView: View {
             }
 
             let payload = try WebDAVService.shared.restorePayloadFromZip(fileUrl: selectedUrl)
-            let res = bookStore.restoreBackupPayload(payload)
+            let res = try bookStore.restoreBackupPayload(payload)
 
             alertTitle = "备份包导入成功"
             var lines = [
@@ -483,7 +483,7 @@ public struct WebDAVSyncView: View {
 
     private func testConnection() {
         isTesting = true
-        Task {
+        Task { @MainActor in
             do {
                 let msg = try await WebDAVService.shared.testConnection(config: currentConfig)
                 await MainActor.run {
@@ -505,7 +505,7 @@ public struct WebDAVSyncView: View {
 
     private func fetchRemoteBackups() {
         isFetchingBackups = true
-        Task {
+        Task { @MainActor in
             do {
                 let backups = try await WebDAVService.shared.listRemoteBackups(config: currentConfig)
                 await MainActor.run {
@@ -532,7 +532,7 @@ public struct WebDAVSyncView: View {
 
     private func backupToWebDAV() {
         isBackingUp = true
-        Task {
+        Task { @MainActor in
             do {
                 let result = try await WebDAVService.shared.backup(
                     books: bookStore.bookshelf,
@@ -562,13 +562,13 @@ public struct WebDAVSyncView: View {
 
     private func restoreFromWebDAV(backupFileName: String? = nil) {
         isRestoring = true
-        Task {
+        Task { @MainActor in
             do {
                 let payload = try await WebDAVService.shared.restorePayload(
                     config: currentConfig,
                     backupFileName: backupFileName
                 )
-                let result = bookStore.restoreBackupPayload(payload)
+                let result = try bookStore.restoreBackupPayload(payload)
                 await MainActor.run {
                     isRestoring = false
                     lastSyncTime = Date()

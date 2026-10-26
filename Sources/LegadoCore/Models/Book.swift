@@ -2,6 +2,15 @@ import Foundation
 
 // MARK: - Book
 
+/// Bit values from the Android snapshot's constant/BookType.kt. Keep them stable on export.
+public enum AndroidBookType {
+    public static let text: Int64 = 8
+    public static let updateError: Int64 = 16
+    public static let audio: Int64 = 32
+    public static let local: Int64 = 256
+    public static let notShelf: Int64 = 1024
+}
+
 public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var id: String { bookUrl }
 
@@ -47,8 +56,15 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     /// Android tags these with `origin == BookType.localTag`; iOS local imports additionally carry a
     /// scheme-prefixed `bookUrl` (`txt://`, `epub://`, `file://`), so both signals are accepted. Single
     /// source of truth for the 「本地书籍」/「书源书籍」 bookshelf split.
+    public var androidType: Int64 {
+        if case let .int(value)? = extra["type"] { return value }
+        return 0
+    }
+
+    public var isAudioBook: Bool { androidType & AndroidBookType.audio != 0 || (kind?.contains("音频") ?? false) }
+
     public var isLocalBook: Bool {
-        origin == "local"
+        androidType & AndroidBookType.local != 0 || origin == "loc_book" || origin == "local"
             || bookUrl.hasPrefix("txt://")
             || bookUrl.hasPrefix("epub://")
             || bookUrl.hasPrefix("file://")

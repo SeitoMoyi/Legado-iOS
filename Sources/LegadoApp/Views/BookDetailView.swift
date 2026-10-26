@@ -206,12 +206,8 @@ public struct BookDetailView: View {
                     }
                 }
             }
-            .confirmationDialog("设置分组", isPresented: $showGroupDialog, titleVisibility: .visible) {
-                Button("未分组") { applyGroup(0) }
-                ForEach(BookGroupStore.load().filter { $0.groupId > 0 }) { group in
-                    Button(group.groupName) { applyGroup(group.groupId) }
-                }
-                Button("取消", role: .cancel) {}
+            .sheet(isPresented: $showGroupDialog) {
+                BookGroupSelectionSheet(bookURLs: [currentBook.bookUrl])
             }
             .alert(actionAlertMessage, isPresented: $showActionAlert) {
                 Button("确定", role: .cancel) {}
@@ -374,7 +370,7 @@ public struct BookDetailView: View {
     private var readerCoverView: some View {
         let activeBook = isInBookshelf ? currentBookshelfBook : currentBook
         let resolvedSource = source ?? bookStore.findSource(for: activeBook)
-        if resolvedSource?.bookSourceType == 1 || (activeBook.kind?.contains("音频") ?? false) {
+        if resolvedSource?.bookSourceType == 1 || activeBook.isAudioBook {
             AudioPlayView(
                 book: activeBook,
                 source: resolvedSource,
@@ -479,7 +475,11 @@ public struct BookDetailView: View {
     private var groupName: String {
         let gid = currentBookshelfBook.group
         if gid == 0 { return "未分组" }
-        return BookGroupStore.load().first(where: { $0.groupId == gid })?.groupName ?? "未分组"
+        if !bookStore.usesGroupBitmasks {
+            return BookGroupStore.load().first { $0.groupId == gid }?.groupName ?? "未分组"
+        }
+        let names = BookGroupStore.load().filter { $0.groupId > 0 && gid & $0.groupId != 0 }.map(\.groupName)
+        return names.isEmpty ? "未分组" : names.joined(separator: "、")
     }
 
     /// 信息行：18pt 图标 + 13sp 次级文本 + 尾部 accent 小按钮（AccentBgTextView 对应物）。
@@ -641,15 +641,6 @@ public struct BookDetailView: View {
     }
 
     // MARK: - Helper Actions
-
-    private func applyGroup(_ groupId: Int64) {
-        bookStore.moveBooks(bookUrls: [currentBook.bookUrl], toGroupId: groupId)
-        if let updated = bookStore.bookshelf.first(where: { $0.bookUrl == currentBook.bookUrl }) {
-            currentBook = updated
-        }
-        actionAlertMessage = groupId == 0 ? "已移出分组" : "已移入分组"
-        showActionAlert = true
-    }
 
     private func toggleShelf() {
         if isInBookshelf {

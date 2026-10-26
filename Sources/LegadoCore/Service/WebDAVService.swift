@@ -312,11 +312,15 @@ public class WebDAVService {
         public var readRecords: [ReadRecord]?
         public var rssSources: [RssSource]?
         public var rssStars: [RssStar]?
+        public var bookGroups: [BookGroup]?
+        public var dictRules: [DictRule]?
+        public var httpTTS: [HttpTTS]?
         public var backupName: String?
 
         var hasSupportedMembers: Bool {
             books != nil || sources != nil || bookmarks != nil || replaceRules != nil || searchHistory != nil
                 || readConfig != nil || txtTocRules != nil || readRecords != nil || rssSources != nil || rssStars != nil
+                || bookGroups != nil || dictRules != nil || httpTTS != nil
         }
 
         public init(
@@ -330,6 +334,9 @@ public class WebDAVService {
             readRecords: [ReadRecord]? = nil,
             rssSources: [RssSource]? = nil,
             rssStars: [RssStar]? = nil,
+            bookGroups: [BookGroup]? = nil,
+            dictRules: [DictRule]? = nil,
+            httpTTS: [HttpTTS]? = nil,
             backupName: String? = nil
         ) {
             self.books = books
@@ -342,6 +349,9 @@ public class WebDAVService {
             self.readRecords = readRecords
             self.rssSources = rssSources
             self.rssStars = rssStars
+            self.bookGroups = bookGroups
+            self.dictRules = dictRules
+            self.httpTTS = httpTTS
             self.backupName = backupName
         }
     }
@@ -359,6 +369,9 @@ public class WebDAVService {
         readRecords: [ReadRecord]? = nil,
         rssSources: [RssSource]? = nil,
         rssStars: [RssStar]? = nil,
+        bookGroups: [BookGroup]? = nil,
+        dictRules: [DictRule]? = nil,
+        httpTTS: [HttpTTS]? = nil,
         deviceName: String = WebDAVConfig.defaultDeviceName,
         date: Date = Date()
     ) throws -> (data: Data, fileName: String) {
@@ -421,6 +434,12 @@ public class WebDAVService {
         if !resolvedRssStars.isEmpty {
             try writeEntry(resolvedRssStars, name: "rssStar.json")
         }
+        let groups = (bookGroups ?? BookGroupStore.load()).filter { $0.groupId != BookGroup.idNet }
+        if !groups.isEmpty { try writeEntry(groups, name: "bookGroup.json") }
+        let dictionaries = dictRules ?? DictRuleStore.load()
+        if !dictionaries.isEmpty { try writeEntry(dictionaries, name: "dictRule.json") }
+        let engines = (httpTTS ?? HttpTTSStore.load()).filter { $0.contentType != "system" }
+        if !engines.isEmpty { try writeEntry(engines, name: "httpTTS.json") }
 
         let zipFile = tempDir.appendingPathComponent(fileName)
         try {
@@ -722,48 +741,37 @@ public class WebDAVService {
             }
 
             let zipReq = makeRequest(url: targetBackup.url, method: "GET", config: config)
-            if let (zipData, zipResp) = try? await session.data(for: zipReq),
-               let httpZip = zipResp as? HTTPURLResponse, (200...299).contains(httpZip.statusCode),
-               let zipPayload = try? restorePayloadFromZip(data: zipData) {
-                payload = zipPayload
-                payload.backupName = targetBackup.fileName
-            }
+            let (zipData, zipResp) = try await session.data(for: zipReq)
+            guard let httpZip = zipResp as? HTTPURLResponse else { throw WebDAVError.custom("无效的备份响应") }
+            if [401, 403].contains(httpZip.statusCode) { throw WebDAVError.unauthorized }
+            guard (200..<300).contains(httpZip.statusCode) else { throw WebDAVError.serverError(httpZip.statusCode, targetBackup.fileName) }
+            payload = try restorePayloadFromZip(data: zipData)
+            payload.backupName = targetBackup.fileName
         }
 
         if backupFileName != nil && payload.backupName == nil { throw WebDAVError.backupNotFound }
         let restoredArchive = payload.backupName?.hasSuffix(".zip") == true
-        // Never mix a selected archive with loose files from another backup snapshot.
-        if !restoredArchive && payload.books == nil {
-            let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
-            let booksReq = makeRequest(url: booksUrl, method: "GET", config: config)
-            if let (booksData, booksResponse) = try? await session.data(for: booksReq),
-               let httpBooks = booksResponse as? HTTPURLResponse {
-                if httpBooks.statusCode == 401 || httpBooks.statusCode == 403 {
-                    throw WebDAVError.unauthorized
-                }
-                if (200...299).contains(httpBooks.statusCode) {
-                    if let decodedBooks = Book.decodeListWithExtras(from: booksData) {
-                        payload.books = decodedBooks
-                        if payload.backupName == nil { payload.backupName = "bookshelf.json" }
+        // An archive is one snapshot. Only use loose metadata when no archive was selected.
+        if !restoredArchive {
+            let entries = try await withThrowingTaskGroup(of: (String, Data?).self) { group in
+                for name in Self.supportedBackupMembers {
+                    group.addTask {
+                        var request = self.makeRequest(url: dirUrl.appendingPathComponent(name), method: "GET", config: config)
+                        request.timeoutInterval = 15
+                        let (data, response) = try await self.session.data(for: request)
+                        guard let response = response as? HTTPURLResponse else { throw WebDAVError.custom("无效的备份响应") }
+                        if [401, 403].contains(response.statusCode) { throw WebDAVError.unauthorized }
+                        if response.statusCode == 404 { return (name, nil) }
+                        guard (200..<300).contains(response.statusCode) else { throw WebDAVError.serverError(response.statusCode, name) }
+                        return (name, data)
                     }
                 }
+                var entries: [String: Data] = [:]
+                for try await (name, data) in group { if let data = data { entries[name] = data } }
+                return entries
             }
-        }
-
-        if !restoredArchive && payload.sources == nil {
-            let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
-            let sourcesReq = makeRequest(url: sourcesUrl, method: "GET", config: config)
-            if let (sourcesData, sourcesResponse) = try? await session.data(for: sourcesReq),
-               let httpSources = sourcesResponse as? HTTPURLResponse {
-                if httpSources.statusCode == 401 || httpSources.statusCode == 403 {
-                    throw WebDAVError.unauthorized
-                }
-                if (200...299).contains(httpSources.statusCode) {
-                    if let decodedSources = BookSource.decodeListWithExtras(from: sourcesData) {
-                        payload.sources = decodedSources
-                    }
-                }
-            }
+            payload = try decodeBackupMembers { entries[$0] }
+            payload.backupName = Self.supportedBackupMembers.first { entries[$0] != nil }
         }
 
         // 3. Sync any latest progress from remote bookProgress/ folder using single PROPFIND + concurrent batch fetch
@@ -882,6 +890,96 @@ public class WebDAVService {
         return result
     }
 
+    public static let supportedBackupMembers = [
+        "bookshelf.json", "bookSource.json", "bookmark.json", "replaceRule.json", "searchHistory.json",
+        "readConfig.json", "txtTocRule.json", "readRecord.json", "rssSources.json", "rssStar.json",
+        "bookGroup.json", "dictRule.json", "httpTTS.json"
+    ]
+
+    private func decodeBackupMembers(_ extractData: (String) throws -> Data?) throws -> BackupRestorePayload {
+        var payload = BackupRestorePayload()
+        // 1. bookshelf.json
+        if let data = try extractData("bookshelf.json"),
+           let decoded = Book.decodeListWithExtras(from: data) {
+            payload.books = decoded
+        }
+
+        // 2. bookSource.json
+        if let data = try extractData("bookSource.json"),
+           let decoded = BookSource.decodeListWithExtras(from: data) {
+            payload.sources = decoded
+        }
+
+        // 3. bookmark.json
+        if let data = try extractData("bookmark.json"),
+           let decoded = TolerantJSON.decodeList(Bookmark.self, from: data, fallback: Bookmark(bookName: "")) {
+            payload.bookmarks = decoded
+        }
+
+        // 4. replaceRule.json
+        if let data = try extractData("replaceRule.json"),
+           let decoded = TolerantJSON.decodeList(ReplaceRule.self, from: data, fallback: ReplaceRule()) {
+            payload.replaceRules = decoded
+        }
+
+        // 5. searchHistory.json
+        if let data = try extractData("searchHistory.json"),
+           let decoded = TolerantJSON.decodeList(SearchKeyword.self, from: data, fallback: SearchKeyword(word: "")) {
+            payload.searchHistory = decoded
+        }
+
+        // 6. readConfig.json
+        if let data = try extractData("readConfig.json") {
+            if let single = TolerantJSON.decode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()) {
+                payload.readConfig = single
+            } else if let list = TolerantJSON.decodeList(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()),
+                      let first = list.first {
+                payload.readConfig = first
+            }
+        }
+
+        // 7. txtTocRule.json
+        if let data = try extractData("txtTocRule.json"),
+           let decoded = TolerantJSON.decodeList(TxtTocRule.self, from: data, fallback: TxtTocRule()) {
+            payload.txtTocRules = decoded
+        }
+
+        // 8. readRecord.json
+        if let data = try extractData("readRecord.json"),
+           let decoded = TolerantJSON.decodeList(ReadRecord.self, from: data, fallback: ReadRecord()) {
+            payload.readRecords = decoded
+        }
+
+        // 9. rssSources.json
+        if let data = try extractData("rssSources.json"),
+           let decoded = TolerantJSON.decodeList(RssSource.self, from: data, fallback: RssSource()) {
+            payload.rssSources = decoded
+        }
+
+        // 10. rssStar.json
+        if let data = try extractData("rssStar.json"),
+           let decoded = TolerantJSON.decodeList(RssStar.self, from: data, fallback: RssStar()) {
+            payload.rssStars = decoded
+        }
+        if let data = try extractData("bookGroup.json") {
+            guard let groups = BookGroup.decodeListWithExtras(from: data) else { throw WebDAVError.decodingFailed("分组数据无效") }
+            for group in groups where group.groupId > 0 && !BookGroupCompatibility.isSingleBit(group.groupId) {
+                throw BookGroupCompatibilityError.invalidIdentifier(group.groupId)
+            }
+            payload.bookGroups = groups
+        }
+        if let data = try extractData("dictRule.json") {
+            guard let rules = DictRule.decodeListWithExtras(from: data) else { throw WebDAVError.decodingFailed("字典规则无效") }
+            payload.dictRules = rules
+        }
+        if let data = try extractData("httpTTS.json") {
+            guard let engines = HttpTTS.decodeListWithExtras(from: data) else { throw WebDAVError.decodingFailed("朗读规则无效") }
+            payload.httpTTS = engines
+        }
+
+        return payload
+    }
+
     /// Parses all supported Legado JSON members (bookshelf, bookSource, bookmark, replaceRule, searchHistory, readConfig, bookProgress) from a ZIP archive
     public func parseArchivePayload(_ archive: Archive) throws -> BackupRestorePayload {
         var payload = BackupRestorePayload()
@@ -897,69 +995,7 @@ public class WebDAVService {
             return data.isEmpty ? nil : data
         }
 
-        // 1. bookshelf.json
-        if let data = try extractData(named: "bookshelf.json"),
-           let decoded = Book.decodeListWithExtras(from: data) {
-            payload.books = decoded
-        }
-
-        // 2. bookSource.json
-        if let data = try extractData(named: "bookSource.json"),
-           let decoded = BookSource.decodeListWithExtras(from: data) {
-            payload.sources = decoded
-        }
-
-        // 3. bookmark.json
-        if let data = try extractData(named: "bookmark.json"),
-           let decoded = TolerantJSON.decodeList(Bookmark.self, from: data, fallback: Bookmark(bookName: "")) {
-            payload.bookmarks = decoded
-        }
-
-        // 4. replaceRule.json
-        if let data = try extractData(named: "replaceRule.json"),
-           let decoded = TolerantJSON.decodeList(ReplaceRule.self, from: data, fallback: ReplaceRule()) {
-            payload.replaceRules = decoded
-        }
-
-        // 5. searchHistory.json
-        if let data = try extractData(named: "searchHistory.json"),
-           let decoded = TolerantJSON.decodeList(SearchKeyword.self, from: data, fallback: SearchKeyword(word: "")) {
-            payload.searchHistory = decoded
-        }
-
-        // 6. readConfig.json
-        if let data = try extractData(named: "readConfig.json") {
-            if let single = TolerantJSON.decode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()) {
-                payload.readConfig = single
-            } else if let list = TolerantJSON.decodeList(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()),
-                      let first = list.first {
-                payload.readConfig = first
-            }
-        }
-
-        // 7. txtTocRule.json
-        if let data = try extractData(named: "txtTocRule.json"),
-           let decoded = TolerantJSON.decodeList(TxtTocRule.self, from: data, fallback: TxtTocRule()) {
-            payload.txtTocRules = decoded
-        }
-
-        // 8. readRecord.json
-        if let data = try extractData(named: "readRecord.json"),
-           let decoded = TolerantJSON.decodeList(ReadRecord.self, from: data, fallback: ReadRecord()) {
-            payload.readRecords = decoded
-        }
-
-        // 9. rssSources.json
-        if let data = try extractData(named: "rssSources.json"),
-           let decoded = TolerantJSON.decodeList(RssSource.self, from: data, fallback: RssSource()) {
-            payload.rssSources = decoded
-        }
-
-        // 10. rssStar.json
-        if let data = try extractData(named: "rssStar.json"),
-           let decoded = TolerantJSON.decodeList(RssStar.self, from: data, fallback: RssStar()) {
-            payload.rssStars = decoded
-        }
+        payload = try decodeBackupMembers { try extractData(named: $0) }
 
         // 11. Extract any internal bookProgress/*.json
         var progressMap: [String: BookProgress] = [:]

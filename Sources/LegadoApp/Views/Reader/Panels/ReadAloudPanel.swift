@@ -131,9 +131,13 @@ struct ReadAloudPanel: View {
     private var engineRow: some View {
         let engines = HttpTTSStore.load().filter { $0.enabled }
         return ReaderPanelMenuRow(title: "引擎", config: config, current: audio.selectedEngineName) {
+            Button("系统原生 TTS (本地离线)") {
+                audio.selectedEngineID = nil
+                if audio.isPlaying { audio.speakParagraph(at: audio.currentIndex) }
+            }
             ForEach(engines) { e in
                 Button(e.name) {
-                    audio.selectedEngineName = e.name
+                    audio.selectedEngineID = e.id
                     if audio.isPlaying {
                         audio.speakParagraph(at: audio.currentIndex)
                     }

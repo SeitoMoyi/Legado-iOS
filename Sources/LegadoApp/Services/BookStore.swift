@@ -11,6 +11,8 @@ public class BookStore: ObservableObject {
     @Published public var replaceRules: [ReplaceRule] = []
     @Published public var bookmarks: [Bookmark] = []
     @Published public var searchHistory: [SearchKeyword] = []
+    @Published public private(set) var groupMigrationIssue: String?
+    public var usesGroupBitmasks: Bool { defaults.bool(forKey: BookGroupStore.bitmaskVersionKey) }
 
     private let defaults: UserDefaults
     private let booksKey = "legado_bookshelf_v1"
@@ -56,6 +58,79 @@ public class BookStore: ObservableObject {
             from: defaults.data(forKey: booksKey) ?? Data()) {
             self.bookshelf = decodedBooks
         }
+        migrateBookGroupsIfNeeded()
+    }
+
+    private func commitGroupMigration(_ migration: BookGroupCompatibility.Migration) {
+        BookGroupStore.save(migration.groups, to: defaults)
+        bookshelf = migration.books
+        saveBookshelf()
+        if let data = try? JSONEncoder().encode(migration.legacyIDs) { defaults.set(data, forKey: BookGroupStore.legacyIDsKey) }
+        defaults.set(true, forKey: BookGroupStore.bitmaskVersionKey)
+        defaults.removeObject(forKey: BookGroupStore.migrationKey)
+        groupMigrationIssue = nil
+    }
+
+    private func migrateBookGroupsIfNeeded() {
+        do {
+            // Recover the complete snapshot if the app stopped between the individual
+            // defaults writes. Never reinterpret half-migrated bitmasks as old IDs.
+            if let pending = defaults.data(forKey: BookGroupStore.migrationKey) {
+                commitGroupMigration(try JSONDecoder().decode(BookGroupCompatibility.Migration.self, from: pending))
+                return
+            }
+            guard !usesGroupBitmasks else { return }
+            let migration = try BookGroupCompatibility.migrateLegacy(groups: BookGroupStore.load(from: defaults), books: bookshelf)
+            defaults.set(try JSONEncoder().encode(migration), forKey: BookGroupStore.migrationKey)
+            commitGroupMigration(migration)
+        } catch { groupMigrationIssue = error.localizedDescription }
+    }
+
+    @discardableResult
+    public func addBookGroup(name: String, enableRefresh: Bool = true) throws -> BookGroup {
+        guard usesGroupBitmasks else { throw BookGroupCompatibilityError.capacity }
+        var groups = BookGroupStore.load(from: defaults)
+        guard let id = BookGroupCompatibility.nextIdentifier(in: groups) else { throw BookGroupCompatibilityError.capacity }
+        let lastOrder = groups.map(\.order).max() ?? -1
+        let nextOrder = lastOrder < Int.max ? lastOrder + 1 : lastOrder
+        let group = BookGroup(groupId: id, groupName: name.trimmingCharacters(in: .whitespacesAndNewlines), order: nextOrder, enableRefresh: enableRefresh)
+        guard !group.groupName.isEmpty else { throw BookGroupCompatibilityError.invalidName }
+        groups.append(group)
+        BookGroupStore.save(groups, to: defaults)
+        objectWillChange.send()
+        return group
+    }
+
+    public func renameBookGroup(id: Int64, name: String, enableRefresh: Bool? = nil) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        var groups = BookGroupStore.load(from: defaults)
+        guard let index = groups.firstIndex(where: { $0.groupId == id }) else { return }
+        groups[index].groupName = name
+        if let enableRefresh = enableRefresh { groups[index].enableRefresh = enableRefresh }
+        BookGroupStore.save(groups, to: defaults)
+        objectWillChange.send()
+    }
+
+    public func deleteBookGroups(_ ids: Set<Int64>) {
+        let ids = ids.filter { $0 > 0 }
+        guard !ids.isEmpty else { return }
+        var groups = BookGroupStore.load(from: defaults)
+        groups.removeAll { ids.contains($0.groupId) }
+        let removed = ids.reduce(Int64(0), |)
+        for index in bookshelf.indices {
+            if usesGroupBitmasks { bookshelf[index].group &= ~removed }
+            else if ids.contains(bookshelf[index].group) { bookshelf[index].group = 0 }
+        }
+        if let data = defaults.data(forKey: BookGroupStore.legacyIDsKey),
+           var map = try? JSONDecoder().decode([String: Int64].self, from: data) {
+            for key in map.keys where ids.contains(map[key] ?? 0) { map[key] = 0 }
+            if let updated = try? JSONEncoder().encode(map) { defaults.set(updated, forKey: BookGroupStore.legacyIDsKey) }
+        }
+        BookGroupStore.save(groups, to: defaults)
+        saveBookshelf()
+        migrateBookGroupsIfNeeded()
+        objectWillChange.send()
     }
 
     public func saveSources() {
@@ -168,20 +243,37 @@ public class BookStore: ObservableObject {
     }
 
     /// Merges restored WebDAV books and sources into local storage
-    public func restoreFromWebDAV(books: [Book]?, sources: [BookSource]?) -> (booksAdded: Int, sourcesAdded: Int) {
-        let res = restoreBackupPayload(WebDAVService.BackupRestorePayload(books: books, sources: sources))
+    public func restoreFromWebDAV(books: [Book]?, sources: [BookSource]?) throws -> (booksAdded: Int, sourcesAdded: Int) {
+        let res = try restoreBackupPayload(WebDAVService.BackupRestorePayload(books: books, sources: sources))
         return (res.booksAdded, res.sourcesAdded)
     }
 
     /// Merges a full `BackupRestorePayload` (books, sources, bookmarks, replaceRules, searchHistory, readConfig) into local storage.
     @discardableResult
-    public func restoreBackupPayload(_ payload: WebDAVService.BackupRestorePayload) -> (booksAdded: Int, sourcesAdded: Int, bookmarksAdded: Int, rulesAdded: Int) {
+    public func restoreBackupPayload(_ payload: WebDAVService.BackupRestorePayload) throws -> (booksAdded: Int, sourcesAdded: Int, bookmarksAdded: Int, rulesAdded: Int) {
         var booksCount = 0
         var sourcesCount = 0
         var bookmarksCount = 0
         var rulesCount = 0
 
-        if let newBooks = payload.books {
+        var incomingBooks = payload.books
+        if payload.books != nil || payload.bookGroups != nil {
+            guard usesGroupBitmasks else { throw BookGroupCompatibilityError.capacity }
+            let currentGroups = BookGroupStore.load(from: defaults)
+            if payload.bookGroups == nil, let data = defaults.data(forKey: BookGroupStore.legacyIDsKey),
+               let mapping = try? JSONDecoder().decode([String: Int64].self, from: data) {
+                incomingBooks = incomingBooks?.map { original in
+                    var book = original; book.group = mapping[String(original.group)] ?? original.group; return book
+                }
+            }
+            let mask = (incomingBooks ?? []).filter { $0.group > 0 }.reduce(Int64(0)) { $0 | $1.group }
+            let definitions: [BookGroup] = payload.bookGroups ?? (currentGroups.filter { $0.groupId > 0 && ($0.groupId & mask) != 0 })
+            let merged = try BookGroupCompatibility.mergeAndroid(groups: definitions, books: incomingBooks ?? [], into: currentGroups)
+            BookGroupStore.save(merged.groups, to: defaults)
+            if payload.books != nil { incomingBooks = merged.books }
+        }
+
+        if let newBooks = incomingBooks {
             for b in newBooks {
                 if let idx = bookshelf.firstIndex(where: { $0.bookUrl == b.bookUrl }) {
                     var progress = BookProgress(book: bookshelf[idx])
@@ -248,6 +340,18 @@ public class BookStore: ObservableObject {
         }
         if let style = payload.readConfig {
             ReaderStore.save(style, to: defaults)
+        }
+        if let dictionaries = payload.dictRules {
+            let json = String(decoding: try JSONEncoder().encode(dictionaries), as: UTF8.self)
+            DictRuleStore.save(DictRuleStore.importJSON(json, into: DictRuleStore.load(from: defaults)), to: defaults)
+        }
+        if let engines = payload.httpTTS {
+            var current = HttpTTSStore.load(from: defaults)
+            for engine in engines {
+                if let index = current.firstIndex(where: { $0.id == engine.id && $0.contentType != "system" }) { current[index] = engine }
+                else { current.append(engine) }
+            }
+            HttpTTSStore.save(current, to: defaults)
         }
 
         if let newTxtRules = payload.txtTocRules, !newTxtRules.isEmpty {
@@ -416,9 +520,12 @@ public class BookStore: ObservableObject {
     }
 
     public func moveBooks(bookUrls: Set<String>, toGroupId groupId: Int64) {
+        guard groupId >= 0 else { return }
         guard !bookUrls.isEmpty else { return }
+        let known = BookGroupStore.load(from: defaults).filter { $0.groupId > 0 }.reduce(Int64(0)) { $0 | $1.groupId }
+        let target = usesGroupBitmasks ? groupId & known : groupId
         for i in 0..<bookshelf.count where bookUrls.contains(bookshelf[i].bookUrl) {
-            bookshelf[i].group = groupId
+            bookshelf[i].group = target
         }
         saveBookshelf()
     }
@@ -548,9 +655,9 @@ public class BookStore: ObservableObject {
 
     /// Refreshes all network books on the bookshelf concurrently
     @MainActor
-    public func refreshAllBooks() async {
+    public func refreshAllBooks(bookURLs: Set<String>? = nil) async {
         // Snapshot published state before starting workers; cache and shelf mutations stay here.
-        let jobs = bookshelf.filter { !$0.isLocalBook }.compactMap { book -> (Book, BookSource)? in
+        let jobs = bookshelf.filter { !$0.isLocalBook && (bookURLs?.contains($0.bookUrl) ?? true) }.compactMap { book -> (Book, BookSource)? in
             guard let source = findSource(for: book) else { return nil }
             return (book, source)
         }

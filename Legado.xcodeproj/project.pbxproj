@@ -491,13 +491,18 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>4</string>
+				<string>5</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
 				<string>YES</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
+				<key>HEADER_SEARCH_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
 				<key>INFOPLIST_FILE</key>
 				<string>Sources/LegadoApp/Info.plist</string>
 				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
@@ -513,7 +518,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.1</string>
+				<string>0.3.2</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>
@@ -524,20 +529,15 @@
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
 				<string>$(TARGET_NAME)</string>
-				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
-				<key>TARGETED_DEVICE_FAMILY</key>
-				<string>1,2</string>
-				<key>HEADER_SEARCH_PATHS</key>
-				<array>
-					<string>$(inherited)</string>
-					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
-				</array>
 				<key>SWIFT_INCLUDE_PATHS</key>
 				<array>
 					<string>$(inherited)</string>
 					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
 				</array>
+				<key>SWIFT_VERSION</key>
+				<string>5.0</string>
+				<key>TARGETED_DEVICE_FAMILY</key>
+				<string>1,2</string>
 			</dict>
 			<key>isa</key>
 			<string>XCBuildConfiguration</string>
@@ -770,6 +770,13 @@
 			<string>Sources/LegadoApp/Views/Reader/Sheets/EditContentSheet.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
+		<key>6257DC96BE958A2A858BF510</key>
+		<dict>
+			<key>fileRef</key>
+			<string>B9EBAB59D6941EFB58AFB5F6</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>62CAA263C56F8E41FC09582F</key>
 		<dict>
@@ -1079,6 +1086,8 @@
 				<string>9BE610A904E91C5CFB99B4DC</string>
 				<string>65D003BD862D210EF3AE35BF</string>
 				<string>9929C99A6C754F0A9473A91D</string>
+				<string>B9EBAB59D6941EFB58AFB5F6</string>
+				<string>A45F86FA02C36A0D3E241E27</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1091,6 +1100,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>19F010D0AE9B43D06C143693</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>7F09B662ADE41AACAA211A50</key>
+		<dict>
+			<key>fileRef</key>
+			<string>A45F86FA02C36A0D3E241E27</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1348,6 +1364,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>9929C99A6C754F0A9473A91D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>text</string>
+			<key>path</key>
+			<string>Runtime/LICENSE.QuickJS</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>9946C064294873BDE8BC5720</key>
 		<dict>
 			<key>isa</key>
@@ -1484,6 +1511,8 @@
 				<string>E4426AB2522941A4E635D5E9</string>
 				<string>0ACC150D97ADDD7A63122CBA</string>
 				<string>90E977AD54D81ACA8A5B24CA</string>
+				<string>6257DC96BE958A2A858BF510</string>
+				<string>7F09B662ADE41AACAA211A50</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1522,6 +1551,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>A45F86FA02C36A0D3E241E27</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/Bookshelf/BookGroupSelectionSheet.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>A475C73C0B3F38EC44FB86E3</key>
 		<dict>
 			<key>isa</key>
@@ -1537,6 +1577,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>9946C064294873BDE8BC5720</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>A595F14D334348198F367372</key>
+		<dict>
+			<key>fileRef</key>
+			<string>9929C99A6C754F0A9473A91D</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1690,6 +1737,17 @@
 			<string>3B768B619B0210A4736D26A8</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>B9EBAB59D6941EFB58AFB5F6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/BookGroupCompatibility.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>BA1F864FD654A78F1BB09449</key>
 		<dict>
@@ -2135,13 +2193,18 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>4</string>
+				<string>5</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
 				<string>YES</string>
 				<key>GENERATE_INFOPLIST_FILE</key>
 				<string>YES</string>
+				<key>HEADER_SEARCH_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
 				<key>INFOPLIST_FILE</key>
 				<string>Sources/LegadoApp/Info.plist</string>
 				<key>INFOPLIST_KEY_CFBundleDisplayName</key>
@@ -2157,7 +2220,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.1</string>
+				<string>0.3.2</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>
@@ -2168,20 +2231,15 @@
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
 				<string>$(TARGET_NAME)</string>
-				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
-				<key>TARGETED_DEVICE_FAMILY</key>
-				<string>1,2</string>
-				<key>HEADER_SEARCH_PATHS</key>
-				<array>
-					<string>$(inherited)</string>
-					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
-				</array>
 				<key>SWIFT_INCLUDE_PATHS</key>
 				<array>
 					<string>$(inherited)</string>
 					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
 				</array>
+				<key>SWIFT_VERSION</key>
+				<string>5.0</string>
+				<key>TARGETED_DEVICE_FAMILY</key>
+				<string>1,2</string>
 			</dict>
 			<key>isa</key>
 			<string>XCBuildConfiguration</string>
@@ -2262,24 +2320,6 @@
 			<string>E6A5696F85EF7F1815D5F780</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
-		</dict>
-		<key>9929C99A6C754F0A9473A91D</key>
-		<dict>
-			<key>isa</key>
-			<string>PBXFileReference</string>
-			<key>lastKnownFileType</key>
-			<string>text</string>
-			<key>path</key>
-			<string>Runtime/LICENSE.QuickJS</string>
-			<key>sourceTree</key>
-			<string>&lt;group&gt;</string>
-		</dict>
-		<key>A595F14D334348198F367372</key>
-		<dict>
-			<key>isa</key>
-			<string>PBXBuildFile</string>
-			<key>fileRef</key>
-			<string>9929C99A6C754F0A9473A91D</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

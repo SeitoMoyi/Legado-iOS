@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-26）**：发布版本 `v0.3.1`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；下一步按 Android 模型补分组和备份互通。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-26）**：发布版本 `v0.3.2`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、迁移和 13 类备份；下一步补其余成员保真、样式 / 偏好与订阅。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
 
 ---
 
@@ -109,7 +109,7 @@
   - 5 种排序规则：最近阅读、最近更新、书名排序、作者排序、**手动排序（可拖拽）**——手动模式下列表出现拖拽把手，重排结果以 `Book.order` 持久化（对齐 Android），新书自动置顶。
 - **分组体系 (`BookGroupStore`)**：
   - 默认虚拟分组：「全部」、「书源书籍」（网络源）、「本地书籍」（TXT/EPUB）。
-  - 支持新建与删除自定义分组（暂无重命名）；多选批量管理支持一键移入指定分组。当前一本书只匹配一个自定义组，尚未实现 Android 位掩码多组归属。
+  - 支持多组成员、分组重命名 / 删除、顺序与刷新开关。旧时间戳 ID 自动迁移并可从中断恢复；备份分组冲突会重映射，保持本地成员关系。
 - **多选批量管理**：
   - 右上角 `⋯` 菜单进入选择模式，底部浮出批量操作栏：全选、反选、批量清理章节缓存、批量移入分组、批量移除书籍。
 - **书架二级菜单（部分对齐 Android `main_bookshelf.xml`）**：
@@ -142,8 +142,8 @@
 
 ### 8. WebDAV 与本地备份（部分 Android 兼容）
 - **ZIP 备份与恢复**：沿用 Android 的 `backup<yyyy-MM-dd>-<设备>.zip` 命名，可通过 WebDAV 或本地文件导出 / 恢复。
-- **已支持的文件名**：`bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json`、`txtTocRule.json`、`readRecord.json`、`rssSources.json`、`rssStar.json`。除书架 / 书源外，其它成员按数据是否存在决定是否写入。
-- **兼容性边界**：Android 有 21 个候选备份成员，iOS 仍缺分组、规则订阅、HttpTTS、字典、主题、配置等 11 个成员。阅读样式已导出为数组，但只含当前样式、恢复也只取首项；分组位掩码与单书阅读配置尚未对齐。阅读记录已按设备 + 书名合并。详见 [Plan.md 的备份表](Plan.md#current-gaps)。
+- **已支持的文件名**：`bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json`、`txtTocRule.json`、`readRecord.json`、`rssSources.json`、`rssStar.json`、`bookGroup.json`、`dictRule.json`、`httpTTS.json`。除书架 / 书源外，其它成员按数据是否存在决定是否写入。
+- **兼容性边界**：Android 有 21 个候选备份成员，iOS 已支持分组、HttpTTS、字典等 13 个成员，仍缺规则订阅、主题、配置等 8 个成员。阅读样式已导出为数组，但只含当前样式、恢复也只取首项；分组位掩码已接入，单书阅读配置尚未对齐。阅读记录已按设备 + 书名合并。详见 [Plan.md 的备份表](Plan.md#current-gaps)。
 - **独立阅读进度**：阅读器可按时间比较远端进度并拉取 / 上传，保存阅读位置时也会上传独立 `bookProgress/<书名>_<作者>.json`。ZIP 导出不生成该目录；恢复能读取 ZIP 内、邻接或远端进度目录；恢复与手动同步共用阅读时间优先、缺时间或同时间时比较章节 / 位置的策略。目录检查时间不参与进度比较。详情页暂无独立双向同步入口。
 - **文件范围**：备份不含本地 TXT / EPUB 文件、解包资源、目录 / 正文缓存；未知 Android 成员不会在下次 iOS 备份中保留。恢复书架元数据不等于恢复书籍文件。
 - **书签汇总 (`AllBookmarksView`)**：按书名 / 作者分组，支持检索、编辑 / 删除及 JSON / Markdown 复制导出。
@@ -283,7 +283,7 @@ Legado-iOS/
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Runtime/                      # 固定 QuickJS 源码、C 宿主桥与 Swift 适配器，已接入 App
-├── Tests/                        # 自动化测试（30 文件 384 例：Core + App + Runtime）
+├── Tests/                        # 自动化测试（31 文件 404 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -305,10 +305,10 @@ Legado-iOS/
    ```
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 377 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 384 项；不可达时会跳过
+   swift test --skip LiveSourceTests   # 397 项非联网测试，缺少外部样本时显式 skipped
+   swift test                          # 另含 7 项真实书源联网冒烟，共 404 项；不可达时会跳过
    ```
-   v0.3.0 发布验证为 363 项；v0.3.1 App 引擎接入（2026-10-26）macOS SPM 报告 377 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0 发布验证为 363 项；v0.3.2 数据兼容（2026-10-26）macOS SPM 报告 397 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash

@@ -27,8 +27,13 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
     @Published public private(set) var currentIndex: Int = 0
     @Published public private(set) var isPlaying: Bool = false
     @Published public private(set) var isPaused: Bool = false
-    /// Selected engine name (defaults to System)
-    @Published public var selectedEngineName: String = "系统原生 TTS (本地离线)"
+    /// nil selects system speech. HTTP engines keep Android's stable id, so equal display
+    /// names cannot silently select a different endpoint.
+    @Published public var selectedEngineID: Int64? = nil
+    public var selectedEngineName: String {
+        get { HttpTTSStore.engine(id: selectedEngineID, in: HttpTTSStore.load())?.name ?? "系统原生 TTS (本地离线)" }
+        set { selectedEngineID = HttpTTSStore.load().first { $0.name == newValue && $0.enabled }?.id }
+    }
     /// Chapter-relative character offset of the paragraph being spoken.
     @Published public private(set) var currentCharPos: Int = 0
     @Published public private(set) var currentParagraph: String = ""
@@ -120,7 +125,7 @@ public final class AudioBookService: NSObject, ObservableObject, AVSpeechSynthes
         paragraphStartOffset = ReadAloudText.offset(of: paragraphs, at: index)
         currentCharPos = paragraphStartOffset
 
-        let activeEngine = HttpTTSStore.load().first { $0.name == selectedEngineName && $0.enabled }
+        let activeEngine = HttpTTSStore.engine(id: selectedEngineID, in: HttpTTSStore.load())
 
         if let engine = activeEngine, !engine.url.isEmpty {
             speakWithHttpTTS(engine: engine, text: currentParagraph)

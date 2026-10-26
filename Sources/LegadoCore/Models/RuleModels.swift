@@ -540,7 +540,8 @@ public enum ReadRecordStore {
 
 // MARK: - DictRule (Android DictRule.kt Counterpart)
 
-public struct DictRule: Codable, Identifiable, Equatable {
+public struct DictRule: Codable, Identifiable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
     public var id: String { name }
     public var name: String
     public var urlRule: String
@@ -561,6 +562,29 @@ public struct DictRule: Codable, Identifiable, Equatable {
         self.enabled = enabled
         self.sortNumber = sortNumber
     }
+    enum CodingKeys: String, CodingKey, CaseIterable { case name, urlRule, showRule, enabled, sortNumber }
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        urlRule = try container.decodeIfPresent(String.self, forKey: .urlRule) ?? ""
+        showRule = try container.decodeIfPresent(String.self, forKey: .showRule) ?? ""
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        sortNumber = try container.decodeIfPresent(Int.self, forKey: .sortNumber) ?? 0
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(urlRule, forKey: .urlRule)
+        try container.encode(showRule, forKey: .showRule)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(sortNumber, forKey: .sortNumber)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 public enum DictRuleStore {
@@ -587,8 +611,7 @@ public enum DictRuleStore {
         guard let data = defaults.data(forKey: key) else {
             return defaultRules
         }
-        let list = TolerantJSON.decodeList(DictRule.self, from: data, fallback: DictRule()) ?? []
-        return list.isEmpty ? defaultRules : list
+        return TolerantJSON.decodeList(DictRule.self, from: data, fallback: DictRule()) ?? defaultRules
     }
 
     public static func save(_ rules: [DictRule], to defaults: UserDefaults = .standard) {
@@ -627,7 +650,8 @@ public enum DictRuleStore {
 
 // MARK: - HttpTTS (Android HttpTTS.kt Counterpart)
 
-public struct HttpTTS: Codable, Identifiable, Equatable {
+public struct HttpTTS: Codable, Identifiable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
     public var id: Int64
     public var name: String
     public var url: String
@@ -662,39 +686,76 @@ public struct HttpTTS: Codable, Identifiable, Equatable {
         self.loginCheckJs = loginCheckJs
         self.enabled = enabled
     }
+    enum CodingKeys: String, CodingKey, CaseIterable { case id, name, url, contentType, concurrentRate, header, loginUrl, loginUi, loginCheckJs, enabled }
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int64.self, forKey: .id) ?? Int64(Date().timeIntervalSince1970 * 1000)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        contentType = try container.decodeIfPresent(String.self, forKey: .contentType)
+        concurrentRate = try container.decodeIfPresent(String.self, forKey: .concurrentRate)
+        header = try container.decodeIfPresent(String.self, forKey: .header)
+        loginUrl = try container.decodeIfPresent(String.self, forKey: .loginUrl)
+        loginUi = try container.decodeIfPresent(String.self, forKey: .loginUi)
+        loginCheckJs = try container.decodeIfPresent(String.self, forKey: .loginCheckJs)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(url, forKey: .url)
+        try container.encodeIfPresent(contentType, forKey: .contentType)
+        try container.encodeIfPresent(concurrentRate, forKey: .concurrentRate)
+        try container.encodeIfPresent(header, forKey: .header)
+        try container.encodeIfPresent(loginUrl, forKey: .loginUrl)
+        try container.encodeIfPresent(loginUi, forKey: .loginUi)
+        try container.encodeIfPresent(loginCheckJs, forKey: .loginCheckJs)
+        try container.encode(enabled, forKey: .enabled)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 public enum HttpTTSStore {
     public static let key = "legado_http_tts_v1"
 
-    public static let defaultEngines: [HttpTTS] = [
-        HttpTTS(
-            id: 1,
-            name: "系统原生 TTS (本地离线)",
-            url: "",
-            contentType: "system",
-            enabled: true
-        )
-    ]
+    /// System speech is a virtual UI choice, not an Android HttpTTS database row.
+    public static let defaultEngines: [HttpTTS] = []
+
+    public static func engine(id: Int64?, in engines: [HttpTTS]) -> HttpTTS? {
+        guard let id = id else { return nil }
+        return engines.first { $0.id == id && $0.enabled && $0.contentType != "system" }
+    }
+
+    private static func normalized(_ engines: [HttpTTS]) -> [HttpTTS] {
+        var result: [HttpTTS] = []
+        for engine in engines where engine.contentType != "system" {
+            if let index = result.firstIndex(where: { $0.id == engine.id }) { result[index] = engine }
+            else { result.append(engine) }
+        }
+        return result
+    }
 
     public static func load(from defaults: UserDefaults = .standard) -> [HttpTTS] {
         guard let data = defaults.data(forKey: key) else {
             return defaultEngines
         }
-        let list = TolerantJSON.decodeList(HttpTTS.self, from: data, fallback: HttpTTS()) ?? []
-        return list.isEmpty ? defaultEngines : list
+        return normalized(TolerantJSON.decodeList(HttpTTS.self, from: data, fallback: HttpTTS()) ?? defaultEngines)
     }
 
     public static func save(_ engines: [HttpTTS], to defaults: UserDefaults = .standard) {
-        if let data = try? JSONEncoder().encode(engines) {
-            defaults.set(data, forKey: key)
-        }
+        if let data = try? JSONEncoder().encode(normalized(engines)) { defaults.set(data, forKey: key) }
     }
 
     public static func exportJSON(_ engines: [HttpTTS]) -> String? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
-        guard let data = try? encoder.encode(engines) else { return nil }
+        guard let data = try? encoder.encode(normalized(engines)) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
@@ -707,9 +768,9 @@ public enum HttpTTSStore {
             imported = [single]
         }
         guard !imported.isEmpty else { return current }
-        var result = current
-        for item in imported {
-            if let idx = result.firstIndex(where: { $0.id == item.id || $0.name == item.name }) {
+        var result = normalized(current)
+        for item in normalized(imported) {
+            if let idx = result.firstIndex(where: { $0.id == item.id }) {
                 result[idx] = item
             } else {
                 result.append(item)
@@ -721,7 +782,8 @@ public enum HttpTTSStore {
 
 // MARK: - BookGroup (Android BookGroup.kt Counterpart)
 
-public struct BookGroup: Codable, Identifiable, Equatable {
+public struct BookGroup: Codable, Identifiable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
     public var id: Int64 { groupId }
     public var groupId: Int64
     public var groupName: String
@@ -731,6 +793,7 @@ public struct BookGroup: Codable, Identifiable, Equatable {
     public var show: Bool
     public var bookSort: Int
 
+    public static let idRoot: Int64 = -100
     public static let idAll: Int64 = -1
     public static let idLocal: Int64 = -2
     public static let idAudio: Int64 = -3
@@ -760,10 +823,40 @@ public struct BookGroup: Codable, Identifiable, Equatable {
         self.show = show
         self.bookSort = bookSort
     }
+    enum CodingKeys: String, CodingKey, CaseIterable { case groupId, groupName, cover, order, enableRefresh, show, bookSort }
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupId = try container.decodeIfPresent(Int64.self, forKey: .groupId) ?? 1
+        groupName = try container.decodeIfPresent(String.self, forKey: .groupName) ?? ""
+        cover = try container.decodeIfPresent(String.self, forKey: .cover)
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
+        enableRefresh = try container.decodeIfPresent(Bool.self, forKey: .enableRefresh) ?? true
+        show = try container.decodeIfPresent(Bool.self, forKey: .show) ?? true
+        bookSort = try container.decodeIfPresent(Int.self, forKey: .bookSort) ?? -1
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(groupId, forKey: .groupId)
+        try container.encode(groupName, forKey: .groupName)
+        try container.encodeIfPresent(cover, forKey: .cover)
+        try container.encode(order, forKey: .order)
+        try container.encode(enableRefresh, forKey: .enableRefresh)
+        try container.encode(show, forKey: .show)
+        try container.encode(bookSort, forKey: .bookSort)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 }
 
 public enum BookGroupStore {
     public static let key = "legado_book_groups_v2"
+    public static let bitmaskVersionKey = "legado_book_groups_bitmask_v1"
+    public static let migrationKey = "legado_book_groups_pending_migration_v1"
+    public static let legacyIDsKey = "legado_book_groups_legacy_ids_v1"
 
     /// v1 shipped 「养肥中」/「已完结」 as the two seed groups; they are gone, so any persisted copy
     /// is migrated away instead of lingering on the shelf tabs.
@@ -807,7 +900,7 @@ public enum BookGroupStore {
         persistedIn defaults: UserDefaults,
         alreadyStored: Bool
     ) -> [BookGroup] {
-        var result = groups.filter { !isRetiredDefault($0) }
+        var result = defaults.bool(forKey: bitmaskVersionKey) ? groups : groups.filter { !isRetiredDefault($0) }
 
         if !result.contains(where: { $0.groupId == BookGroup.idAll }) {
             result.insert(defaultGroups[0], at: 0)
@@ -819,7 +912,10 @@ public enum BookGroupStore {
             result.append(defaultGroups[2])
         }
 
-        if !alreadyStored || result.count != groups.count {
+        result = result.enumerated().sorted {
+            $0.element.order == $1.element.order ? $0.offset < $1.offset : $0.element.order < $1.element.order
+        }.map(\.element)
+        if !alreadyStored || result != groups {
             save(result, to: defaults)
         }
         return result
@@ -847,15 +943,7 @@ public enum BookGroupStore {
             imported = [single]
         }
         guard !imported.isEmpty else { return current }
-        var result = current
-        for item in imported {
-            if let idx = result.firstIndex(where: { $0.groupId == item.groupId || $0.groupName == item.groupName }) {
-                result[idx] = item
-            } else {
-                result.append(item)
-            }
-        }
-        return result
+        return (try? BookGroupCompatibility.mergeAndroid(groups: imported, books: [], into: current).groups) ?? current
     }
 }
 
@@ -864,16 +952,24 @@ public enum BookGroupStore {
 /// Android resolves the virtual group ids inside `BookDao.flowGroupBooks`; iOS keeps the same idea in
 /// one place so the 书架 view stays a pure rendering layer and the rule can be exercised directly.
 public enum ShelfFilter {
-    public static func books(_ books: [Book], inGroup groupId: Int64) -> [Book] {
+    public static func books(_ books: [Book], inGroup groupId: Int64,
+                             groups: [BookGroup] = BookGroupStore.load(), legacyAssignments: Bool = false) -> [Book] {
+        let visible = books.filter { $0.androidType & AndroidBookType.notShelf == 0 }
+        let knownMask = groups.filter { $0.groupId > 0 }.reduce(Int64(0)) { $0 | $1.groupId }
         switch groupId {
-        case BookGroup.idAll:
-            return books
-        case BookGroup.idLocal:
-            return books.filter { $0.isLocalBook }
-        case BookGroup.idNet:
-            return books.filter { !$0.isLocalBook }
+        case BookGroup.idAll: return visible
+        case BookGroup.idLocal: return visible.filter { $0.isLocalBook }
+        case BookGroup.idNet: return visible.filter { !$0.isLocalBook }
+        case BookGroup.idAudio: return visible.filter { $0.isAudioBook }
+        case BookGroup.idError: return visible.filter { $0.androidType & AndroidBookType.updateError != 0 }
+        case BookGroup.idNetNone: return visible.filter { !$0.isLocalBook && !$0.isAudioBook && $0.group & knownMask == 0 }
+        case BookGroup.idLocalNone: return visible.filter { $0.isLocalBook && $0.group & knownMask == 0 }
+        case BookGroup.idRoot:
+            guard !groups.contains(where: { $0.groupId == BookGroup.idNetNone && $0.show }) else { return [] }
+            return visible.filter { !$0.isLocalBook && !$0.isAudioBook && ($0.androidType == 0 || $0.androidType & AndroidBookType.text != 0) && $0.group & knownMask == 0 }
         default:
-            return books.filter { $0.group == groupId }
+            guard groupId > 0 else { return [] }
+            return visible.filter { legacyAssignments ? $0.group == groupId : ($0.group > 0 && $0.group & groupId != 0) }
         }
     }
 }

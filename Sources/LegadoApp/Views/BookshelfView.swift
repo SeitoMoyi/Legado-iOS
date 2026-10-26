@@ -60,7 +60,7 @@ public struct BookshelfView: View {
     }
 
     private var currentGroupFilteredBooks: [Book] {
-        ShelfFilter.books(bookStore.bookshelf, inGroup: selectedGroupId)
+        ShelfFilter.books(bookStore.bookshelf, inGroup: selectedGroupId, groups: BookGroupStore.load(), legacyAssignments: !bookStore.usesGroupBitmasks)
     }
     private var sortOrder: BookshelfSortOrder {
         BookshelfSortOrder(rawValue: sortOrderRaw) ?? .recentRead
@@ -132,7 +132,7 @@ public struct BookshelfView: View {
                                 .padding(.vertical, 12)
                             }
                             .refreshable {
-                                await bookStore.refreshAllBooks()
+                                await refreshVisibleBooks()
                             }
                         } else {
                             List {
@@ -172,7 +172,7 @@ public struct BookshelfView: View {
                             .deleteDisabled(sortOrder == .manual)
                             .modifier(ManualSortEditMode(isActive: sortOrder == .manual))
                             .refreshable {
-                                await bookStore.refreshAllBooks()
+                                await refreshVisibleBooks()
                             }
                             #if os(iOS)
                             .listStyle(.insetGrouped)
@@ -355,20 +355,11 @@ public struct BookshelfView: View {
                 } message: {
                     Text(shelfAlertMessage)
                 }
-                .confirmationDialog("将选中的 \(selectedBookUrls.count) 本书籍移入分组", isPresented: $showMoveGroupDialog, titleVisibility: .visible) {
-                    ForEach(BookGroupStore.load().filter { $0.groupId > 0 }) { g in
-                        Button(g.groupName) {
-                            bookStore.moveBooks(bookUrls: selectedBookUrls, toGroupId: g.groupId)
-                            selectedBookUrls.removeAll()
-                            isSelecting = false
-                        }
-                    }
-                    Button("设为未分组", role: .destructive) {
-                        bookStore.moveBooks(bookUrls: selectedBookUrls, toGroupId: 0)
+                .sheet(isPresented: $showMoveGroupDialog) {
+                    BookGroupSelectionSheet(bookURLs: selectedBookUrls, onSaved: {
                         selectedBookUrls.removeAll()
                         isSelecting = false
-                    }
-                    Button("取消", role: .cancel) {}
+                    })
                 }
                 .confirmationDialog("确认从书架移除选中的 \(selectedBookUrls.count) 本书籍？", isPresented: $showBatchDeleteConfirm, titleVisibility: .visible) {
                     Button("移除 (\(selectedBookUrls.count))", role: .destructive) {
@@ -422,6 +413,9 @@ public struct BookshelfView: View {
             #endif
         }
         .onAppear { consumePendingBook() }
+        .onChange(of: bookGroups.map(\.groupId)) { ids in
+            if !ids.contains(selectedGroupId) { selectedGroupId = BookGroup.idAll }
+        }
         .onChange(of: launchRouter.pendingBook) { _ in consumePendingBook() }
     }
 
@@ -432,6 +426,12 @@ public struct BookshelfView: View {
         launchRouter.pendingBook = nil
         selectedGroupId = BookGroup.idAll
         selectedBook = book
+    }
+
+    @MainActor
+    private func refreshVisibleBooks() async {
+        guard BookGroupStore.load().first(where: { $0.groupId == selectedGroupId })?.enableRefresh != false else { return }
+        await bookStore.refreshAllBooks(bookURLs: Set(currentGroupFilteredBooks.map(\.bookUrl)))
     }
 
     private func toggleSelection(for url: String) {
@@ -538,7 +538,7 @@ public struct BookshelfView: View {
     @ViewBuilder
     private func readerCoverView(for book: Book) -> some View {
         let source = bookStore.findSource(for: book)
-        if source?.bookSourceType == 1 || (book.kind?.contains("音频") ?? false) {
+        if source?.bookSourceType == 1 || book.isAudioBook {
             AudioPlayView(book: book, source: source, onDismiss: {
                 selectedBook = nil
             })
@@ -767,70 +767,44 @@ struct BookGridCell: View {
 
 struct BookGroupManageSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var store = BookStore.shared
     @State private var groups: [BookGroup] = []
-    @State private var newGroupName: String = ""
-    @State private var showAddAlert: Bool = false
+    @State private var editing: BookGroup?
 
     var body: some View {
         NavigationView {
             List {
                 Section(header: Text("书架分组列表")) {
-                    ForEach(groups) { g in
-                        HStack {
-                            Text(g.groupName)
-                                .font(.subheadline.bold())
-                            Spacer()
-                            if g.groupId > 0 {
-                                Text("自定义分组")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text("系统内置")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
+                    ForEach(groups) { group in
+                        Button { editing = group } label: {
+                            HStack {
+                                Text(group.groupName).font(.subheadline.bold())
+                                Spacer()
+                                Text(group.groupId > 0 ? "自定义分组" : "系统内置").font(.caption2).foregroundColor(.secondary)
                             }
                         }
                     }
-                    .onDelete { indexSet in
-                        for idx in indexSet.sorted(by: >) where groups[idx].groupId > 0 {
-                            groups.remove(at: idx)
-                        }
-                        BookGroupStore.save(groups)
+                    .onDelete { indexes in
+                        store.deleteBookGroups(Set(indexes.map { groups[$0].groupId }))
+                        groups = BookGroupStore.load()
                     }
                 }
+                if let issue = store.groupMigrationIssue { Text(issue).foregroundColor(.secondary) }
             }
             .navigationTitle("分组管理")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("完成") { dismiss() }
-                }
+                ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showAddAlert = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+                    Button { editing = BookGroup(groupId: 0) } label: { Image(systemName: "plus") }
                 }
             }
-            .alert("新建分组", isPresented: $showAddAlert) {
-                TextField("分组名称", text: $newGroupName)
-                Button("取消", role: .cancel) { newGroupName = "" }
-                Button("确定") {
-                    let trimmed = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        let newId = Int64(Date().timeIntervalSince1970)
-                        groups.append(BookGroup(groupId: newId, groupName: trimmed, order: groups.count))
-                        BookGroupStore.save(groups)
-                    }
-                    newGroupName = ""
-                }
+            .sheet(item: $editing, onDismiss: { groups = BookGroupStore.load() }) { group in
+                BookGroupNameEditor(group: group)
             }
-            .onAppear {
-                groups = BookGroupStore.load()
-            }
+            .onAppear { groups = BookGroupStore.load() }
         }
     }
 }
