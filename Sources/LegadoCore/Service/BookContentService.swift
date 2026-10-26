@@ -261,15 +261,16 @@ public class BookContentService {
 
     private func makeAnalyzer(for parsed: NetworkClient.ParsedRequest, source: BookSource,
                               book: Book? = nil) async throws -> RuleAnalyzer {
-        let response = try await NetworkClient.shared.request(parsed: parsed)
+        let fetched = try await NetworkClient.shared.request(parsed: parsed)
         try Task.checkCancellation()
+        let engine = JSEngine(bookSource: source, book: book, baseUrl: fetched.url?.absoluteString ?? parsed.url.absoluteString)
+        try engine.checkReady()
+        let response = try engine.checkedResponse(fetched, requestedURL: parsed.url)
         guard (200..<400).contains(response.statusCode) else {
             throw NSError(domain: "Legado.HTTP", code: response.statusCode,
                           userInfo: [NSLocalizedDescriptionKey: "HTTP \(response.statusCode)"])
         }
-        let absolute = parsed.url.absoluteString
-        let engine = JSEngine(bookSource: source, book: book, baseUrl: absolute)
-        try engine.checkReady()
+        let absolute = response.url?.absoluteString ?? parsed.url.absoluteString
         return RuleAnalyzer(
             content: response.bodyString,
             baseUrl: absolute,

@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-26）**：发布版本 `v0.3.3`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；下一步补登录 / RSS 与规则直链流程。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-26）**：发布版本 `v0.3.4`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；下一步补书单 / 日志与整合回归。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
 
 ---
 
@@ -23,13 +23,13 @@
   - 右上角多选模式：支持批量启用、禁用、全选、反选、导出 JSON 及批量删除。
   - 拖拽排序模式：长按把手重排书源，`customOrder` 重写为 0…n-1，换源候选按新优先级排列（对齐 Android 书源优先级语义）。
   - 5 并发搜索有效性校验（未覆盖 Android 全部校验阶段）：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时；`bookSourceGroup` 等已知字段原样保留。
-  - **扫码导入**：AVFoundation 相机扫码或相册选图 `CIDetector` 离线识别，按字段形态识别书源 / 替换规则 / 订阅源 / 字典规则 / WebDAV 配置；HTTP(S) 链接提供按网址添加书籍与复制，尚未接入扫码下载规则直链；书源管理长按菜单可**生成分享二维码**（单条书源的 JSON 数组，超容量自动提示）。
+  - **扫码导入**：AVFoundation 相机扫码或相册选图 `CIDetector` 离线识别，按字段形态识别书源 / 替换规则 / 订阅源 / 字典规则 / WebDAV 配置；HTTP(S) / legado / yuedu 链接可下载并预览规则，HTTP(S) 还提供按网址添加书籍与复制；书源管理长按菜单可**生成分享二维码**（单条书源的 JSON 数组，超容量自动提示）。
   - 未知顶层字段透传：`BookSource` / `RssSource` / `Book` 经 extras 感知解码后，将未建模的顶层字段（如 `concurrentRate`、`enabledCookieJar`、`Book.customTag` / `charset` / `type` / `syncTime`）保存在 `extra`，编码时扁平回写；`Book.order` 与书源 `jsLib` 已是正式属性。搜索 / 发现 / 详情 / 目录 / 正文五类嵌套规则也保留未知键，覆盖编辑、持久化和 ZIP 往返；其它嵌套对象、类型不兼容与顶层直接 `JSONDecoder` 调用仍不受此保证，也不代表透传字段已生效（见 `Plan.md` §二 #15）。
 - **书源导入与登录**：
   - 不预装书源，书架从零开始；章节 URL 与详情元数据由书源规则决定，已删除站点专用路径重写与 JSON 猜测分支。
   - 支持从本地 `.json` 文件导入、网络 URL 下载导入、剪贴板粘贴导入。
   - 注册 `legado://` 与 `yuedu://` URL Scheme，网页端一键点击直接调起应用下载导入书源。
-  - 支持内置 WebKit 网页登录与手动 Cookie，提取后写入书源 `loginHeader` 并镜像至 `HTTPCookieStorage`；另有简单文本 / 密码表单和脚本入口。脚本入口支持 `<js>` / `@js:` 包装与错误检测；RowUi 按钮与 `loginCheckJs` 尚未接入。
+  - 支持内置 WebKit 网页登录与手动 Cookie，提取后写入书源 `loginHeader` 并镜像至 `HTTPCookieStorage`；另有简单文本 / 密码表单和脚本入口。脚本入口支持 `<js>` / `@js:` 包装与错误检测；RowUi 按钮、login() 与响应解析前的 loginCheckJs 已接入，仍受当前宿主桥支持范围约束。
 
 ---
 
@@ -286,7 +286,7 @@ Legado-iOS/
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Runtime/                      # 固定 QuickJS 源码、C 宿主桥与 Swift 适配器，已接入 App
-├── Tests/                        # 自动化测试（32 文件 415 例：Core + App + Runtime）
+├── Tests/                        # 自动化测试（33 文件 425 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -309,9 +309,9 @@ Legado-iOS/
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
    swift test --skip LiveSourceTests   # 397 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 415 项；不可达时会跳过
+   swift test                          # 另含 7 项真实书源联网冒烟，共 425 项；不可达时会跳过
    ```
-   v0.3.0 发布验证为 363 项；v0.3.3 数据兼容（2026-10-26）macOS SPM 报告 408 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0 发布验证为 363 项；v0.3.4 流程兼容（2026-10-26）macOS SPM 报告 418 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash

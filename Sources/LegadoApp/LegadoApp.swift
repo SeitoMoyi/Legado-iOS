@@ -49,6 +49,7 @@ public final class LegadoSceneDelegate: NSObject, UIWindowSceneDelegate {
 @main
 public struct LegadoApp: App {
     @StateObject private var bookStore = BookStore.shared
+    @State private var ruleLinkIntent: RuleLinkIntent?
     @AppStorage("legado_app_theme") private var appTheme: String = "system"
     #if os(iOS)
     @UIApplicationDelegateAdaptor(LegadoAppDelegate.self) private var appDelegate
@@ -87,30 +88,16 @@ public struct LegadoApp: App {
             MainTabView()
                 .environmentObject(bookStore)
                 .preferredColorScheme(selectedColorScheme)
-                .onOpenURL { url in
-                    handleIncomingURL(url)
-                }
+                .onOpenURL { url in handleIncomingURL(url) }
+                .sheet(item: $ruleLinkIntent) { intent in RuleLinkImportView(link: intent.link) }
         }
     }
 
     private func handleIncomingURL(_ url: URL) {
-        let scheme = url.scheme?.lowercased() ?? ""
-        guard scheme == "legado" || scheme == "yuedu" || scheme == "http" || scheme == "https" else { return }
-
-        // Parse query or host for source/book import
-        // e.g. legado://import/source?src=https://... or legado://bookSource/importOnline?src=...
-        if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            if let src = components.queryItems?.first(where: { $0.name == "src" || $0.name == "url" })?.value,
-               let targetUrl = URL(string: src) {
-                Task {
-                    if let (data, _) = try? await URLSession.shared.data(from: targetUrl),
-                       let jsonStr = String(data: data, encoding: .utf8) {
-                        _ = try? bookStore.importSources(json: jsonStr)
-                    }
-                }
-            }
-        }
+        guard RuleLinkService.resolve(url.absoluteString) != nil else { return }
+        ruleLinkIntent = RuleLinkIntent(link: url.absoluteString)
     }
+
 }
 
 public struct MainTabView: View {

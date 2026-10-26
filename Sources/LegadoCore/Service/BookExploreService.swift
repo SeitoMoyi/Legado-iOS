@@ -118,7 +118,8 @@ public class BookExploreService {
             throw NSError(domain: "Legado", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法解析分类网址: \(categoryUrl)"])
         }
 
-        let response = try await NetworkClient.shared.request(parsed: parsedReq)
+        let fetched = try await NetworkClient.shared.request(parsed: parsedReq)
+        let response = try jsEngine.checkedResponse(fetched, requestedURL: parsedReq.url)
         guard (200..<400).contains(response.statusCode) else {
             throw NSError(domain: "Legado", code: response.statusCode, userInfo: [NSLocalizedDescriptionKey: "服务器响应错误: HTTP \(response.statusCode)"])
         }
@@ -135,7 +136,7 @@ public class BookExploreService {
 
         let analyzer = RuleAnalyzer(
             content: response.bodyString,
-            baseUrl: parsedReq.url.absoluteString,
+            baseUrl: response.url?.absoluteString ?? parsedReq.url.absoluteString,
             bookSource: source,
             jsEngine: jsEngine
         )
@@ -146,7 +147,7 @@ public class BookExploreService {
         for item in bookElements {
             let itemAnalyzer = RuleAnalyzer(
                 content: item,
-                baseUrl: parsedReq.url.absoluteString,
+                baseUrl: response.url?.absoluteString ?? parsedReq.url.absoluteString,
                 bookSource: source,
                 jsEngine: jsEngine
             )

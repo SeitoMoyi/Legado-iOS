@@ -79,8 +79,8 @@ public enum ChineseConverterMode {
 /// WebDAV archive produced by either platform decodes on the other.
 ///
 /// Unit note: Android stores `textSize` in sp and the spacing fields in dp; iOS renders
-/// in pt. We persist pt. The 0.9 sp/pt factor is applied only by `androidTextSizeSp` /
-/// `init(androidSp:)` when exchanging a config with Android.
+/// in pt. Values are currently retained numerically across platforms; there is no
+/// implicit sp/pt conversion during backup import or export.
 public struct ReadStyleConfig: Codable, Equatable, JSONExtraPreserving {
     public var extra: [String: JSONValue] = [:]
 

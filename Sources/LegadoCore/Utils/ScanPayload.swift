@@ -83,7 +83,7 @@ public enum ScanPayload: Equatable {
             if item["replaceRegex"] != nil || (item["pattern"] != nil && item["replacement"] != nil) {
                 bump(.replaceRules, by: 2)
             }
-            if item["sourceUrl"] != nil && (item["sortUrl"] != nil || item["ruleArticles"] != nil) {
+            if item["sourceUrl"] != nil && (item["sourceName"] != nil || item["sortUrl"] != nil || item["ruleArticles"] != nil) {
                 bump(.rssSources, by: 3)
             }
             if item["urlRule"] != nil { bump(.dictRules, by: 3) }

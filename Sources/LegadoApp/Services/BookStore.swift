@@ -903,49 +903,38 @@ public class BookStore: ObservableObject {
 
 
     public func performLogin(source: BookSource, credentials: [String: String]) async throws -> String {
-        guard let loginScript = source.loginUrl, !loginScript.isEmpty else {
-            throw NSError(domain: "BookStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "该书源未配置登录脚本"])
-        }
-
-        let credData = (try? JSONSerialization.data(withJSONObject: credentials)) ?? Data()
-        let credJson = String(data: credData, encoding: .utf8) ?? "{}"
-
-        var updatedSource = source
-        updatedSource.loginInfo = credJson
-
-        let jsEngine = JSEngine(bookSource: updatedSource, baseUrl: source.bookSourceUrl)
-        try jsEngine.checkReady()
-
-        var capturedHeader: String? = nil
-        jsEngine.onLoginHeaderUpdated = { newH in
-            capturedHeader = newH
-        }
-
-        _ = jsEngine.eval(script: JSEngine.extractJSScript(from: loginScript) ?? loginScript)
-        if let message = jsEngine.lastScriptError {
-            throw NSError(domain: "BookStore", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: message])
-        }
-
-        guard let finalHeader = capturedHeader, !finalHeader.isEmpty else {
-            throw NSError(domain: "BookStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "登录未返回有效凭据，请检查账号密码"])
-        }
-
+        let result = try await SourceLoginService.execute(source: source, credentials: credentials)
+        guard let header = result.header else { throw SourceRuntimeError.bridge("Missing login header") }
         await MainActor.run {
-            if let idx = sources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) {
-                sources[idx].loginInfo = credJson
-                sources[idx].loginHeader = finalHeader
+            SourceSessionStore.save(header: header, for: source.bookSourceUrl)
+            if let index = sources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) {
+                sources[index].loginInfo = result.info
+                sources[index].loginHeader = header
                 saveSources()
             }
         }
-
-        return finalHeader
+        return header
     }
 
     public func logoutSource(sourceUrl: String) {
+        SourceSessionStore.save(header: nil, for: sourceUrl)
+        if let host = URL(string: sourceUrl)?.host {
+            for cookie in HTTPCookieStorage.shared.cookies ?? [] where NetworkClient.cookieDomain(cookie.domain, matchesHost: host) {
+                HTTPCookieStorage.shared.deleteCookie(cookie)
+            }
+        }
         if let idx = sources.firstIndex(where: { $0.bookSourceUrl == sourceUrl }) {
             sources[idx].loginHeader = nil
             sources[idx].loginInfo = nil
+            saveSources()
+        }
+    }
+
+    public func applyLoginState(sourceURL: String, header: String?, info: String?) {
+        SourceSessionStore.save(header: header, for: sourceURL)
+        if let index = sources.firstIndex(where: { $0.bookSourceUrl == sourceURL }) {
+            sources[index].loginHeader = header
+            sources[index].loginInfo = info
             saveSources()
         }
     }

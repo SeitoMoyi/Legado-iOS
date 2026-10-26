@@ -765,6 +765,7 @@ public struct SourceManagerView: View {
 
 public struct SourceLoginSheet: View {
     let source: BookSource
+    let onLoginCompleted: ((BookSource) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var loginMode: String
     @State private var fields: [LoginField] = []
@@ -772,12 +773,11 @@ public struct SourceLoginSheet: View {
     @State private var isLoggingIn: Bool = false
     @State private var errorMessage: String? = nil
     @State private var successMessage: String? = nil
+    @State private var loginTask: Task<Void, Never>?
+    @State private var buttonURL: String?
+    @State private var showButtonBrowser = false
 
-    struct LoginField: Identifiable {
-        var id: String { name }
-        let name: String
-        let type: String
-    }
+    typealias LoginField = SourceLoginRow
 
     /// A plain http(s) loginUrl means web login; `<js>` / `@js:` scripts mean form login.
     private static func isWebLoginDefault(_ source: BookSource) -> Bool {
@@ -791,14 +791,15 @@ public struct SourceLoginSheet: View {
 
     private var isWebLoginDefault: Bool { Self.isWebLoginDefault(source) }
 
-    public init(source: BookSource) {
+    public init(source: BookSource, onLoginCompleted: ((BookSource) -> Void)? = nil) {
         self.source = source
+        self.onLoginCompleted = onLoginCompleted
         self._loginMode = State(initialValue: Self.isWebLoginDefault(source) ? "web" : "form")
     }
 
     public var body: some View {
         if isWebLoginDefault || loginMode == "web" {
-            SourceWebLoginView(source: source)
+            SourceWebLoginView(source: source, onLoginCompleted: onLoginCompleted)
         } else {
             formLoginView
         }
@@ -839,7 +840,9 @@ public struct SourceLoginSheet: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(fields) { field in
-                            if field.type == "password" {
+                            if field.type == "button" {
+                                Button(field.name) { performButton(field) }.disabled(isLoggingIn)
+                            } else if field.type == "password" {
                                 SecureField(field.name, text: Binding(
                                     get: { fieldValues[field.name] ?? "" },
                                     set: { fieldValues[field.name] = $0 }
@@ -892,7 +895,11 @@ public struct SourceLoginSheet: View {
 
                     if source.isLogged {
                         Button(role: .destructive, action: {
-                            BookStore.shared.logoutSource(sourceUrl: source.bookSourceUrl)
+                            if let completed = onLoginCompleted {
+                                var updated = source; updated.loginHeader = nil; updated.loginInfo = nil
+                                SourceSessionStore.save(header: nil, for: source.bookSourceUrl)
+                                completed(updated)
+                            } else { BookStore.shared.logoutSource(sourceUrl: source.bookSourceUrl) }
                             dismiss()
                         }) {
                             Text("退出登录")
@@ -911,6 +918,10 @@ public struct SourceLoginSheet: View {
                 }
             }
             .onAppear(perform: parseLoginUi)
+            .onDisappear { loginTask?.cancel() }
+            .sheet(isPresented: $showButtonBrowser) {
+                if let url = buttonURL { SourceBrowserView(initialURL: url, source: source) }
+            }
         }
     }
 
@@ -920,43 +931,39 @@ public struct SourceLoginSheet: View {
             fieldValues = dict
         }
 
-        guard let uiJson = source.loginUi, let data = uiJson.data(using: .utf8),
-              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            fields = [LoginField(name: "账号", type: "text"), LoginField(name: "密码", type: "password")]
-            return
-        }
-
-        var parsed: [LoginField] = []
-        for item in arr {
-            let name = (item["name"] as? String) ?? ""
-            let type = (item["type"] as? String) ?? "text"
-            if !name.isEmpty && type != "button" {
-                parsed.append(LoginField(name: name, type: type))
-            }
-        }
-        self.fields = parsed
+        let parsed = SourceLoginRow.parse(source.loginUi)
+        fields = parsed.isEmpty && source.loginUi == nil ? [LoginField(name: "账号"), LoginField(name: "密码", type: "password")] : parsed
     }
 
-    private func performLogin() {
-        isLoggingIn = true
-        errorMessage = nil
-        successMessage = nil
+    private func performButton(_ field: LoginField) {
+        guard let action = field.action else { return }
+        if RuleSubscriptionService.validURL(action) != nil {
+            buttonURL = action; showButtonBrowser = true
+        } else { execute(action: action) }
+    }
 
-        Task {
+    private func performLogin() { execute(action: nil) }
+
+    private func execute(action: String?) {
+        loginTask?.cancel()
+        isLoggingIn = true; errorMessage = nil; successMessage = nil
+        loginTask = Task { @MainActor in
+            defer { if !Task.isCancelled { isLoggingIn = false } }
             do {
-                _ = try await BookStore.shared.performLogin(source: source, credentials: fieldValues)
-                await MainActor.run {
-                    isLoggingIn = false
-                    successMessage = "登录成功！"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        dismiss()
-                    }
+                let result = try await SourceLoginService.execute(source: source, credentials: fieldValues, action: action)
+                try Task.checkCancellation()
+                var updated = source
+                updated.loginInfo = result.info
+                if let header = result.header {
+                    updated.loginHeader = header
+                    SourceSessionStore.save(header: header, for: source.bookSourceUrl)
                 }
+                if let completed = onLoginCompleted { completed(updated) }
+                else { BookStore.shared.applyLoginState(sourceURL: source.bookSourceUrl, header: updated.loginHeader, info: updated.loginInfo) }
+                successMessage = action == nil ? "登录成功！" : result.message ?? "操作完成"
+                if action == nil { dismiss() }
             } catch {
-                await MainActor.run {
-                    isLoggingIn = false
-                    errorMessage = "登录失败: \(error.localizedDescription)"
-                }
+                if !Task.isCancelled { errorMessage = error.localizedDescription }
             }
         }
     }

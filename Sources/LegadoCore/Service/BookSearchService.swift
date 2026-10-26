@@ -48,7 +48,8 @@ public class BookSearchService {
             return []
         }
 
-        let response = try await NetworkClient.shared.request(parsed: parsedReq)
+        let fetched = try await NetworkClient.shared.request(parsed: parsedReq)
+        let response = try jsEngine.checkedResponse(fetched, requestedURL: parsedReq.url)
         print("[Search] 📡 [\(source.bookSourceName)] HTTP \(response.statusCode), received \(response.data.count) bytes")
 
         guard response.statusCode >= 200 && response.statusCode < 400 else {
@@ -64,7 +65,7 @@ public class BookSearchService {
         // Analyze result
         let analyzer = RuleAnalyzer(
             content: response.bodyString,
-            baseUrl: parsedReq.url.absoluteString,
+            baseUrl: response.url?.absoluteString ?? parsedReq.url.absoluteString,
             bookSource: source,
             jsEngine: jsEngine
         )
@@ -76,7 +77,7 @@ public class BookSearchService {
         for item in bookElements {
             let itemAnalyzer = RuleAnalyzer(
                 content: item,
-                baseUrl: parsedReq.url.absoluteString,
+                baseUrl: response.url?.absoluteString ?? parsedReq.url.absoluteString,
                 bookSource: source,
                 jsEngine: jsEngine
             )

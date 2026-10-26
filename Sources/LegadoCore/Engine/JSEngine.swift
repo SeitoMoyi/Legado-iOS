@@ -13,7 +13,10 @@ public protocol HeaderRuleProviding {
 extension BookSource: HeaderRuleProviding {}
 extension RssSource: HeaderRuleProviding {
     public var bookSourceUrl: String { sourceUrl }
-    public var loginHeader: String? { nil }
+    public var loginHeader: String? {
+        if case let .string(value)? = extra["loginHeader"] { return value }
+        return nil
+    }
 }
 
 /// Legado's synchronous script surface, backed by a bounded QuickJS context. All Swift
@@ -30,7 +33,7 @@ public final class JSEngine {
     private var source: BookSource?
     private var currentBook: Book
     private let hasBookContext: Bool
-    private let baseUrl: String?
+    private var baseUrl: String?
     private var loginHeader: String?
     private var loginInfo: String?
     private var sourceVariable: String?
@@ -48,7 +51,7 @@ public final class JSEngine {
         self.baseUrl = baseUrl ?? bookSource?.bookSourceUrl
         self.hasBookContext = book != nil
         self.cancellationCheck = shouldCancel
-        self.loginHeader = bookSource?.loginHeader
+        self.loginHeader = bookSource.flatMap { SourceSessionStore.header(for: $0.bookSourceUrl) ?? $0.loginHeader }
         self.loginInfo = bookSource?.loginInfo
         let sourceKey = bookSource?.bookSourceUrl ?? ""
         self.currentBook = book ?? Book(bookUrl: baseUrl ?? sourceKey, name: "", author: "", origin: sourceKey)
@@ -69,9 +72,11 @@ public final class JSEngine {
                 return try self.callHost(action, arguments)
             }
             try runtime.setGlobal("book", value: Self.bookBindings(currentBook))
-            try runtime.setGlobal("source", value: ["bookSourceUrl": sourceKey,
-                                                    "bookSourceName": bookSource?.bookSourceName ?? "",
-                                                    "loginUrl": bookSource?.loginUrl ?? ""])
+            var sourceBindings: [String: Any] = [:]
+            if let source = bookSource, let data = try? JSONEncoder().encode(source),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { sourceBindings = object }
+            sourceBindings["bookSourceUrl"] = sourceKey
+            try runtime.setGlobal("source", value: sourceBindings)
             if let baseUrl = self.baseUrl { try runtime.setGlobal("baseUrl", value: baseUrl) }
             _ = try runtime.evaluate(Self.environment, timeout: timeout, shouldCancel: shouldCancel)
             let legacy: String?
@@ -117,6 +122,34 @@ public final class JSEngine {
     public func checkReady() throws {
         if let error = initializationError { throw error }
         guard runtime != nil else { throw SourceRuntimeError.bridge("Script runtime unavailable") }
+    }
+
+    /// Android WebBook executes loginCheckJs against the response before extracting rules.
+    /// The script can return the original response or java.connect's replacement, once per
+    /// fetched page. Runtime and host waits retain the engine's deadline/cancellation budget.
+    public func checkedResponse(_ response: NetworkResponse, requestedURL: URL) throws -> NetworkResponse {
+        baseUrl = response.url?.absoluteString ?? requestedURL.absoluteString
+        setGlobal(baseUrl ?? "", for: "baseUrl")
+        guard let script = source?.loginCheckJs?.trimmingCharacters(in: .whitespacesAndNewlines), !script.isEmpty else { return response }
+        let previous = onLoginHeaderUpdated
+        var captured: String?
+        onLoginHeaderUpdated = { value in captured = value; previous?(value) }
+        defer { onLoginHeaderUpdated = previous }
+        let raw: [String: Any] = ["text": response.bodyString, "code": response.statusCode,
+                                  "url": response.url?.absoluteString ?? requestedURL.absoluteString]
+        setGlobal(raw, for: "__checkedResponse")
+        _ = try evalChecked(script: "result = __response(__checkedResponse)", stage: "loginCheckJs")
+        guard let result = try evalChecked(script: Self.extractJSScript(from: script) ?? script, stage: "loginCheckJs") as? [String: Any],
+              let text = result["text"] as? String else {
+            throw SourceRuntimeError.bridge("loginCheckJs 必须返回响应对象")
+        }
+        if let key = source?.bookSourceUrl, let header = captured { SourceSessionStore.save(header: header, for: key) }
+        let finalURL = (result["url"] as? String).flatMap(URL.init(string:)) ?? response.url ?? requestedURL
+        baseUrl = finalURL.absoluteString
+        setGlobal(finalURL.absoluteString, for: "baseUrl")
+        return NetworkResponse(statusCode: (result["code"] as? NSNumber)?.intValue ?? response.statusCode,
+            bodyString: text, data: Data(text.utf8), headers: response.headers,
+            url: finalURL)
     }
 
     @discardableResult
@@ -229,7 +262,7 @@ public final class JSEngine {
                                                            shouldCancel: { self.cancellationCheck() || self.runtime?.shouldStop == true })
             guard !cancellationCheck(), runtime?.shouldStop != true else { throw CancellationError() }
             if action == "java.ajax" { return response?.bodyString ?? "" }
-            return ["text": response?.bodyString ?? "", "code": response?.statusCode ?? 0, "url": request.url.absoluteString]
+            return ["text": response?.bodyString ?? "", "code": response?.statusCode ?? 0, "url": response?.url?.absoluteString ?? request.url.absoluteString]
         default: throw SourceRuntimeError.bridge("Unsupported host call: \(action)")
         }
     }
@@ -254,7 +287,8 @@ public final class JSEngine {
     private static let environment = """
     function __response(r) {
       if (!r) return null;
-      return {text:r.text, body:function(){return r.text}, statusCode:function(){return r.code}, url:function(){return r.url}};
+      return {text:r.text, body:function(){return r.text}, statusCode:function(){return r.code}, url:function(){return r.url},
+        toJSON:function(){return {text:this.text,code:r.code,url:r.url}}};
     }
     var java = {
       ajax:function(u){return __legadoHost('java.ajax',String(u))},
@@ -324,7 +358,7 @@ public final class JSEngine {
                                             engine: JSEngine? = nil,
                                             loginHeaderOverride: String? = nil) -> String? {
         var merged: [String: String] = [:]
-        for raw in [source.header, loginHeaderOverride ?? source.loginHeader] {
+        for raw in [source.header, loginHeaderOverride ?? SourceSessionStore.header(for: source.bookSourceUrl) ?? source.loginHeader] {
             guard var json = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !json.isEmpty else { continue }
             if let script = extractJSScript(from: json) {
                 let evalEngine = engine ?? JSEngine(bookSource: source as? BookSource, baseUrl: source.bookSourceUrl)

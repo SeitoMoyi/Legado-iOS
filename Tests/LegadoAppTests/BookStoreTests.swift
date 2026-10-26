@@ -3,6 +3,18 @@ import LegadoCore
 @testable import LegadoApp
 
 final class BookStoreTests: XCTestCase {
+    func testApplyingLoginStateDoesNotOverwriteConcurrentSourceEdits() {
+        let url = "https://login-state.test"
+        defer { SourceSessionStore.save(header: nil, for: url) }
+        store.sources = [BookSource(bookSourceUrl: url, bookSourceName: "Edited while logging in")]
+        store.applyLoginState(sourceURL: url, header: "new header", info: "new info")
+        XCTAssertEqual(store.sources.first?.bookSourceName, "Edited while logging in")
+        XCTAssertEqual(store.sources.first?.loginHeader, "new header")
+        store.logoutSource(sourceUrl: url)
+        XCTAssertNil(SourceSessionStore.header(for: url))
+        XCTAssertNil(store.sources.first?.loginHeader)
+    }
+
     func testSubscriptionImportPreservesLocalEditsUnlessReplacementIsSelected() throws {
         let local = BookSource(bookSourceUrl: "https://source.test", bookSourceName: "Local edit")
         store.sources = [local]

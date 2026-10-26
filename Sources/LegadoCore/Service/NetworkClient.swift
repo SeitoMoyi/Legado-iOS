@@ -5,12 +5,14 @@ public struct NetworkResponse {
     public let bodyString: String
     public let data: Data
     public let headers: [String: String]
+    public let url: URL?
 
-    public init(statusCode: Int, bodyString: String, data: Data, headers: [String: String]) {
+    public init(statusCode: Int, bodyString: String, data: Data, headers: [String: String], url: URL? = nil) {
         self.statusCode = statusCode
         self.bodyString = bodyString
         self.data = data
         self.headers = headers
+        self.url = url
     }
 }
 
@@ -201,7 +203,7 @@ public class NetworkClient {
         }
 
         let bodyStr = CharsetDetector.decode(data, headers: respHeaders, declared: parsed.charset)
-        return NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders)
+        return NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders, url: response.url)
     }
 
     /// Performs a synchronous HTTP request (useful for JS rule evaluation)
@@ -237,7 +239,7 @@ public class NetworkClient {
 
             let bodyStr = CharsetDetector.decode(data, headers: respHeaders, declared: parsed.charset)
             resultLock.lock()
-            result = NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders)
+            result = NetworkResponse(statusCode: statusCode, bodyString: bodyStr, data: data, headers: respHeaders, url: response?.url)
             resultLock.unlock()
         }
         task.resume()

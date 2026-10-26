@@ -8,6 +8,7 @@ import LegadoCore
 
 public struct RssSourceListView: View {
     @State private var sources: [RssSource] = []
+    @State private var loginSource: RssSource?
     @State private var searchText: String = ""
     @State private var selectedSourceForArticles: RssSource? = nil
     @State private var showFavorites: Bool = false
@@ -80,6 +81,9 @@ public struct RssSourceListView: View {
                                 Button("编辑") {
                                     editingSource = source
                                     showEditSheet = true
+                                }
+                                if source.loginUrl != nil || source.loginUi != nil {
+                                    Button("登录") { loginSource = source }
                                 }
                                 Button("调试订阅源") {
                                     debuggingSource = source
@@ -176,7 +180,17 @@ public struct RssSourceListView: View {
                 }
             }
             .sheet(item: $selectedSourceForArticles) { source in
-                RssArticleListView(source: source)
+                if source.singleUrl { RssSingleArticleView(source: source) }
+                else { RssArticleListView(source: source) }
+            }
+            .sheet(item: $loginSource) { original in
+                SourceLoginSheet(source: original.scriptSource) { result in
+                    if let index = sources.firstIndex(where: { $0.sourceUrl == original.sourceUrl }) {
+                        sources[index].extra["loginHeader"] = result.loginHeader.map(JSONValue.string)
+                        sources[index].extra["loginInfo"] = result.loginInfo.map(JSONValue.string)
+                        RssStore.saveSources(sources)
+                    }
+                }
             }
             .sheet(isPresented: $showFavorites) {
                 RssStarListView()
@@ -308,6 +322,10 @@ public struct RssArticleListView: View {
     @State private var nextPageUrl: String? = nil
     @State private var isLoadingMore: Bool = false
     // Plan Phase 1 Part 1.5: 已读状态置灰与阅读历史落盘。
+    @State private var requestTask: Task<Void, Never>?
+    @State private var requestID = UUID()
+    @State private var currentPage = 1
+    @State private var visitedPages = Set<String>()
     @State private var readState: [String: Int64] = [:]
 
     public init(source: RssSource) {
@@ -364,14 +382,17 @@ public struct RssArticleListView: View {
             .sheet(item: $selectedArticleForRead) { article in
                 RssArticleReaderView(article: article, source: source)
             }
-            .onAppear {
-                categories = RssService.shared.parseCategories(source: source)
-                if selectedCategoryUrl.isEmpty, let first = categories.first {
-                    selectedCategoryUrl = first.url
-                }
+            .task {
                 readState = RssStore.loadReadState()
-                loadArticles()
+                guard categories.isEmpty else { return }
+                do {
+                    categories = try await RssService.shared.loadCategories(source: source)
+                    try Task.checkCancellation()
+                    if selectedCategoryUrl.isEmpty { selectedCategoryUrl = categories.first?.url ?? source.sourceUrl }
+                    loadArticles()
+                } catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
             }
+            .onDisappear { requestTask?.cancel(); requestID = UUID(); isLoading = false; isLoadingMore = false }
         }
     }
 
@@ -561,44 +582,42 @@ public struct RssArticleListView: View {
 
     private func loadArticles() {
         guard !selectedCategoryUrl.isEmpty else { return }
-        isLoading = true
-        errorMessage = nil
-
-        Task {
+        requestTask?.cancel()
+        let id = UUID(); requestID = id
+        let url = selectedCategoryUrl
+        isLoading = true; isLoadingMore = false; errorMessage = nil
+        currentPage = 1; visitedPages = [url]; nextPageUrl = nil
+        requestTask = Task { @MainActor in
             do {
-                let page = try await RssService.shared.fetchArticlePage(source: source, pageUrl: selectedCategoryUrl)
-                await MainActor.run {
-                    self.articles = page.articles
-                    self.nextPageUrl = page.nextPageUrl
-                    self.isLoading = false
-                }
+                let page = try await RssService.shared.fetchArticlePage(source: source, pageUrl: url)
+                guard !Task.isCancelled, requestID == id else { return }
+                articles = page.articles; nextPageUrl = page.nextPageUrl; isLoading = false
             } catch {
-                await MainActor.run {
-                    self.errorMessage = "拉取失败: \(error.localizedDescription)"
-                    self.isLoading = false
-                }
+                guard !Task.isCancelled, requestID == id else { return }
+                errorMessage = "拉取失败: \(error.localizedDescription)"; isLoading = false
             }
         }
     }
 
-    /// 触底自动拼装：仅当 `ruleNextPage` 给出且与已访问页不同时继续。
     private func maybeLoadMore(current: RssArticle) {
-        guard current.id == articles.last?.id,
-              !isLoadingMore, !isLoading,
-              let next = nextPageUrl else { return }
+        guard current.id == articles.last?.id, !isLoadingMore, !isLoading,
+              currentPage < 100, let next = nextPageUrl else { return }
+        let isPageRule = source.ruleNextPage?.uppercased() == "PAGE"
+        guard isPageRule || !visitedPages.contains(next) else { nextPageUrl = nil; return }
         isLoadingMore = true
-
-        Task {
+        let id = requestID; let number = currentPage + 1
+        requestTask = Task { @MainActor in
             do {
-                let page = try await RssService.shared.fetchArticlePage(source: source, pageUrl: next)
-                await MainActor.run {
-                    let seen = Set(articles.map { $0.link })
-                    articles.append(contentsOf: page.articles.filter { !seen.contains($0.link) })
-                    nextPageUrl = page.nextPageUrl
-                    isLoadingMore = false
-                }
+                let page = try await RssService.shared.fetchArticlePage(source: source, pageUrl: isPageRule ? selectedCategoryUrl : next, page: number)
+                guard !Task.isCancelled, requestID == id else { return }
+                var seen = Set(articles.map(\.link))
+                let newItems = page.articles.filter { seen.insert($0.link).inserted }
+                articles.append(contentsOf: newItems)
+                nextPageUrl = newItems.isEmpty ? nil : page.nextPageUrl
+                currentPage = number; visitedPages.insert(next); isLoadingMore = false
             } catch {
-                await MainActor.run { isLoadingMore = false }
+                guard !Task.isCancelled, requestID == id else { return }
+                errorMessage = error.localizedDescription; isLoadingMore = false
             }
         }
     }
@@ -623,6 +642,7 @@ public struct RssArticleReaderView: View {
     @State private var fullContent: String = ""
     @State private var isLoading: Bool = true
     @State private var isStarred: Bool = false
+    @State private var contentError: String?
 
     public init(article: RssArticle, source: RssSource) {
         self.article = article
@@ -631,46 +651,16 @@ public struct RssArticleReaderView: View {
 
     public var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(article.title)
-                        .font(.title2.bold())
-                        .foregroundColor(.primary)
-
-                    HStack(spacing: 10) {
-                        Text(source.sourceName)
-                            .font(.caption.bold())
-                            .foregroundColor(.accentColor)
-                        if let date = article.pubDate {
-                            Text(date)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Divider()
-
-                    if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Text("正在提取正文...")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                        .padding(.top, 40)
-                    } else {
-                        Text(fullContent)
-                            .font(.body)
-                            .lineSpacing(6)
-                            .foregroundColor(.primary)
-                            .textSelection(.enabled)
-                    }
+            VStack(spacing: 0) {
+                if isLoading { ProgressView("正在提取正文…").padding() }
+                else if let error = contentError {
+                    Text(error).padding()
+                    Button("重试") { loadContent() }
+                } else {
+                    RssHTMLView(content: fullContent, articleURL: article.link, source: source)
                 }
-                .padding()
             }
-            .navigationTitle("文章详情")
+            .navigationTitle(article.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -697,8 +687,8 @@ public struct RssArticleReaderView: View {
             }
             .onAppear {
                 checkStarStatus()
-                loadContent()
             }
+            .task { await fetchContent() }
         }
     }
 
@@ -729,14 +719,17 @@ public struct RssArticleReaderView: View {
         RssStore.saveStars(stars)
     }
 
-    private func loadContent() {
-        Task {
-            let extracted = try? await RssService.shared.fetchArticleContent(article: article, source: source)
-            await MainActor.run {
-                self.fullContent = BookContentService.cleanHtml(extracted ?? article.content ?? article.description ?? "")
-                self.isLoading = false
-            }
-        }
+    private func loadContent() { Task { @MainActor in await fetchContent() } }
+
+    @MainActor
+    private func fetchContent() async {
+        isLoading = true; contentError = nil
+        do {
+            let extracted = try await RssService.shared.fetchArticleContent(article: article, source: source)
+            try Task.checkCancellation()
+            fullContent = extracted
+        } catch { if !Task.isCancelled { contentError = error.localizedDescription } }
+        if !Task.isCancelled { isLoading = false }
     }
 }
 

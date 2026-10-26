@@ -293,8 +293,9 @@ public struct SourceWebLoginView: View {
         }
 
         // 4. Update in BookStore
-        bookStore.updateSource(updatedSource)
-        onLoginCompleted?(updatedSource)
+        SourceSessionStore.save(header: updatedSource.loginHeader, for: source.bookSourceUrl)
+        if let completed = onLoginCompleted { completed(updatedSource) }
+        else { bookStore.applyLoginState(sourceURL: source.bookSourceUrl, header: updatedSource.loginHeader, info: updatedSource.loginInfo) }
 
         dismiss()
     }

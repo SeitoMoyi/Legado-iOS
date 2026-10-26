@@ -153,6 +153,7 @@ public struct ScanResultSheet: View {
 
     @State private var resultMessage: String? = nil
     @State private var showAddURL: Bool = false
+    @State private var showRuleLink = false
 
     public init(raw: String) {
         self.raw = raw
@@ -196,6 +197,7 @@ public struct ScanResultSheet: View {
             .sheet(isPresented: $showAddURL) {
                 AddUrlSheet(url: raw)
             }
+            .sheet(isPresented: $showRuleLink) { RuleLinkImportView(link: raw) }
         }
     }
 
@@ -248,6 +250,9 @@ public struct ScanResultSheet: View {
                 Label("写入 WebDAV 配置", systemImage: "icloud.and.arrow.down")
             }
         case .importURL:
+            if RuleLinkService.resolve(raw) != nil {
+                Button { showRuleLink = true } label: { Label("下载并预览规则", systemImage: "square.and.arrow.down") }
+            }
             if raw.lowercased().hasPrefix("http") {
                 Button {
                     // Present on top of this sheet; dismissing self first would tear down

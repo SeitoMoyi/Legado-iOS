@@ -20,69 +20,88 @@ public class RssService {
         public var nextPageUrl: String?
     }
 
-    /// Parses categories from `sortUrl` (format: `分类名::URL` separated by newlines, or a plain single URL)
     public func parseCategories(source: RssSource) -> [RssCategory] {
-        guard let sortUrl = source.sortUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !sortUrl.isEmpty else {
-            return [RssCategory(title: "默认", url: source.sourceUrl)]
+        (try? categoriesChecked(source: source)) ?? [RssCategory(title: "默认", url: source.sourceUrl)]
+    }
+
+    public func loadCategories(source: RssSource) async throws -> [RssCategory] {
+        try Task.checkCancellation()
+        let result = try categoriesChecked(source: source)
+        try Task.checkCancellation()
+        return result
+    }
+
+    private func categoriesChecked(source: RssSource) throws -> [RssCategory] {
+        var text = source.sortUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let script = JSEngine.extractJSScript(from: text) {
+            let engine = JSEngine(bookSource: source.scriptSource)
+            let result = try engine.evalChecked(script: script, stage: "sortUrl")
+            if let array = result as? [[String: Any]], let data = try? JSONSerialization.data(withJSONObject: array) {
+                text = String(decoding: data, as: UTF8.self)
+            } else { text = result.map(JSEngine.stringValue) ?? "" }
         }
-
-        var categories: [RssCategory] = []
-        let lines = sortUrl.components(separatedBy: CharacterSet.newlines)
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { continue }
-
-            if trimmed.contains("::") {
-                let parts = trimmed.components(separatedBy: "::")
-                if parts.count >= 2 {
-                    let title = parts[0].trimmingCharacters(in: .whitespaces)
-                    let url = parts[1].trimmingCharacters(in: .whitespaces)
-                    if !title.isEmpty && !url.isEmpty {
-                        categories.append(RssCategory(title: title, url: url))
-                    }
-                }
-            } else if trimmed.starts(with: "http://") || trimmed.starts(with: "https://") || trimmed.starts(with: "/") {
-                categories.append(RssCategory(title: "精选", url: trimmed))
+        var pairs: [(String, String)] = []
+        if let data = text.data(using: .utf8), let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            pairs = array.compactMap { item in
+                guard let title = (item["title"] ?? item["name"]) as? String, let url = item["url"] as? String else { return nil }
+                return (title, url)
+            }
+        } else {
+            for line in text.replacingOccurrences(of: "&&", with: "\n").components(separatedBy: .newlines) {
+                if let separator = line.range(of: "::") { pairs.append((String(line[..<separator.lowerBound]), String(line[separator.upperBound...]))) }
+                else if !line.trimmingCharacters(in: .whitespaces).isEmpty { pairs.append(("默认", line)) }
             }
         }
-
-        return categories.isEmpty ? [RssCategory(title: "全部", url: source.sourceUrl)] : categories
+        let categories = pairs.compactMap { title, raw -> RssCategory? in
+            let url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !url.isEmpty else { return nil }
+            let resolved = url.contains("{{") ? url : URL(string: url, relativeTo: URL(string: source.sourceUrl))?.absoluteString ?? url
+            return RssCategory(title: title.trimmingCharacters(in: .whitespaces), url: resolved)
+        }
+        return categories.isEmpty ? [RssCategory(title: "默认", url: source.sourceUrl)] : categories
     }
 
     /// Fetches one page of articles and resolves the `ruleNextPage` follow-up link.
     public func fetchArticlePage(source: RssSource, pageUrl: String, page: Int = 1) async throws -> ArticlePage {
-        let renderedUrl = resolveUrl(source: source, url: pageUrl, page: page)
+        let engine = JSEngine(bookSource: source.scriptSource, baseUrl: source.sourceUrl)
+        try engine.checkReady()
+        let renderedUrl = resolveUrl(source: source, url: pageUrl, page: page, engine: engine)
 
-        guard let parsed = NetworkClient.parseLegadoUrl(renderedUrl, defaultHeader: JSEngine.resolvedSourceHeader(source)) else {
+        guard let parsed = NetworkClient.parseLegadoUrl(renderedUrl, defaultHeader: JSEngine.resolvedSourceHeader(source.scriptSource, engine: engine)) else {
             throw NSError(domain: "RssService", code: 1, userInfo: [NSLocalizedDescriptionKey: "无效的订阅源地址"])
         }
 
-        let response = try await NetworkClient.shared.request(parsed: parsed)
+        let fetched = try await NetworkClient.shared.request(parsed: parsed)
+        try Task.checkCancellation()
+        let response = try engine.checkedResponse(fetched, requestedURL: parsed.url)
+        guard (200..<400).contains(response.statusCode) else { throw WebDAVError.serverError(response.statusCode, "订阅请求失败") }
         let rawBody = response.bodyString
         guard !rawBody.isEmpty else { return ArticlePage(articles: [], nextPageUrl: nil) }
 
-        let articles = try parseArticlesFromContent(rawBody, source: source, categoryUrl: renderedUrl)
-        let nextPage = resolveNextPageUrl(pageBody: rawBody, source: source, currentPageUrl: renderedUrl)
+        let articles = try parseArticlesFromContent(rawBody, source: source, categoryUrl: response.url?.absoluteString ?? parsed.url.absoluteString, engine: engine)
+        let nextPage = resolveNextPageUrl(pageBody: rawBody, source: source, currentPageUrl: response.url?.absoluteString ?? parsed.url.absoluteString, engine: engine)
         return ArticlePage(articles: articles, nextPageUrl: nextPage)
     }
 
     /// Resolves `ruleNextPage` against the fetched page body; `nil` when absent or when the
     /// rule loops back to a URL already visited this flow.
-    public func resolveNextPageUrl(pageBody: String, source: RssSource, currentPageUrl: String) -> String? {
+    public func resolveNextPageUrl(pageBody: String, source: RssSource, currentPageUrl: String, engine: JSEngine? = nil) -> String? {
         guard let rule = source.ruleNextPage?.trimmingCharacters(in: .whitespacesAndNewlines), !rule.isEmpty else {
             return nil
         }
-        let analyzer = RuleAnalyzer(content: pageBody, baseUrl: currentPageUrl)
+        if rule.uppercased() == "PAGE" { return currentPageUrl }
+        let analyzer = RuleAnalyzer(content: pageBody, baseUrl: currentPageUrl, bookSource: source.scriptSource, jsEngine: engine)
         let next = analyzer.getString(rule, isUrl: true).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !next.isEmpty, next != currentPageUrl, next != source.sourceUrl else { return nil }
         return next
     }
 
     /// Expands `{{page}}` / relative paths against the source base URL.
-    private func resolveUrl(source: RssSource, url: String, page: Int = 1) -> String {
+    private func resolveUrl(source: RssSource, url: String, page: Int = 1, engine: JSEngine) -> String {
         var renderedUrl = url
             .replacingOccurrences(of: "{{page}}", with: "\(page)")
             .replacingOccurrences(of: "<page>", with: "\(page)")
+        renderedUrl = engine.renderTemplate(renderedUrl, variables: ["page": page, "baseUrl": source.sourceUrl])
         if let base = URL(string: source.sourceUrl), !renderedUrl.hasPrefix("http") {
             renderedUrl = URL(string: renderedUrl, relativeTo: base)?.absoluteString ?? renderedUrl
         }
@@ -90,8 +109,10 @@ public class RssService {
     }
 
     /// Parses articles from raw XML/HTML/JSON content using ruleArticles, ruleTitle, etc.
-    public func parseArticlesFromContent(_ content: String, source: RssSource, categoryUrl: String) throws -> [RssArticle] {
-        let analyzer = RuleAnalyzer(content: content, baseUrl: categoryUrl)
+    public func parseArticlesFromContent(_ content: String, source: RssSource, categoryUrl: String, engine suppliedEngine: JSEngine? = nil) throws -> [RssArticle] {
+        let engine = suppliedEngine ?? JSEngine(bookSource: source.scriptSource, baseUrl: categoryUrl)
+        try engine.checkReady()
+        let analyzer = RuleAnalyzer(content: content, baseUrl: categoryUrl, jsEngine: engine)
 
         // Rule for article item list: defaults to standard RSS `//item` or Atom `//entry` if not configured
         let articleRule = source.ruleArticles?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -108,11 +129,12 @@ public class RssService {
             }
         }
 
-        let rawItems = analyzer.getElements(resolvedArticleRule)
+        let reverse = resolvedArticleRule.hasPrefix("-")
+        let rawItems = analyzer.getElements(reverse ? String(resolvedArticleRule.dropFirst()) : resolvedArticleRule)
         var articles: [RssArticle] = []
 
         for (index, item) in rawItems.enumerated() {
-            let itemAnalyzer = RuleAnalyzer(content: item, baseUrl: categoryUrl)
+            let itemAnalyzer = RuleAnalyzer(content: item, baseUrl: categoryUrl, jsEngine: engine)
 
             let titleRule = source.ruleTitle ?? "//title/text() || title@text || a@text"
             let linkRule = source.ruleLink ?? "//link/text() || //link/@href || a@href"
@@ -149,23 +171,29 @@ public class RssService {
             articles.append(article)
         }
 
-        return articles
+        if let message = engine.lastScriptError { throw SourceRuntimeError.script(stage: "rss", message: message) }
+        return reverse ? Array(articles.reversed()) : articles
     }
 
-    /// Fetches full content of an article if ruleContent is set, otherwise returns cached description or HTML
+    /// Native RSS displays an existing description first; otherwise evaluate ruleContent or
+    /// load the linked document. Never convert network errors into a misleading empty page.
     public func fetchArticleContent(article: RssArticle, source: RssSource) async throws -> String {
-        if let rule = source.ruleContent?.trimmingCharacters(in: .whitespacesAndNewlines), !rule.isEmpty {
-            guard let parsed = NetworkClient.parseLegadoUrl(article.link, defaultHeader: JSEngine.resolvedSourceHeader(source)) else {
-                return article.content ?? article.description ?? ""
-            }
-            let response = try await NetworkClient.shared.request(parsed: parsed)
-            let body = response.bodyString
-            let analyzer = RuleAnalyzer(content: body, baseUrl: article.link)
-            let extracted = analyzer.getString(rule)
-            if !extracted.isEmpty {
-                return extracted
-            }
+        if let cached = article.content ?? article.description, !cached.isEmpty { return cached }
+        let engine = JSEngine(bookSource: source.scriptSource, baseUrl: article.link)
+        try engine.checkReady()
+        let rendered = engine.renderTemplate(article.link, variables: ["page": 1])
+        guard let parsed = NetworkClient.parseLegadoUrl(rendered,
+            defaultHeader: JSEngine.resolvedSourceHeader(source.scriptSource, engine: engine), baseUrl: source.sourceUrl) else {
+            throw WebDAVError.invalidURL
         }
-        return article.content ?? article.description ?? ""
+        let fetched = try await NetworkClient.shared.request(parsed: parsed)
+        try Task.checkCancellation()
+        let response = try engine.checkedResponse(fetched, requestedURL: parsed.url)
+        guard (200..<400).contains(response.statusCode) else { throw WebDAVError.serverError(response.statusCode, "文章加载失败") }
+        guard let rule = source.ruleContent?.trimmingCharacters(in: .whitespacesAndNewlines), !rule.isEmpty else { return response.bodyString }
+        let analyzer = RuleAnalyzer(content: response.bodyString, baseUrl: response.url?.absoluteString ?? parsed.url.absoluteString, jsEngine: engine)
+        let result = analyzer.getString(rule)
+        if let message = engine.lastScriptError { throw SourceRuntimeError.script(stage: "ruleContent", message: message) }
+        return result
     }
 }
