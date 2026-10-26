@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-26）**：发布版本 `v0.3.0`，以 [VERSION](VERSION) 为准；完成书源运行时基础，下一步 `v0.3.1` 接入可中断运行时。App 仍使用 JavaScriptCore，尚不能硬中断纯 JS 死循环。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-26）**：发布版本 `v0.3.0`，以 [VERSION](VERSION) 为准；完成书源运行时基础，当前 `v0.3.1` 已开始独立可中断适配器，宿主桥与 App 接入待完成。App 仍使用 JavaScriptCore，尚不能硬中断纯 JS 死循环。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
 
 ---
 
@@ -282,7 +282,8 @@ Legado-iOS/
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
-├── Tests/                        # 自动化单元测试套件（28 个测试文件 370 例：LegadoCoreTests + LegadoAppTests）
+├── Runtime/                      # v0.3.1 独立 QuickJS / Swift 适配器，尚未接入 App
+├── Tests/                        # 自动化测试（29 文件 377 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -304,10 +305,10 @@ Legado-iOS/
    ```
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 363 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 370 项；不可达时会跳过
+   swift test --skip LiveSourceTests   # 370 项非联网测试，缺少外部样本时显式 skipped
+   swift test                          # 另含 7 项真实书源联网冒烟，共 377 项；不可达时会跳过
    ```
-   v0.3.0（2026-10-26）macOS SPM 报告 363 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0 发布验证为 363 项；v0.3.1 适配器第一步（2026-10-26）macOS SPM 报告 370 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash

@@ -1,0 +1,4 @@
+module CQuickJS {
+    header "LegadoQuickJS.h"
+    export *
+}

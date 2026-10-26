@@ -39,3 +39,12 @@ The v0.3.1 milestone is a native runtime adapter with the existing bindings, can
 Regression tests cover library order and cache isolation, credentials/cookie exclusion, failed dependencies, field round trips, both refresh helpers, direct hook mutations, cross-stage variables, cancellation before dispatch and during a native request, shelf relocation and identity conflicts. The existing suite also covers the v0.2.8.2 theme, introduction and title regressions.
 
 See `SourceRuntimeTests`, the application `BookStoreTests`, and `Plan.md` for the current test/build results. No live-source or device acceptance of library-dependent or hook-dependent sources is implied by deterministic mocked-network tests.
+
+## v0.3.1 adapter progress
+
+The first implementation step is now an independent `LegadoRuntime` SwiftPM product with a
+small C adapter and pinned, unmodified QuickJS sources. It is not linked into the Xcode app
+target or used by `JSEngine`. See [provenance, API boundaries and limitations](../Runtime/UPSTREAM.md).
+Seven new regression methods pass on macOS; the six C files and Swift adapter also compile
+for iOS arm64 device and simulator. The full offline suite reports 370 tests, three skipped,
+zero failures. iOS execution, host bridge migration and application integration remain.

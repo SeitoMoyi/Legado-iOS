@@ -2,9 +2,9 @@
 
 > **复核日期：2026-10-26；当前发布版本：`v0.3.0`（见 [VERSION](VERSION)）；下一开发阶段：`v0.3.1`。**
 > - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
-> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 基于 `47b90a8` 完成书源运行时基础与阅读器修复；下一补丁版本继续运行时适配，见下方开发记录。`Sources/` 共 83 个 Swift 文件、30,844 行（Core：40 文件 / 10,202 行；App：43 文件 / 20,642 行）；含 Tests 共 111 个 Swift 文件。
-> - 28 个测试文件声明 370 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **363 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
-> - `tools/xcode_add_sources.py --check` 通过。当前开发分支 iOS Simulator `xcodebuild` 编译通过；`v0.2.8.2` 发布时的未签名 iOS Release archive 也已通过（Xcode 15.1 / iOS 17.2 SDK，未签名）；`v0.2.8.2` 发布前另在 iPhone 13 / iOS 17.2 模拟器验证自定义主题首开：本地 TXT 连续滚动与本地 HTTP 样本首次联网分页，正文无需切换主题即可显示。另在用户运行中的 iPhone 11 / iOS 15.5 模拟器，用实际「机翻机器人」书源验证详情简介恢复为正文、第 63 话标题恢复两行。未做真机验收；相机、音频后台与其它手势仍待设备验证。
+> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；当前开发分支 `feature/v0.3.1-runtime-adapter` 继续运行时适配，见下方开发记录。`Sources/` 共 83 个 Swift 文件、30,844 行（Core：40 文件 / 10,202 行；App：43 文件 / 20,642 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 113 个 Swift 文件。
+> - 29 个测试文件声明 377 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **370 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - `tools/xcode_add_sources.py --check` 通过。v0.3.0 iOS Simulator 编译及未签名 iOS Release archive 通过（0.3.0 / build 3）；GitHub Build & Release 成功并生成 IPA。v0.3.1 独立适配器已通过 iOS arm64 设备 / 模拟器 C 与 Swift 交叉编译，尚未接入 App；`v0.2.8.2` 发布时的未签名 iOS Release archive 也已通过（Xcode 15.1 / iOS 17.2 SDK，未签名）；`v0.2.8.2` 发布前另在 iPhone 13 / iOS 17.2 模拟器验证自定义主题首开：本地 TXT 连续滚动与本地 HTTP 样本首次联网分页，正文无需切换主题即可显示。另在用户运行中的 iPhone 11 / iOS 15.5 模拟器，用实际「机翻机器人」书源验证详情简介恢复为正文、第 63 话标题恢复两行。未做真机验收；相机、音频后台与其它手势仍待设备验证。
 > - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
 
 本文件记录源码可确认的迁移状态与待办；[README.md](README.md) 面向使用与开发入门。**字段能导入、能编辑、能导出，不代表对应 Android 行为已经执行。** 下表不再使用没有验收分母的百分比；「主流程已实现」也不表示全部分支与 Android 等价。
@@ -142,6 +142,14 @@
 1. 原生运行时适配器：固定 QuickJS 来源 / 许可，接入公开中断、内存 / 栈限制、取消信号、资源释放；先保持现有 App 引擎路径，独立测试适配器。
 2. 分批迁移已有 Java / source / book 桥与规则调用，避免替换引擎时丢失原有书源能力；库加载与主机网络调用单独限制。
 3. 覆盖循环、递归、分配、取消与后续正常求值，验证 iOS 编译 / 运行及代表书源。只有完成接入验收后才宣称 App 支持硬中断，并发布 v0.3.1。
+
+### v0.3.1 第一步：独立可中断适配器（2026-10-26，未发布）
+
+- 新增独立 SwiftPM 产品 `LegadoRuntime` 与 C 封装，固定 QuickJS 2026-06-04 官方源码 / SHA-256；保留 MIT 许可。15 个 vendor 源码 / 头文件与上游逐字节一致，未包含 OS / shell 模块及编译产物。见 [来源与边界](Runtime/UPSTREAM.md)。
+- 原生适配器支持单调时钟执行预算、原子取消、堆 / 栈 / 输入 / 输出限制、JSON 求值边界及显式资源释放；同一运行时串行使用，可在不同工作线程之间迁移。
+- 新增 7 个测试：50 次循环中断 / 恢复、执行前及跨线程取消、递归 / 分配失败、JSON 序列化和异常字符串转换超时、输入输出边界、上下文隔离及 50 次释放检查。完整非联网套件 **370 项、3 skipped、0 失败**。
+- 六个 C 源文件和 Swift 适配器均已交叉编译 iOS 15 arm64 设备 / 模拟器；这不是 iOS 实机运行验收。App 尚未依赖该产品，VERSION 仍为已发布的 v0.3.0；v0.3.1 未完成、未发布。
+- 下一步是上述第 2 步：迁移现有 Java / source / book 桥及规则调用，再做 iOS 运行与代表书源验收。当前适配器无宿主网络、模块加载和 Promise job pump；等待运行时锁的时间不计入脚本执行预算，复杂原生操作仍需单独验证。
 
 ### v0.2.8.2 发布范围
 
