@@ -10,6 +10,25 @@ import LegadoCore
 @testable import LegadoApp
 
 final class ReaderThemeTests: XCTestCase {
+    @MainActor
+    func testRestoreReloadsLiveReaderAndCancelsOlderPendingSave() async throws {
+        ReaderStore.save(ReadStyleConfig(name: "Old", textSize: 17), to: defaults)
+        let config = ReaderConfig(defaults: defaults)
+        config.fontSize = 31
+        ReaderStore.saveStyles([ReadStyleConfig(name: "Imported A", textSize: 20), ReadStyleConfig(name: "Imported B", textSize: 25)], selectedIndex: 1, to: defaults)
+        NotificationCenter.default.post(name: ReaderStore.didRestore, object: defaults)
+        XCTAssertEqual(config.fontSize, 25)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(ReaderStore.loadStyle(from: defaults)?.textSize, 25)
+        XCTAssertEqual(config.styleConfig.name, "Imported B")
+        config.selectStoredStyle(0)
+        XCTAssertEqual(config.fontSize, 20)
+        config.fontSize = 21
+        config.flushPendingSettings()
+        XCTAssertEqual(ReaderStore.loadStyles(from: defaults).map(\.name), ["Imported A", "Imported B"])
+        XCTAssertEqual(ReaderStore.loadStyles(from: defaults)[1].textSize, 25)
+    }
+
     private var defaults: UserDefaults!
     private var suiteName: String!
 

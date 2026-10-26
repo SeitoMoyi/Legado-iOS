@@ -326,29 +326,31 @@ public struct WebDAVSyncView: View {
                 }
             }
 
-            Text("支持备份书架、书源、分组、字典和朗读规则等 \(WebDAVService.supportedBackupMembers.count) 类数据。不包含书籍文件、章节缓存及全部 Android 设置。")
+            Text("支持备份书架、书源、分组、字典和朗读规则等 \(WebDAVService.supportedBackupMembers.count - 1) 类 Android 数据和 iOS 阅读偏好；其它备份文件原样保留。不包含当前书籍文件与章节缓存。")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
     }
 
     private func exportLocalBackupZip() {
-        do {
-            let (zipData, fileName) = try WebDAVService.shared.createBackupZip(
-                books: bookStore.bookshelf,
-                sources: bookStore.sources,
-                bookmarks: bookStore.bookmarks,
-                replaceRules: bookStore.replaceRules,
-                searchHistory: bookStore.searchHistory,
-                deviceName: currentConfig.deviceName
-            )
-            exportDocument = BackupZipFileDocument(data: zipData)
-            exportFileName = fileName
-            showFileExporter = true
-        } catch {
-            alertTitle = "生成备份失败"
-            alertMessage = error.localizedDescription
-            showAlert = true
+        ReaderConfig.shared.flushPendingSettings()
+        let snapshot = bookStore.backupPayload()
+        let device = currentConfig.deviceName
+        isBackingUp = true
+        Task { @MainActor in
+            defer { isBackingUp = false }
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try WebDAVService.shared.createBackupZip(payload: snapshot, deviceName: device)
+                }.value
+                exportDocument = BackupZipFileDocument(data: result.data)
+                exportFileName = result.fileName
+                showFileExporter = true
+            } catch {
+                alertTitle = "生成备份失败"
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
 
@@ -410,30 +412,25 @@ public struct WebDAVSyncView: View {
     }
 
     private func handleLocalZipImport(result: Result<[URL], Error>) {
-        do {
-            guard let selectedUrl = try result.get().first else { return }
-            let canAccess = selectedUrl.startAccessingSecurityScopedResource()
-            defer {
-                if canAccess { selectedUrl.stopAccessingSecurityScopedResource() }
+        isRestoring = true
+        Task { @MainActor in
+            defer { isRestoring = false }
+            do {
+                guard let selectedURL = try result.get().first else { return }
+                let payload = try await Task.detached(priority: .userInitiated) {
+                    let access = selectedURL.startAccessingSecurityScopedResource()
+                    defer { if access { selectedURL.stopAccessingSecurityScopedResource() } }
+                    return try WebDAVService.shared.restorePayloadFromZip(fileUrl: selectedURL)
+                }.value
+                let restored = try bookStore.restoreBackupPayload(payload)
+                alertTitle = "备份包导入成功"
+                alertMessage = "已合并书架 \(restored.booksAdded) 本、书源 \(restored.sourcesAdded) 个，以及备份中可识别的规则与阅读设置。其余文件已保留供再次导出。"
+                showAlert = true
+            } catch {
+                alertTitle = "导入失败"
+                alertMessage = error.localizedDescription
+                showAlert = true
             }
-
-            let payload = try WebDAVService.shared.restorePayloadFromZip(fileUrl: selectedUrl)
-            let res = try bookStore.restoreBackupPayload(payload)
-
-            alertTitle = "备份包导入成功"
-            var lines = [
-                "成功识别并合并备份数据：",
-                "• 书架更新/新增: \(res.booksAdded) 本",
-                "• 书源更新/新增: \(res.sourcesAdded) 个"
-            ]
-            if let bms = payload.bookmarks { lines.append("• 书签同步: \(bms.count) 条") }
-            if let rules = payload.replaceRules { lines.append("• 替换规则: \(rules.count) 条") }
-            alertMessage = lines.joined(separator: "\n")
-            showAlert = true
-        } catch {
-            alertTitle = "导入失败"
-            alertMessage = error.localizedDescription
-            showAlert = true
         }
     }
 
@@ -531,6 +528,8 @@ public struct WebDAVSyncView: View {
     }
 
     private func backupToWebDAV() {
+        ReaderConfig.shared.flushPendingSettings()
+        let snapshot = bookStore.backupPayload()
         isBackingUp = true
         Task { @MainActor in
             do {
@@ -540,6 +539,7 @@ public struct WebDAVSyncView: View {
                     bookmarks: bookStore.bookmarks,
                     replaceRules: bookStore.replaceRules,
                     searchHistory: bookStore.searchHistory,
+                    payload: snapshot,
                     config: currentConfig
                 )
                 await MainActor.run {

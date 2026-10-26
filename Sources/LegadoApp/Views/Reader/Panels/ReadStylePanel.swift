@@ -13,6 +13,9 @@ struct ReadStylePanel: View {
     let onRepaginate: () -> Void
     let onClose: () -> Void
     let onOpenMore: () -> Void
+    var selectedPageAnim: PageAnim? = nil
+    var onSetPageAnim: ((PageAnim) -> Void)? = nil
+    var onResetPageAnim: (() -> Void)? = nil
 
     var body: some View {
         // Scrollable with the rest, so both sheets are exactly one height on every device
@@ -21,6 +24,17 @@ struct ReadStylePanel: View {
             VStack(alignment: .leading, spacing: ReaderPanelMetrics.rowSpacing) {
                 Group {
                     ReaderPanelHeader(title: "阅读界面", config: config, onClose: onClose)
+
+                    if config.storedStyles.count > 1 {
+                        ReaderPanelMenuRow(title: "已存样式", config: config, current: config.styleConfig.name) {
+                            ForEach(Array(config.storedStyles.enumerated()), id: \.offset) { index, style in
+                                Button(style.name.isEmpty ? "样式 \(index + 1)" : style.name) {
+                                    config.selectStoredStyle(index)
+                                    onRepaginate()
+                                }
+                            }
+                        }
+                    }
 
                     ReaderPanelSliderRow(title: "字号", config: config, value: $config.fontSize,
                                          range: 12...32, step: 1,
@@ -58,8 +72,15 @@ struct ReadStylePanel: View {
                     blockSelector(title: "翻页",
                                   options: PageAnim.allCases,
                                   label: { $0.label },
-                                  isSelected: { config.pageAnim == $0 },
-                                  onSelect: { config.setPageAnim($0) })
+                                  isSelected: { (selectedPageAnim ?? config.pageAnim) == $0 },
+                                  onSelect: { anim in
+                                      if let onSetPageAnim = onSetPageAnim { onSetPageAnim(anim) }
+                                      else { config.setPageAnim(anim) }
+                                  })
+                    if let onResetPageAnim = onResetPageAnim {
+                        Button("翻页跟随全局样式", action: onResetPageAnim)
+                            .font(.caption).foregroundColor(config.effectiveTextColor)
+                    }
 
                     ReaderPanelRow(title: "主题", config: config,
                                    labelWidth: ReaderPanelMetrics.shortLabelWidth) {

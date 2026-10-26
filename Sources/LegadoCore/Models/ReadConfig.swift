@@ -81,7 +81,8 @@ public enum ChineseConverterMode {
 /// Unit note: Android stores `textSize` in sp and the spacing fields in dp; iOS renders
 /// in pt. We persist pt. The 0.9 sp/pt factor is applied only by `androidTextSizeSp` /
 /// `init(androidSp:)` when exchanging a config with Android.
-public struct ReadStyleConfig: Codable, Equatable {
+public struct ReadStyleConfig: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
 
     // Colors
     public var name: String
@@ -239,6 +240,118 @@ public struct ReadStyleConfig: Codable, Equatable {
         self.tipDividerColor = tipDividerColor
         self.headerMode = headerMode
         self.footerMode = footerMode
+    }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case name, bgStr, bgStrNight, bgStrEInk, bgAlpha, bgType, textColor, textColorNight, textColorEInk, darkStatusIcon, pageAnim, pageAnimEInk, textFont, textBold, textSize, letterSpacing, lineSpacingExtra, paragraphSpacing, paragraphIndent, underline, titleMode, titleSize, titleTopSpacing, titleBottomSpacing, paddingTop, paddingRight, paddingBottom, paddingLeft, headerPaddingTop, headerPaddingRight, headerPaddingBottom, headerPaddingLeft, footerPaddingTop, footerPaddingRight, footerPaddingBottom, footerPaddingLeft, showHeaderLine, showFooterLine, tipHeaderLeft, tipHeaderMiddle, tipHeaderRight, tipFooterLeft, tipFooterMiddle, tipFooterRight, tipColor, tipDividerColor, headerMode, footerMode
+    }
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? name
+        bgStr = try c.decodeIfPresent(String.self, forKey: .bgStr) ?? bgStr
+        bgStrNight = try c.decodeIfPresent(String.self, forKey: .bgStrNight) ?? bgStrNight
+        bgStrEInk = try c.decodeIfPresent(String.self, forKey: .bgStrEInk) ?? bgStrEInk
+        bgAlpha = try c.decodeIfPresent(Int.self, forKey: .bgAlpha) ?? bgAlpha
+        bgType = try c.decodeIfPresent(Int.self, forKey: .bgType) ?? bgType
+        textColor = try c.decodeIfPresent(String.self, forKey: .textColor) ?? textColor
+        textColorNight = try c.decodeIfPresent(String.self, forKey: .textColorNight) ?? textColorNight
+        textColorEInk = try c.decodeIfPresent(String.self, forKey: .textColorEInk) ?? textColorEInk
+        darkStatusIcon = try c.decodeIfPresent(Bool.self, forKey: .darkStatusIcon) ?? darkStatusIcon
+        pageAnim = try c.decodeIfPresent(Int.self, forKey: .pageAnim) ?? pageAnim
+        pageAnimEInk = try c.decodeIfPresent(Int.self, forKey: .pageAnimEInk) ?? pageAnimEInk
+        textFont = try c.decodeIfPresent(String.self, forKey: .textFont) ?? textFont
+        textBold = try c.decodeIfPresent(Int.self, forKey: .textBold) ?? textBold
+        textSize = try c.decodeIfPresent(Double.self, forKey: .textSize) ?? textSize
+        letterSpacing = try c.decodeIfPresent(Double.self, forKey: .letterSpacing) ?? letterSpacing
+        lineSpacingExtra = try c.decodeIfPresent(Double.self, forKey: .lineSpacingExtra) ?? lineSpacingExtra
+        paragraphSpacing = try c.decodeIfPresent(Double.self, forKey: .paragraphSpacing) ?? paragraphSpacing
+        paragraphIndent = try c.decodeIfPresent(String.self, forKey: .paragraphIndent) ?? paragraphIndent
+        underline = try c.decodeIfPresent(Bool.self, forKey: .underline) ?? underline
+        titleMode = try c.decodeIfPresent(Int.self, forKey: .titleMode) ?? titleMode
+        titleSize = try c.decodeIfPresent(Int.self, forKey: .titleSize) ?? titleSize
+        titleTopSpacing = try c.decodeIfPresent(Int.self, forKey: .titleTopSpacing) ?? titleTopSpacing
+        titleBottomSpacing = try c.decodeIfPresent(Int.self, forKey: .titleBottomSpacing) ?? titleBottomSpacing
+        paddingTop = try c.decodeIfPresent(Double.self, forKey: .paddingTop) ?? paddingTop
+        paddingRight = try c.decodeIfPresent(Double.self, forKey: .paddingRight) ?? paddingRight
+        paddingBottom = try c.decodeIfPresent(Double.self, forKey: .paddingBottom) ?? paddingBottom
+        paddingLeft = try c.decodeIfPresent(Double.self, forKey: .paddingLeft) ?? paddingLeft
+        headerPaddingTop = try c.decodeIfPresent(Double.self, forKey: .headerPaddingTop) ?? headerPaddingTop
+        headerPaddingRight = try c.decodeIfPresent(Double.self, forKey: .headerPaddingRight) ?? headerPaddingRight
+        headerPaddingBottom = try c.decodeIfPresent(Double.self, forKey: .headerPaddingBottom) ?? headerPaddingBottom
+        headerPaddingLeft = try c.decodeIfPresent(Double.self, forKey: .headerPaddingLeft) ?? headerPaddingLeft
+        footerPaddingTop = try c.decodeIfPresent(Double.self, forKey: .footerPaddingTop) ?? footerPaddingTop
+        footerPaddingRight = try c.decodeIfPresent(Double.self, forKey: .footerPaddingRight) ?? footerPaddingRight
+        footerPaddingBottom = try c.decodeIfPresent(Double.self, forKey: .footerPaddingBottom) ?? footerPaddingBottom
+        footerPaddingLeft = try c.decodeIfPresent(Double.self, forKey: .footerPaddingLeft) ?? footerPaddingLeft
+        showHeaderLine = try c.decodeIfPresent(Bool.self, forKey: .showHeaderLine) ?? showHeaderLine
+        showFooterLine = try c.decodeIfPresent(Bool.self, forKey: .showFooterLine) ?? showFooterLine
+        tipHeaderLeft = try c.decodeIfPresent(Int.self, forKey: .tipHeaderLeft) ?? tipHeaderLeft
+        tipHeaderMiddle = try c.decodeIfPresent(Int.self, forKey: .tipHeaderMiddle) ?? tipHeaderMiddle
+        tipHeaderRight = try c.decodeIfPresent(Int.self, forKey: .tipHeaderRight) ?? tipHeaderRight
+        tipFooterLeft = try c.decodeIfPresent(Int.self, forKey: .tipFooterLeft) ?? tipFooterLeft
+        tipFooterMiddle = try c.decodeIfPresent(Int.self, forKey: .tipFooterMiddle) ?? tipFooterMiddle
+        tipFooterRight = try c.decodeIfPresent(Int.self, forKey: .tipFooterRight) ?? tipFooterRight
+        tipColor = try c.decodeIfPresent(Int.self, forKey: .tipColor) ?? tipColor
+        tipDividerColor = try c.decodeIfPresent(Int.self, forKey: .tipDividerColor) ?? tipDividerColor
+        headerMode = try c.decodeIfPresent(Int.self, forKey: .headerMode) ?? headerMode
+        footerMode = try c.decodeIfPresent(Int.self, forKey: .footerMode) ?? footerMode
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(bgStr, forKey: .bgStr)
+        try c.encode(bgStrNight, forKey: .bgStrNight)
+        try c.encode(bgStrEInk, forKey: .bgStrEInk)
+        try c.encode(bgAlpha, forKey: .bgAlpha)
+        try c.encode(bgType, forKey: .bgType)
+        try c.encode(textColor, forKey: .textColor)
+        try c.encode(textColorNight, forKey: .textColorNight)
+        try c.encode(textColorEInk, forKey: .textColorEInk)
+        try c.encode(darkStatusIcon, forKey: .darkStatusIcon)
+        try c.encode(pageAnim, forKey: .pageAnim)
+        try c.encode(pageAnimEInk, forKey: .pageAnimEInk)
+        try c.encode(textFont, forKey: .textFont)
+        try c.encode(textBold, forKey: .textBold)
+        try c.encode(textSize, forKey: .textSize)
+        try c.encode(letterSpacing, forKey: .letterSpacing)
+        try c.encode(lineSpacingExtra, forKey: .lineSpacingExtra)
+        try c.encode(paragraphSpacing, forKey: .paragraphSpacing)
+        try c.encode(paragraphIndent, forKey: .paragraphIndent)
+        try c.encode(underline, forKey: .underline)
+        try c.encode(titleMode, forKey: .titleMode)
+        try c.encode(titleSize, forKey: .titleSize)
+        try c.encode(titleTopSpacing, forKey: .titleTopSpacing)
+        try c.encode(titleBottomSpacing, forKey: .titleBottomSpacing)
+        try c.encode(paddingTop, forKey: .paddingTop)
+        try c.encode(paddingRight, forKey: .paddingRight)
+        try c.encode(paddingBottom, forKey: .paddingBottom)
+        try c.encode(paddingLeft, forKey: .paddingLeft)
+        try c.encode(headerPaddingTop, forKey: .headerPaddingTop)
+        try c.encode(headerPaddingRight, forKey: .headerPaddingRight)
+        try c.encode(headerPaddingBottom, forKey: .headerPaddingBottom)
+        try c.encode(headerPaddingLeft, forKey: .headerPaddingLeft)
+        try c.encode(footerPaddingTop, forKey: .footerPaddingTop)
+        try c.encode(footerPaddingRight, forKey: .footerPaddingRight)
+        try c.encode(footerPaddingBottom, forKey: .footerPaddingBottom)
+        try c.encode(footerPaddingLeft, forKey: .footerPaddingLeft)
+        try c.encode(showHeaderLine, forKey: .showHeaderLine)
+        try c.encode(showFooterLine, forKey: .showFooterLine)
+        try c.encode(tipHeaderLeft, forKey: .tipHeaderLeft)
+        try c.encode(tipHeaderMiddle, forKey: .tipHeaderMiddle)
+        try c.encode(tipHeaderRight, forKey: .tipHeaderRight)
+        try c.encode(tipFooterLeft, forKey: .tipFooterLeft)
+        try c.encode(tipFooterMiddle, forKey: .tipFooterMiddle)
+        try c.encode(tipFooterRight, forKey: .tipFooterRight)
+        try c.encode(tipColor, forKey: .tipColor)
+        try c.encode(tipDividerColor, forKey: .tipDividerColor)
+        try c.encode(headerMode, forKey: .headerMode)
+        try c.encode(footerMode, forKey: .footerMode)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
     }
 
     /// Android `bgAlpha` is 0-100 (percent); iOS renders 0-1.

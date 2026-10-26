@@ -40,6 +40,9 @@ public struct SettingsView: View {
                 prefLink("character.book.closed.fill", "字典规则", "配置字典规则") {
                     DictRuleListView()
                 }
+                prefLink("arrow.clockwise.circle.fill", "规则订阅", "预览并导入书源、订阅源和替换规则") {
+                    RuleSubscriptionsView()
+                }
 
                 // 主题模式（Android NameListPreference：值显示在 summary 位）
                 HStack(spacing: 12) {

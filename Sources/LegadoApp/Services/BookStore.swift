@@ -249,8 +249,23 @@ public class BookStore: ObservableObject {
     }
 
     /// Merges a full `BackupRestorePayload` (books, sources, bookmarks, replaceRules, searchHistory, readConfig) into local storage.
+    public func backupPayload() -> WebDAVService.BackupRestorePayload {
+        .init(books: bookshelf, sources: sources, bookmarks: bookmarks, replaceRules: replaceRules,
+              searchHistory: searchHistory, ruleSubscriptions: RuleSubStore.load(from: defaults),
+              readStyles: ReaderStore.loadStyles(from: defaults),
+              readerSettings: ReaderBackupSettings(selectedStyle: ReaderStore.selectedStyleIndex(from: defaults), prefs: ReaderStore.loadPrefs(from: defaults)),
+              preservedMembers: BackupCompatibilityStore.load(from: defaults),
+              txtTocRules: TxtTocRuleStore.load(from: defaults), readRecords: ReadRecordStore.load(from: defaults),
+              rssSources: RssStore.loadSources(from: defaults), rssStars: RssStore.loadStars(from: defaults),
+              bookGroups: BookGroupStore.load(from: defaults), dictRules: DictRuleStore.load(from: defaults),
+              httpTTS: HttpTTSStore.load(from: defaults))
+    }
+
     @discardableResult
     public func restoreBackupPayload(_ payload: WebDAVService.BackupRestorePayload) throws -> (booksAdded: Int, sourcesAdded: Int, bookmarksAdded: Int, rulesAdded: Int) {
+        try BackupCompatibilityStore.validate(payload.preservedMembers)
+        let preserved = BackupCompatibilityStore.load(from: defaults).merging(payload.preservedMembers) { _, incoming in incoming }
+        try BackupCompatibilityStore.validate(preserved)
         var booksCount = 0
         var sourcesCount = 0
         var bookmarksCount = 0
@@ -338,8 +353,18 @@ public class BookStore: ObservableObject {
             searchHistory = merged
             saveSearchHistory()
         }
-        if let style = payload.readConfig {
-            ReaderStore.save(style, to: defaults)
+        if let styles = payload.readStyles {
+            ReaderStore.saveStyles(styles, selectedIndex: payload.readerSettings?.selectedStyle ?? 0, to: defaults)
+        } else if let style = payload.readConfig { ReaderStore.save(style, to: defaults) }
+        if let settings = payload.readerSettings { ReaderStore.save(settings.prefs, to: defaults) }
+        if payload.readStyles != nil || payload.readConfig != nil || payload.readerSettings != nil {
+            NotificationCenter.default.post(name: ReaderStore.didRestore, object: defaults)
+        }
+        if let subscriptions = payload.ruleSubscriptions {
+            RuleSubStore.save(RuleSubStore.merge(subscriptions, into: RuleSubStore.load(from: defaults)), to: defaults)
+        }
+        if !payload.preservedMembers.isEmpty {
+            try BackupCompatibilityStore.save(preserved, to: defaults)
         }
         if let dictionaries = payload.dictRules {
             let json = String(decoding: try JSONEncoder().encode(dictionaries), as: UTF8.self)
@@ -683,6 +708,37 @@ public class BookStore: ObservableObject {
     }
 
     // MARK: - Source Management
+    /// Subscription refreshes preserve local changes unless replacement was selected in preview.
+    @discardableResult
+    public func importSubscription(_ preview: RuleSubscriptionPreview, replacingExisting: Bool) -> Int {
+        var count = 0
+        switch preview {
+        case .bookSources(let values):
+            for value in values {
+                if let index = sources.firstIndex(where: { $0.bookSourceUrl == value.bookSourceUrl }) {
+                    if replacingExisting { sources[index] = value; count += 1 }
+                } else { sources.append(value); count += 1 }
+            }
+            saveSources()
+        case .rssSources(let values):
+            var current = RssStore.loadSources(from: defaults)
+            for value in values {
+                if let index = current.firstIndex(where: { $0.sourceUrl == value.sourceUrl }) {
+                    if replacingExisting { current[index] = value; count += 1 }
+                } else { current.append(value); count += 1 }
+            }
+            RssStore.saveSources(current, to: defaults)
+        case .replaceRules(let values):
+            for value in values {
+                if let index = replaceRules.firstIndex(where: { $0.id == value.id || ($0.name == value.name && $0.pattern == value.pattern) }) {
+                    if replacingExisting { replaceRules[index] = value; count += 1 }
+                } else { replaceRules.append(value); count += 1 }
+            }
+            saveReplaceRules()
+        }
+        return count
+    }
+
     public func importSources(json: String) throws -> Int {
         guard let data = json.data(using: .utf8) else { return 0 }
         let imported = (BookSource.decodeListOrObjectWithExtras(from: data) ?? [])

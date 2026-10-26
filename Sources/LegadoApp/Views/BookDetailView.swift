@@ -224,6 +224,14 @@ public struct BookDetailView: View {
                             bookUrl: currentBook.bookUrl,
                             chapters: chapters,
                             currentChapterIndex: currentBookshelfBook.durChapterIndex,
+                            initialReverse: currentBookshelfBook.reverseToc,
+                            onReverseChanged: { value in
+                                currentBook.setReaderSetting("reverseToc", value: .bool(value))
+                                if let index = bookStore.bookshelf.firstIndex(where: { $0.bookUrl == currentBook.bookUrl }) {
+                                    bookStore.bookshelf[index].setReaderSetting("reverseToc", value: .bool(value))
+                                    bookStore.saveBookshelf()
+                                }
+                            },
                             onSelectChapter: { index in
                                 selectedChapterIndex = index
                                 isReading = true
@@ -762,6 +770,8 @@ struct ChapterListView: View {
     let chapters: [BookChapter]
     let currentChapterIndex: Int
     var showCloseButton: Bool = false
+    var initialReverse: Bool = false
+    var onReverseChanged: ((Bool) -> Void)? = nil
     let onSelectChapter: (Int) -> Void
 
     @State private var searchKeyword: String = ""
@@ -798,6 +808,7 @@ struct ChapterListView: View {
 
                     Button {
                         isReversed.toggle()
+                        onReverseChanged?(isReversed)
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.up.arrow.down")
@@ -855,6 +866,7 @@ struct ChapterListView: View {
                 }
                 .listStyle(.plain)
                 .onAppear {
+                    isReversed = initialReverse
                     if currentChapterIndex >= 0 && currentChapterIndex < chapters.count {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             proxy.scrollTo(currentChapterIndex, anchor: .center)

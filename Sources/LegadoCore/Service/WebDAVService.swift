@@ -308,6 +308,10 @@ public class WebDAVService {
         public var replaceRules: [ReplaceRule]?
         public var searchHistory: [SearchKeyword]?
         public var readConfig: ReadStyleConfig?
+        public var ruleSubscriptions: [RuleSub]?
+        public var readStyles: [ReadStyleConfig]?
+        public var readerSettings: ReaderBackupSettings?
+        public var preservedMembers: [String: Data] = [:]
         public var txtTocRules: [TxtTocRule]?
         public var readRecords: [ReadRecord]?
         public var rssSources: [RssSource]?
@@ -320,7 +324,8 @@ public class WebDAVService {
         var hasSupportedMembers: Bool {
             books != nil || sources != nil || bookmarks != nil || replaceRules != nil || searchHistory != nil
                 || readConfig != nil || txtTocRules != nil || readRecords != nil || rssSources != nil || rssStars != nil
-                || bookGroups != nil || dictRules != nil || httpTTS != nil
+                || bookGroups != nil || dictRules != nil || httpTTS != nil || readStyles != nil
+                || readerSettings != nil || ruleSubscriptions != nil || !preservedMembers.isEmpty
         }
 
         public init(
@@ -330,6 +335,10 @@ public class WebDAVService {
             replaceRules: [ReplaceRule]? = nil,
             searchHistory: [SearchKeyword]? = nil,
             readConfig: ReadStyleConfig? = nil,
+            ruleSubscriptions: [RuleSub]? = nil,
+            readStyles: [ReadStyleConfig]? = nil,
+            readerSettings: ReaderBackupSettings? = nil,
+            preservedMembers: [String: Data] = [:],
             txtTocRules: [TxtTocRule]? = nil,
             readRecords: [ReadRecord]? = nil,
             rssSources: [RssSource]? = nil,
@@ -345,6 +354,10 @@ public class WebDAVService {
             self.replaceRules = replaceRules
             self.searchHistory = searchHistory
             self.readConfig = readConfig
+            self.ruleSubscriptions = ruleSubscriptions
+            self.readStyles = readStyles
+            self.readerSettings = readerSettings
+            self.preservedMembers = preservedMembers
             self.txtTocRules = txtTocRules
             self.readRecords = readRecords
             self.rssSources = rssSources
@@ -356,8 +369,19 @@ public class WebDAVService {
         }
     }
 
-    /// Creates an Android-compatible backup ZIP archive containing bookshelf.json, bookSource.json,
-    /// bookmark.json, replaceRule.json, searchHistory.json, and readConfig.json.
+    /// Builds from a captured snapshot. Missing optional collections mean empty, not another store.
+    public func createBackupZip(payload: BackupRestorePayload, deviceName: String = WebDAVConfig.defaultDeviceName, date: Date = Date()) throws -> (data: Data, fileName: String) {
+        try createBackupZip(books: payload.books ?? [], sources: payload.sources ?? [],
+            bookmarks: payload.bookmarks ?? [], replaceRules: payload.replaceRules ?? [], searchHistory: payload.searchHistory ?? [],
+            readConfig: payload.readConfig, ruleSubscriptions: payload.ruleSubscriptions ?? [],
+            readStyles: payload.readStyles ?? payload.readConfig.map { [$0] } ?? [],
+            readerSettings: payload.readerSettings ?? ReaderBackupSettings(), preservedMembers: payload.preservedMembers,
+            txtTocRules: payload.txtTocRules ?? [], readRecords: payload.readRecords ?? [], rssSources: payload.rssSources ?? [],
+            rssStars: payload.rssStars ?? [], bookGroups: payload.bookGroups ?? [], dictRules: payload.dictRules ?? [],
+            httpTTS: payload.httpTTS ?? [], deviceName: deviceName, date: date)
+    }
+
+    /// Creates a native Android member layout with an iOS-only reader settings sidecar.
     public func createBackupZip(
         books: [Book],
         sources: [BookSource],
@@ -365,6 +389,10 @@ public class WebDAVService {
         replaceRules: [ReplaceRule]? = nil,
         searchHistory: [SearchKeyword]? = nil,
         readConfig: ReadStyleConfig? = nil,
+        ruleSubscriptions: [RuleSub]? = nil,
+        readStyles: [ReadStyleConfig]? = nil,
+        readerSettings: ReaderBackupSettings? = nil,
+        preservedMembers: [String: Data]? = nil,
         txtTocRules: [TxtTocRule]? = nil,
         readRecords: [ReadRecord]? = nil,
         rssSources: [RssSource]? = nil,
@@ -411,9 +439,9 @@ public class WebDAVService {
         if !resolvedHistory.isEmpty {
             try writeEntry(resolvedHistory, name: "searchHistory.json")
         }
-        if let style = readConfig ?? ReaderStore.loadStyle() {
-            try writeEntry([style], name: "readConfig.json")
-        }
+        let styles = readStyles ?? readConfig.map { [$0] } ?? ReaderStore.loadStyles()
+        try writeEntry(styles, name: "readConfig.json")
+        try writeEntry(readerSettings ?? ReaderBackupSettings(selectedStyle: ReaderStore.selectedStyleIndex(), prefs: ReaderStore.loadPrefs()), name: "iosReaderSettings.json")
 
         let resolvedTxtRules = txtTocRules ?? TxtTocRuleStore.load()
         if !resolvedTxtRules.isEmpty {
@@ -441,6 +469,17 @@ public class WebDAVService {
         let engines = (httpTTS ?? HttpTTSStore.load()).filter { $0.contentType != "system" }
         if !engines.isEmpty { try writeEntry(engines, name: "httpTTS.json") }
 
+        try writeEntry(ruleSubscriptions ?? RuleSubStore.load(), name: "sourceSub.json")
+
+        let opaque = preservedMembers ?? BackupCompatibilityStore.load()
+        try BackupCompatibilityStore.validate(opaque)
+        for (name, data) in opaque.sorted(by: { $0.key < $1.key }) where !entryNames.contains(name) && !Self.supportedBackupMembers.contains(name) {
+            let url = tempDir.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+            entryNames.append(name)
+        }
+
         let zipFile = tempDir.appendingPathComponent(fileName)
         try {
             let archive = try Archive(url: zipFile, accessMode: .create)
@@ -461,6 +500,7 @@ public class WebDAVService {
         replaceRules: [ReplaceRule]? = nil,
         searchHistory: [SearchKeyword]? = nil,
         readConfig: ReadStyleConfig? = nil,
+        payload: BackupRestorePayload? = nil,
         config: WebDAVConfig
     ) async throws -> (booksCount: Int, sourcesCount: Int, backupFileName: String) {
         guard let dirUrl = config.directoryURL else {
@@ -474,7 +514,7 @@ public class WebDAVService {
         encoder.outputFormatting = [.prettyPrinted]
 
         // 1. Create and upload Android Legado compatible ZIP archive: backupYYYY-MM-DD-deviceName.zip
-        let (zipData, zipFileName) = try createBackupZip(
+        let (zipData, zipFileName) = try payload.map { try createBackupZip(payload: $0, deviceName: config.deviceName) } ?? createBackupZip(
             books: books,
             sources: sources,
             bookmarks: bookmarks,
@@ -754,7 +794,7 @@ public class WebDAVService {
         // An archive is one snapshot. Only use loose metadata when no archive was selected.
         if !restoredArchive {
             let entries = try await withThrowingTaskGroup(of: (String, Data?).self) { group in
-                for name in Self.supportedBackupMembers {
+                for name in Self.supportedBackupMembers + Self.preservedAndroidBackupMembers {
                     group.addTask {
                         var request = self.makeRequest(url: dirUrl.appendingPathComponent(name), method: "GET", config: config)
                         request.timeoutInterval = 15
@@ -771,7 +811,9 @@ public class WebDAVService {
                 return entries
             }
             payload = try decodeBackupMembers { entries[$0] }
-            payload.backupName = Self.supportedBackupMembers.first { entries[$0] != nil }
+            payload.preservedMembers = entries.filter { !Self.supportedBackupMembers.contains($0.key) }
+            try BackupCompatibilityStore.validate(payload.preservedMembers)
+            payload.backupName = (Self.supportedBackupMembers + Self.preservedAndroidBackupMembers).first { entries[$0] != nil }
         }
 
         // 3. Sync any latest progress from remote bookProgress/ folder using single PROPFIND + concurrent batch fetch
@@ -893,7 +935,11 @@ public class WebDAVService {
     public static let supportedBackupMembers = [
         "bookshelf.json", "bookSource.json", "bookmark.json", "replaceRule.json", "searchHistory.json",
         "readConfig.json", "txtTocRule.json", "readRecord.json", "rssSources.json", "rssStar.json",
-        "bookGroup.json", "dictRule.json", "httpTTS.json"
+        "bookGroup.json", "dictRule.json", "httpTTS.json", "sourceSub.json", "iosReaderSettings.json"
+    ]
+    public static let preservedAndroidBackupMembers = [
+        "servers.json", "keyboardAssists.json", "directLinkUploadRule.json", "shareReadConfig.json",
+        "themeConfig.json", "coverRule.json", "config.xml"
     ]
 
     private func decodeBackupMembers(_ extractData: (String) throws -> Data?) throws -> BackupRestorePayload {
@@ -928,14 +974,23 @@ public class WebDAVService {
             payload.searchHistory = decoded
         }
 
-        // 6. readConfig.json
+        // Android exports every style; the iOS sidecar carries its selected index.
         if let data = try extractData("readConfig.json") {
-            if let single = TolerantJSON.decode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()) {
+            if let list = try? JSONDecoder().decode([ReadStyleConfig].self, from: data) {
+                payload.readStyles = list
+                payload.readConfig = list.first
+            } else if let single = ReadStyleConfig.decodeWithExtras(from: data) {
+                payload.readStyles = [single]
                 payload.readConfig = single
-            } else if let list = TolerantJSON.decodeList(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig()),
-                      let first = list.first {
-                payload.readConfig = first
-            }
+            } else { throw WebDAVError.decodingFailed("阅读样式无效") }
+        }
+        if let data = try extractData("iosReaderSettings.json") {
+            payload.readerSettings = try JSONDecoder().decode(ReaderBackupSettings.self, from: data)
+        }
+
+        if let data = try extractData("sourceSub.json") {
+            guard let list = try? JSONDecoder().decode([RuleSub].self, from: data) else { throw WebDAVError.decodingFailed("规则订阅无效") }
+            payload.ruleSubscriptions = list
         }
 
         // 7. txtTocRule.json
@@ -984,32 +1039,45 @@ public class WebDAVService {
     public func parseArchivePayload(_ archive: Archive) throws -> BackupRestorePayload {
         var payload = BackupRestorePayload()
 
-        func extractData(named fileName: String) throws -> Data? {
-            guard let entry = archive[fileName] ?? archive.first(where: { $0.path.hasSuffix("/\(fileName)") || $0.path == fileName }) else {
-                return nil
+        // Extract into bounded memory, never into paths supplied by an archive.
+        var entries: [String: Data] = [:]
+        var total = 0
+        for entry in archive {
+            guard entry.type == .file else {
+                if entry.type == .directory { continue }
+                throw WebDAVError.decodingFailed("备份包含不支持的链接")
             }
-            var data = Data()
+            try BackupCompatibilityStore.validate(path: entry.path)
+            guard entries[entry.path] == nil, entry.uncompressedSize <= UInt64(BackupCompatibilityStore.maximumMemberSize) else {
+                throw WebDAVError.decodingFailed("备份条目重复或过大")
+            }
+            var bytes = Data()
             _ = try archive.extract(entry) { chunk in
-                data.append(chunk)
+                guard bytes.count <= BackupCompatibilityStore.maximumMemberSize - chunk.count,
+                      total <= BackupCompatibilityStore.maximumTotalSize - chunk.count else {
+                    throw WebDAVError.decodingFailed("备份数据超过大小限制")
+                }
+                bytes.append(chunk)
+                total += chunk.count
             }
-            return data.isEmpty ? nil : data
+            entries[entry.path] = bytes
         }
-
-        payload = try decodeBackupMembers { try extractData(named: $0) }
+        var consumed = Set<String>()
+        payload = try decodeBackupMembers { name in
+            let candidates = entries.keys.filter { $0 == name || $0.hasSuffix("/" + name) }.sorted()
+            guard candidates.count <= 1 else { throw WebDAVError.decodingFailed("备份包含重复的数据文件") }
+            guard let path = candidates.first else { return nil }
+            consumed.insert(path)
+            return entries[path]
+        }
+        payload.preservedMembers = entries.filter { !consumed.contains($0.key) }
 
         // 11. Extract any internal bookProgress/*.json
         var progressMap: [String: BookProgress] = [:]
-        for entry in archive {
-            let path = entry.path
-            if (path.hasPrefix("bookProgress/") || path.contains("/bookProgress/")) && path.hasSuffix(".json") {
-                var pData = Data()
-                _ = try archive.extract(entry) { chunk in
-                    pData.append(chunk)
-                }
-                if let prog = try? JSONDecoder().decode(BookProgress.self, from: pData) {
-                    let key = "\(prog.name)_\(prog.author)"
-                    progressMap[key] = prog
-                }
+        for (path, pData) in entries {
+            if (path.hasPrefix("bookProgress/") || path.contains("/bookProgress/")) && path.hasSuffix(".json"),
+               let prog = try? JSONDecoder().decode(BookProgress.self, from: pData) {
+                progressMap["\(prog.name)_\(prog.author)"] = prog
             }
         }
 

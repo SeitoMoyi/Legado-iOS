@@ -57,6 +57,18 @@ public struct ReaderView: View {
     /// Nil means "resolve from the shelf", which is what `effectiveSource` does.
     @State private var currentSource: BookSource?
 
+    private var effectivePageAnim: PageAnim { book.readerPageAnim ?? readerConfig.pageAnim }
+    private var effectivePageMode: PageMode { effectivePageAnim == .scroll ? .scroll : .pageByPage }
+    private var effectiveImageStyle: ReadImageStyle { book.readerImageStyle ?? readerConfig.prefs.imageStyle }
+
+    private func setBookReaderSetting(_ key: String, value: JSONValue?) {
+        book.setReaderSetting(key, value: value)
+        if let index = BookStore.shared.bookshelf.firstIndex(where: { $0.bookUrl == book.bookUrl }) {
+            BookStore.shared.bookshelf[index].setReaderSetting(key, value: value)
+            BookStore.shared.saveBookshelf()
+        }
+    }
+
     private var effectiveSource: BookSource? {
         currentSource ?? BookStore.shared.findSource(for: book)
     }
@@ -177,7 +189,7 @@ public struct ReaderView: View {
     /// re-runs the 净化 pipeline with whatever just changed.
     private func reloadCurrentChapter() {
         chapterCache[currentChapterIndex] = nil
-        if readerConfig.pageMode == .scroll {
+        if effectivePageMode == .scroll {
             loadedChapters.removeAll { $0.chapter.index == currentChapterIndex }
         }
         loadInitialChapter(at: currentChapterIndex)
@@ -242,7 +254,7 @@ public struct ReaderView: View {
         case .nextPage, .prevPage:
             // Continuous scroll is one long document with no page index, so paging by tap
             // has no target there; the paged renderer owns these two actions.
-            guard readerConfig.pageMode == .pageByPage else { return }
+            guard effectivePageMode == .pageByPage else { return }
             turnPage(forward: action == .nextPage)
         case .nextChapter: jumpChapter(by: 1)
         case .prevChapter: jumpChapter(by: -1)
@@ -455,12 +467,12 @@ public struct ReaderView: View {
         }
         .onChange(of: currentPageIndex) { _ in clearTextSelection() }
         .onChange(of: currentChapterIndex) { _ in clearTextSelection() }
-        .onChange(of: readerConfig.pageMode) { _ in clearTextSelection() }
+        .onChange(of: effectivePageMode) { _ in clearTextSelection() }
         .onChange(of: showSearch) { open in
             if !open { dictLookupSeed = "" }
         }
         .onChange(of: readerConfig.pageAnim) { _ in
-            handlePageModeChange(to: readerConfig.pageMode)
+            handlePageModeChange(to: effectivePageMode)
         }
     }
 
@@ -480,7 +492,7 @@ public struct ReaderView: View {
                     loadFailureView(error)
                 } else {
                     ZStack {
-                        if readerConfig.pageMode == .scroll {
+                        if effectivePageMode == .scroll {
                             infiniteScrollView
                         } else {
                             pageByPageView
@@ -657,7 +669,16 @@ public struct ReaderView: View {
                 ReadStylePanel(config: readerConfig,
                                onRepaginate: { recomputePagination() },
                                onClose: { closePanel() },
-                               onOpenMore: { openPanel(.moreSettings) })
+                               onOpenMore: { openPanel(.moreSettings) },
+                               selectedPageAnim: effectivePageAnim,
+                               onSetPageAnim: { anim in
+                                   setBookReaderSetting("pageAnim", value: .int(Int64(anim.rawValue)))
+                                   handlePageModeChange(to: effectivePageMode)
+                               },
+                               onResetPageAnim: {
+                                   setBookReaderSetting("pageAnim", value: nil)
+                                   handlePageModeChange(to: effectivePageMode)
+                               })
             }
         }
 
@@ -783,7 +804,7 @@ public struct ReaderView: View {
                            currentPageIndex < cur.typography.pages.count,
                            case let .image(imgId) = cur.typography.pages[currentPageIndex],
                            let img = cur.typography.images.first(where: { $0.id == imgId }) {
-                            let isFullImg = readerConfig.prefs.imageStyle == .full
+                            let isFullImg = effectiveImageStyle == .full
                             ChapterImageView(urlString: img.urlString, referer: effectiveSource?.bookSourceUrl)
                                 .frame(maxWidth: .infinity, maxHeight: isFullImg ? .infinity : nil)
                         } else {
@@ -938,7 +959,7 @@ public struct ReaderView: View {
     /// until the page-curl work lands; `none` skips animation entirely.
     private func animatePageTurn(forward: Bool, _ change: () -> Void) {
         pageEdge = forward ? .trailing : .leading
-        switch readerConfig.pageAnim {
+        switch effectivePageAnim {
         case .none:
             change()
         default:
@@ -949,7 +970,7 @@ public struct ReaderView: View {
     private var pageTransition: AnyTransition {
         let incoming: Edge = pageEdge
         let outgoing: Edge = (incoming == .trailing) ? .leading : .trailing
-        switch readerConfig.pageAnim {
+        switch effectivePageAnim {
         case .none:
             return .identity
         case .cover:
@@ -1181,11 +1202,13 @@ public struct ReaderView: View {
                         Button("净化与替换规则") { showEffectiveReplaces = true }
 
                         Menu("图片样式") {
+                            Button("跟随全局样式") {
+                                setBookReaderSetting("imageStyle", value: nil)
+                                reloadCurrentChapter()
+                            }
                             ForEach(ReadImageStyle.allCases) { style in
                                 Button(style.label) {
-                                    var prefs = readerConfig.prefs
-                                    prefs.imageStyle = style
-                                    readerConfig.prefs = prefs
+                                    setBookReaderSetting("imageStyle", value: .string(style.rawValue))
                                     reloadCurrentChapter()
                                 }
                             }
@@ -1284,7 +1307,7 @@ public struct ReaderView: View {
             // Reading Percentage / Page Info
             if !chapters.isEmpty {
                 let progressPercent = Double(currentChapterIndex + 1) / Double(chapters.count) * 100.0
-                if readerConfig.pageMode == .pageByPage, currentLoadedChapter != nil {
+                if effectivePageMode == .pageByPage, currentLoadedChapter != nil {
                     Text("\(currentPageIndex + 1)/\(currentChapterTotalPages) · \(String(format: "%.1f%%", progressPercent))")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(readerConfig.effectiveTextColor.opacity(0.55))
@@ -1310,7 +1333,7 @@ public struct ReaderView: View {
 
     private var chapterNavigationRow: some View {
         let isPageSliderMode = (readerConfig.prefs.progressBarBehavior == 0)
-            && (readerConfig.pageMode == .pageByPage)
+            && (effectivePageMode == .pageByPage)
             && (currentChapterTotalPages > 1)
         let pageCount = currentChapterTotalPages
 
@@ -1578,6 +1601,8 @@ public struct ReaderView: View {
                 chapters: chapters,
                 currentChapterIndex: currentChapterIndex,
                 showCloseButton: true,
+                initialReverse: book.reverseToc,
+                onReverseChanged: { setBookReaderSetting("reverseToc", value: .bool($0)) },
                 onSelectChapter: { index in
                     showTOC = false
                     jumpToChapter(index)
@@ -1800,7 +1825,7 @@ public struct ReaderView: View {
             paddingTrailing: readerConfig.paddingTrailing,
             paddingTop: readerConfig.paddingTop,
             paddingBottom: readerConfig.paddingBottom,
-            imageStyle: readerConfig.prefs.imageStyle,
+            imageStyle: effectiveImageStyle,
             justify: readerConfig.prefs.textFullJustify
         )
         return LoadedChapter(
@@ -1937,7 +1962,7 @@ public struct ReaderView: View {
                 // Restore position if durChapterPos is saved and opening the current chapter
                 let totalPages = max(1, loaded.typography.pages.count)
                 if targetPageIndex == 0 && restorePos > 0 {
-                    if self.readerConfig.pageMode == .pageByPage {
+                    if self.effectivePageMode == .pageByPage {
                         self.currentPageIndex = loaded.typography.pageIndex(forCharOffset: restorePos)
                     } else {
                         self.scrollTargetCharPos = restorePos
@@ -1994,7 +2019,7 @@ public struct ReaderView: View {
     }
 
     private func currentChapterCharOffset() -> Int {
-        if readerConfig.pageMode == .pageByPage {
+        if effectivePageMode == .pageByPage {
             if let cur = currentLoadedChapter,
                let lineIndex = cur.typography.firstLineIndex(ofPage: currentPageIndex),
                lineIndex < cur.typography.lines.count {
@@ -2025,7 +2050,7 @@ public struct ReaderView: View {
         guard let cur = currentLoadedChapter else { return "" }
         let typo = cur.typography
         let lineSlice: ArraySlice<TypographyLine>
-        if readerConfig.pageMode == .pageByPage, let range = typo.lineRange(ofPage: currentPageIndex) {
+        if effectivePageMode == .pageByPage, let range = typo.lineRange(ofPage: currentPageIndex) {
             lineSlice = typo.lines[range]
         } else {
             // Continuous scroll: the paragraph the reading focus line sits in.
@@ -2121,7 +2146,7 @@ public struct ReaderView: View {
             }
             currentChapterIndex = target
             currentPageIndex = 0
-            if readerConfig.pageMode == .scroll {
+            if effectivePageMode == .scroll {
                 loadedChapters = [loaded]
             }
             saveCurrentProgress()
@@ -2174,7 +2199,7 @@ public struct ReaderView: View {
         guard let cur = currentLoadedChapter else { return 0 }
         let typo = cur.typography
         let anchorText: String
-        if readerConfig.pageMode == .pageByPage,
+        if effectivePageMode == .pageByPage,
            let lineIndex = typo.firstLineIndex(ofPage: currentPageIndex),
            lineIndex < typo.lines.count {
             anchorText = typo.lines[lineIndex].text
@@ -2216,12 +2241,12 @@ public struct ReaderView: View {
 
     private func restartAutoTurnTimer() {
         autoTurnTask?.cancel()
-        autoTurnTask = Task { @MainActor [weak readerConfig] in
+        autoTurnTask = Task { @MainActor in
             while !Task.isCancelled {
                 let interval = UInt64(autoTurnIntervalSeconds * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: interval)
                 guard !Task.isCancelled else { break }
-                if readerConfig?.pageMode == .pageByPage {
+                if effectivePageMode == .pageByPage {
                     turnPage(forward: true)
                 } else {
                     nextChapter()

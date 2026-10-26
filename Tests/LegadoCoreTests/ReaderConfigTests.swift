@@ -146,8 +146,10 @@ final class ReaderConfigTests: XCTestCase {
         """
         let data = try XCTUnwrap(json.data(using: .utf8))
 
-        // Strict decoding fails — this is the failure mode tolerantDecode exists to fix.
-        XCTAssertThrowsError(try JSONDecoder().decode(ReadStyleConfig.self, from: data))
+        // The native style decoder now owns defaults, including for ordinary JSONDecoder callers.
+        let strict = try JSONDecoder().decode(ReadStyleConfig.self, from: data)
+        XCTAssertEqual(strict.paddingLeft, ReadStyleConfig().paddingLeft)
+        XCTAssertEqual(strict.textSize, 20)
 
         let recovered = try XCTUnwrap(
             ReaderStore.tolerantDecode(ReadStyleConfig.self, from: data, fallback: ReadStyleConfig())

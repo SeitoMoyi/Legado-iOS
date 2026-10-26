@@ -128,6 +128,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>0C16231AD3973758940DBA4B</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Models/RuleSub.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>0ECC83DEB4EECDDDFEB17F94</key>
 		<dict>
 			<key>fileRef</key>
@@ -341,6 +352,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>2455E6BED46ACDE50C5F1530</key>
+		<dict>
+			<key>fileRef</key>
+			<string>A178CCD9834E86E66B5F42B6</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>25DFDF57F819E3607C9573B9</key>
 		<dict>
 			<key>fileRef</key>
@@ -491,7 +509,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>5</string>
+				<string>6</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -518,7 +536,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.2</string>
+				<string>0.3.3</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>
@@ -1088,6 +1106,10 @@
 				<string>9929C99A6C754F0A9473A91D</string>
 				<string>B9EBAB59D6941EFB58AFB5F6</string>
 				<string>A45F86FA02C36A0D3E241E27</string>
+				<string>E5D7A7B0DE97AF4E13F253D7</string>
+				<string>A178CCD9834E86E66B5F42B6</string>
+				<string>0C16231AD3973758940DBA4B</string>
+				<string>BDC2C279FD0A3F3BF39FF1AB</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1364,6 +1386,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>983388FF114C9798E3EA0E9A</key>
+		<dict>
+			<key>fileRef</key>
+			<string>BDC2C279FD0A3F3BF39FF1AB</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>9929C99A6C754F0A9473A91D</key>
 		<dict>
 			<key>isa</key>
@@ -1513,6 +1542,10 @@
 				<string>90E977AD54D81ACA8A5B24CA</string>
 				<string>6257DC96BE958A2A858BF510</string>
 				<string>7F09B662ADE41AACAA211A50</string>
+				<string>A07E7AAF40301B86A6A59068</string>
+				<string>2455E6BED46ACDE50C5F1530</string>
+				<string>BC2DE2D46D527574B43CE092</string>
+				<string>983388FF114C9798E3EA0E9A</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1527,6 +1560,24 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Utils/CharsetDetector.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A07E7AAF40301B86A6A59068</key>
+		<dict>
+			<key>fileRef</key>
+			<string>E5D7A7B0DE97AF4E13F253D7</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>A178CCD9834E86E66B5F42B6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/RuleSubscriptionService.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -1757,6 +1808,24 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Service/LaunchIntent.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>BC2DE2D46D527574B43CE092</key>
+		<dict>
+			<key>fileRef</key>
+			<string>0C16231AD3973758940DBA4B</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>BDC2C279FD0A3F3BF39FF1AB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Views/RuleSubscriptionsView.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -2085,6 +2154,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>E5D7A7B0DE97AF4E13F253D7</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/BackupCompatibilityStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>E6A5696F85EF7F1815D5F780</key>
 		<dict>
 			<key>isa</key>
@@ -2193,7 +2273,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>5</string>
+				<string>6</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -2220,7 +2300,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.2</string>
+				<string>0.3.3</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>

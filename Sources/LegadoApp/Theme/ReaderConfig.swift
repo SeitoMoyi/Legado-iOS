@@ -223,12 +223,38 @@ public final class ReaderConfig: ObservableObject {
 
     private var isRestoring = true
     private var pendingSave: DispatchWorkItem?
+    private var restoreObserver: NSObjectProtocol?
     private var baseStyle = ReadStyleConfig()
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         restore()
         isRestoring = false
+        restoreObserver = NotificationCenter.default.addObserver(forName: ReaderStore.didRestore, object: defaults, queue: .main) { [weak self] _ in
+            self?.reloadFromStore()
+        }
+    }
+
+    deinit {
+        if let observer = restoreObserver { NotificationCenter.default.removeObserver(observer) }
+        pendingSave?.cancel()
+    }
+
+    public func reloadFromStore() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        isRestoring = true
+        restore()
+        isRestoring = false
+    }
+
+    public func selectStoredStyle(_ index: Int) {
+        let styles = ReaderStore.loadStyles(from: defaults)
+        guard styles.indices.contains(index) else { return }
+        pendingSave?.cancel()
+        ReaderStore.save(makeStyleConfig(), to: defaults)
+        ReaderStore.saveStyles(ReaderStore.loadStyles(from: defaults), selectedIndex: index, to: defaults)
+        reloadFromStore()
     }
 
     // MARK: Derived values used by the renderer
@@ -243,6 +269,7 @@ public final class ReaderConfig: ObservableObject {
 
     /// The Android-shaped style snapshot, handed to `ContentProcessor` per chapter.
     public var styleConfig: ReadStyleConfig { makeStyleConfig() }
+    public var storedStyles: [ReadStyleConfig] { ReaderStore.loadStyles(from: defaults) }
 
     /// Binding into a `ReaderPrefs` field. `ReaderPrefs` is a value type, so every write has
     /// to replace the whole struct for `@Published` to fire — doing it once here keeps the
@@ -300,11 +327,18 @@ public final class ReaderConfig: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
+    public func flushPendingSettings() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        ReaderStore.save(makeStyleConfig(), to: defaults)
+        ReaderStore.save(prefs, to: defaults)
+    }
+
     /// Starts from the loaded style so Android-compatible fields that have no iOS control
     /// yet (`tipHeaderLeft`, `headerMode`, `bgAlpha`, …) survive a round trip.
     private func makeStyleConfig() -> ReadStyleConfig {
         var style = baseStyle
-        style.name = theme.rawValue
+        if style.name.isEmpty { style.name = theme.rawValue }
         style.bgStr = theme == .custom ? customBgHex : theme.backgroundHex
         style.textColor = theme == .custom ? customTextHex : theme.textHex
         style.darkStatusIcon = theme != .dark

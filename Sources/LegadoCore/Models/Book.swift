@@ -34,9 +34,8 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var totalChapterNum: Int
     public var lastCheckTime: Int64
 
-    /// Per-book 替换净化 switch. Android keeps this inside the `readConfig` JSON column
-    /// (`Book.getUseReplaceRule`); a flat optional is equivalent for us, and GSON ignores
-    /// an unknown top-level key when the book is restored on Android.
+    /// Per-book replacement switch. Decodes Android's nested readConfig and legacy iOS
+    /// top-level values; exports the native nested field while retaining other config keys.
     public var useReplaceRule: Bool?
     public var variable: String?
     public var customCoverUrl: String?
@@ -59,6 +58,33 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
     public var androidType: Int64 {
         if case let .int(value)? = extra["type"] { return value }
         return 0
+    }
+
+    public func readerSetting(_ key: String) -> JSONValue? {
+        guard case let .object(config)? = extra["readConfig"] else { return nil }
+        return config[key]
+    }
+
+    public mutating func setReaderSetting(_ key: String, value: JSONValue?) {
+        var config: [String: JSONValue] = [:]
+        if case let .object(original)? = extra["readConfig"] { config = original }
+        config[key] = value
+        extra["readConfig"] = .object(config)
+    }
+
+    public var readerPageAnim: PageAnim? {
+        guard case let .int(raw)? = readerSetting("pageAnim"), let value = Int(exactly: raw) else { return nil }
+        return PageAnim(rawValue: value)
+    }
+
+    public var readerImageStyle: ReadImageStyle? {
+        guard case let .string(raw)? = readerSetting("imageStyle") else { return nil }
+        return ReadImageStyle(rawValue: raw)
+    }
+
+    public var reverseToc: Bool {
+        if case let .bool(value)? = readerSetting("reverseToc") { return value }
+        return false
     }
 
     public var isAudioBook: Bool { androidType & AndroidBookType.audio != 0 || (kind?.contains("音频") ?? false) }
@@ -157,6 +183,10 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         self.customCoverUrl = try? container.decodeIfPresent(String.self, forKey: .customCoverUrl)
         self.group = (try? container.decode(Int64.self, forKey: .group)) ?? 0
         self.order = (try? container.decodeIfPresent(Int.self, forKey: .order)) ?? 0
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+        if case let .object(config)? = extra["readConfig"], case let .bool(value)? = config["useReplaceRule"] {
+            useReplaceRule = value
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -178,12 +208,18 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         try container.encode(durChapterTime, forKey: .durChapterTime)
         try container.encode(totalChapterNum, forKey: .totalChapterNum)
         try container.encode(lastCheckTime, forKey: .lastCheckTime)
-        try container.encodeIfPresent(useReplaceRule, forKey: .useReplaceRule)
         try container.encodeIfPresent(variable, forKey: .variable)
         try container.encodeIfPresent(customCoverUrl, forKey: .customCoverUrl)
         try container.encode(group, forKey: .group)
         try container.encode(order, forKey: .order)
-        try encodeJSONExtras(extra, to: encoder)
+        var fields = extra
+        if let enabled = useReplaceRule {
+            var config: [String: JSONValue] = [:]
+            if case let .object(original)? = fields["readConfig"] { config = original }
+            config["useReplaceRule"] = .bool(enabled)
+            fields["readConfig"] = .object(config)
+        }
+        try encodeJSONExtras(fields, to: encoder)
     }
 
     /// Parses `variable` as a JSON key-value map (matching Android `Book.variableMap`).

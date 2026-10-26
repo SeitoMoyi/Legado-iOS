@@ -3,6 +3,40 @@ import LegadoCore
 @testable import LegadoApp
 
 final class BookStoreTests: XCTestCase {
+    func testSubscriptionImportPreservesLocalEditsUnlessReplacementIsSelected() throws {
+        let local = BookSource(bookSourceUrl: "https://source.test", bookSourceName: "Local edit")
+        store.sources = [local]
+        let incoming = BookSource(bookSourceUrl: local.bookSourceUrl, bookSourceName: "Remote update")
+        XCTAssertEqual(store.importSubscription(.bookSources([incoming]), replacingExisting: false), 0)
+        XCTAssertEqual(store.sources.first?.bookSourceName, "Local edit")
+        XCTAssertEqual(store.importSubscription(.bookSources([incoming]), replacingExisting: true), 1)
+        XCTAssertEqual(store.sources.first?.bookSourceName, "Remote update")
+        RssStore.saveSources([RssSource(sourceUrl: "rss", sourceName: "Edited feed")], to: defaults)
+        XCTAssertEqual(store.importSubscription(.rssSources([RssSource(sourceUrl: "rss", sourceName: "Remote")]), replacingExisting: false), 0)
+        XCTAssertEqual(RssStore.loadSources(from: defaults).first?.sourceName, "Edited feed")
+        store.replaceRules = [ReplaceRule(id: 1, name: "Edited", pattern: "ad")]
+        XCTAssertEqual(store.importSubscription(.replaceRules([ReplaceRule(id: 1, name: "Remote", pattern: "ad")]), replacingExisting: false), 0)
+        XCTAssertEqual(store.replaceRules.first?.name, "Edited")
+    }
+
+    func testBackupSnapshotUsesInjectedStoreAndRestoresFullReaderState() throws {
+        var prefs = ReaderPrefs(); prefs.ttsTimer = 90
+        let raw = ["config.xml": Data([1, 2, 255])]
+        let subscriptions = [RuleSub(id: 1, name: "Rules", url: "https://rules.test")]
+        _ = try store.restoreBackupPayload(.init(ruleSubscriptions: subscriptions,
+            readStyles: [ReadStyleConfig(name: "Day"), ReadStyleConfig(name: "Night")],
+            readerSettings: ReaderBackupSettings(selectedStyle: 1, prefs: prefs), preservedMembers: raw))
+        let snapshot = store.backupPayload()
+        XCTAssertEqual(snapshot.readStyles?.count, 2)
+        XCTAssertEqual(snapshot.readerSettings?.selectedStyle, 1)
+        XCTAssertEqual(snapshot.readerSettings?.prefs.ttsTimer, 90)
+        XCTAssertEqual(snapshot.preservedMembers, raw)
+        XCTAssertEqual(snapshot.ruleSubscriptions, subscriptions)
+        let roundTrip = try WebDAVService().restorePayloadFromZip(data: WebDAVService().createBackupZip(payload: snapshot).data)
+        XCTAssertEqual(roundTrip.readStyles?.map(\.name), ["Day", "Night"])
+        XCTAssertEqual(roundTrip.readerSettings?.selectedStyle, 1)
+    }
+
     func testLegacyGroupMigrationIsPersistedOnceAndKeepsCombinedMembershipOnReload() throws {
         let legacyID: Int64 = 1_700_000_001
         BookGroupStore.save([BookGroup(groupId: legacyID, groupName: "Legacy"), BookGroup(groupId: 4, groupName: "Native")], to: defaults)

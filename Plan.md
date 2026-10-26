@@ -1,9 +1,9 @@
 # Legado iOS 迁移蓝图、功能差距清单与演进规划
 
-> **复核日期：2026-10-26；当前发布版本：`v0.3.2`（见 [VERSION](VERSION)）；下一开发阶段：`v0.3.3`。**
+> **复核日期：2026-10-26；当前发布版本：`v0.3.3`（见 [VERSION](VERSION)）；下一开发阶段：`v0.3.4`。**
 > - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
-> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；当前分支 `feature/v0.3.2-android-data` 补数据兼容，见下方开发记录。`Sources/` 共 85 个 Swift 文件、31,165 行（Core：41 文件 / 10,322 行；App：44 文件 / 20,843 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 117 个 Swift 文件。
-> - 31 个测试文件声明 404 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **397 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；v0.3.2 已在 `eafbc02` 推送并通过 GitHub 发布；当前分支 `feature/v0.3.3-backup-subscriptions` 补备份保真与订阅，见下方开发记录。`Sources/` 共 89 个 Swift 文件、31,918 行（Core：44 文件 / 10,767 行；App：45 文件 / 21,151 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 122 个 Swift 文件。
+> - 32 个测试文件声明 415 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **408 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
 > - `tools/xcode_add_sources.py --check` 通过。v0.3.1 已接入 App QuickJS 引擎，iOS Simulator 编译通过；独立 iOS 17.2 模拟器原生探针完成 50 次嵌套宿主调用后循环超时 / 恢复及跨线程取消。实际书源详情 / 目录 / 正文冒烟因 book.xkvi.top TLS 连接失败而显式跳过。历史 v0.3.0 / v0.2.8.2 archive 与主题 / 简介 / 标题模拟器验收结果保留在各版本记录；不冒充本轮真机验收。
 > - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）、ZIPFoundation（EPUB、备份与导出归档）及固定源码 QuickJS（脚本运行时）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
 
@@ -46,7 +46,7 @@
 | 11 | 登录 / 浏览器 | ⚠️ WebKit 网页登录、手动 Cookie、头合并；`SourceLoginSheet` 的简单文本 / 密码表单与脚本执行入口 | 表单已拆 `<js>` / `@js:` 包装并拒绝脚本错误 / 未返回新凭据的登录；仍忽略 RowUi 按钮，未执行 `loginCheckJs`。登录浏览器已有前进 / 后退 / 刷新，缺通用浏览器入口、验证页自动重试与下载管理。 |
 | 12 | 我的 / 设置 | ⚠️ 对齐 `pref_main.xml` 的主要分区；备份、规则、主题、其它设置、书签与记录 | 布局接近不代表所有 Android 设置键都有行为；缺帮助文档站、私有文件管理等。 |
 | 13 | 规则管理 | ⚠️ 替换、TXT 目录、字典、HttpTTS 四类 CRUD / 导入导出 / 排序；替换规则扫码导入 | v0.3.2 已加入 HttpTTS 与字典 ZIP / WebDAV 备份；正则已通过进度回调中止超时匹配；JS 规则由 QuickJS 中断，超时返回并禁用规则；原生操作的严格墙钟保证不作承诺。 |
-| 14 | 备份 / 数据互通 | ⚠️ WebDAV 与本地 ZIP；13 个已支持文件名、独立远端进度、书签汇总与导出 | Android 有 21 个候选备份成员；仍缺 8 个，且现有成员也有形态与合并语义差异。详见备份表，不能称为完整跨端互通。 |
+| 14 | 备份 / 数据互通 | ⚠️ WebDAV 与本地 ZIP；14 个已建模 Android 文件、iOS 阅读设置 sidecar、未知成员保真、独立远端进度、书签汇总与导出 | Android 有 21 个候选备份成员；其中 7 类目前仅按原始字节保留，不代表已实现其 Android 行为。详见备份表，不能称为完整跨端互通。 |
 | 15 | 局域网 / 平台集成 | ⚠️ `Network.framework` 上传门户、TXT / EPUB 入库、`legado://` / `yuedu://`、主屏快捷操作 | 缺 Android REST / WebSocket 服务、Widgets、App Intents、Share Extension、CarPlay；iOS 后台持续服务需单独评估。 |
 | 16 | 规则与网络引擎 | ⚠️ CSS、部分 JSONPath / XPath、正则清洗、JS / 模板、变量、URL `method` / `headers` / `body` / `charset` / `retry` | JSONPath 递归查找取首个匹配，未实现完整过滤 / 切片；XPath 为子集。v0.3.0 支持书源 jsLib 内联与 JSON URL 映射；仍缺并发率 / CookieJar 开关语义、WebView 请求及 AES / RSA / HMAC 桥接；charset 已用于字符串请求体编码与响应解码，JSON 请求体仍按 UTF-8 编码。 |
 | 17 | 本地格式 | ⚠️ TXT 编码探测 / 规则切章；EPUB3 nav、EPUB2 NCX、spine 兜底、图片与锚点片段提取 | Android 支持 TXT / EPUB / UMD / PDF / MOBI / AZW3；iOS 缺后四种。编码检测是启发式，不能保证所有文件无乱码。 |
@@ -68,11 +68,11 @@
 
 | 范围 | 当前实现与差异 |
 |---|---|
-| 已支持的 13 个文件名 | `bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json`、`txtTocRule.json`、`readRecord.json`、`rssSources.json`、`rssStar.json`、`bookGroup.json`、`dictRule.json`、`httpTTS.json`。书架与书源始终写入；其它项按有无数据 / 已存样式决定，不保证每包固定十三项。系统朗读选项不冒充 Android HttpTTS 数据行，iOS 的 -6 虚拟分组不导出。 |
-| 阅读样式形态 | Android `readConfig.json` 是样式数组；iOS 本次已改为导出单元素数组，仍兼读旧版单对象；恢复数组时仅取第一项，尚未保留 / 管理全部样式。`ReaderPrefs`、自定义主题等也未整体写入 ZIP。 |
-| 缺少的 8 个成员 | `sourceSub.json`、`servers.json`、`keyboardAssists.json`、`directLinkUploadRule.json`、`shareReadConfig.json`、`themeConfig.json`、`coverRule.json`、`config.xml`。部分 Android 成员可能按配置不存在；21 是候选清单，不是每包固定数量。 |
+| 已建模的 14 个 Android 文件名 | `bookshelf.json`、`bookSource.json`、`bookmark.json`、`replaceRule.json`、`searchHistory.json`、`readConfig.json`、`txtTocRule.json`、`readRecord.json`、`rssSources.json`、`rssStar.json`、`bookGroup.json`、`dictRule.json`、`httpTTS.json`、`sourceSub.json`。书架、书源、样式数组与订阅列表始终写入，其它项按有无数据决定。另写入 iOS 专用 `iosReaderSettings.json`，不将其计入 Android 的 21 个候选。系统朗读选项不冒充 Android HttpTTS 数据行，iOS 的 -6 虚拟分组不导出。 |
+| 阅读样式形态 | 完整保留 Android 样式数组和未知字段；支持样式选择、当前样式编辑，旧单样式存储自动兼读。iOS 当前选择与 ReaderPrefs 存入独立 sidecar；Android config.xml 只保留字节，不解析选择键或声称全部偏好已映射。 |
+| 仅保留原始字节的 7 个成员 | `servers.json`、`keyboardAssists.json`、`directLinkUploadRule.json`、`shareReadConfig.json`、`themeConfig.json`、`coverRule.json`、`config.xml`。部分 Android 成员可能按配置不存在；21 是候选清单，不是每包固定数量。 |
 | 分组 | 已按 Android 位掩码匹配；旧时间戳 ID 以恢复快照迁移，保留进度 / 分组元数据。恢复外部备份时按名称 / 可用位映射冲突，保留本地组；只改恢复书籍的成员位。旧 iOS 包缺分组定义时只能使用已有映射或占位组，无法恢复原本不存在的组名；每组排序尚未执行。 |
-| 书籍与阅读记录 | Android `Book.readConfig` 在 iOS 只作为顶层 extra 保留，iOS 的 `useReplaceRule` 为另一个顶层键，运行语义未映射。阅读记录现已按 Android 主键 `deviceId + bookName` 合并 max，避免混合不同设备记录。 |
+| 书籍与阅读记录 | Android `Book.readConfig` 在 iOS 已映射嵌套 useReplaceRule（优先于旧顶层键）、pageAnim、imageStyle 与 reverseToc；其它配置仅保留，reSegment / 分章 / 阅读计划等不声称执行。阅读记录现已按 Android 主键 `deviceId + bookName` 合并 max，避免混合不同设备记录。 |
 | 进度 | `createBackupZip` **不生成** `bookProgress/`；进度字段在 `bookshelf.json` 中，独立进度文件通过远端 PUT / GET 同步。恢复支持 ZIP 内、邻接目录或远端目录的进度文件。本次已统一为优先比较阅读时间，缺时间或时间相同再比较章节 / 位置；不再以目录检查时间 `lastCheckTime` 判定阅读进度。恢复保留更新的本地进度，手动拉取不再把远端时间改写为当前时间。 |
 | 本地文件与缓存 | ZIP 不含 TXT / EPUB 原文件、解包资源、目录与正文缓存。恢复书架条目不等于恢复本地书籍可读内容；设备路径不可跨端直接使用。 |
 | 未识别成员 | 恢复只提取已支持成员，其余不会存储并在下一次 iOS 备份中重新打包；不能保证 Android → iOS → Android 的完整备份往返。 |
@@ -230,11 +230,11 @@
 
 #### Part 8：备份成员与语义对齐
 
-补齐上表剩余 8 个缺少成员，并修复已有成员的形态与合并逻辑：样式数组 / 当前样式选择、`ReaderPrefs`、`Book.readConfig`、位掩码分组、未知成员保留及恢复忽略列表。用真实 Android 包完成 Android → iOS → Android 双向验收；iOS 自身 create / restore 测试只能作为基础。明确区分元数据备份与 TXT / EPUB 文件迁移。
+v0.3.3 已完成原始成员保真与主要阅读设置映射；后续继续实现尚未执行的 7 类成员行为，并核查已有成员的形态与合并逻辑：样式数组 / 当前样式选择、`ReaderPrefs`、`Book.readConfig`、位掩码分组、未知成员保留及恢复忽略列表。用真实 Android 包完成 Android → iOS → Android 双向验收；iOS 自身 create / restore 测试只能作为基础。明确区分元数据备份与 TXT / EPUB 文件迁移。
 
 #### Part 7：规则订阅 `sourceSub.json`
 
-实现外部规则订阅管理、更新检查与合并策略。定期更新需结合 iOS 后台调度限制设计；分别验证书源 / 替换规则 / RSS 更新和用户本地修改冲突。
+v0.3.3 实现 RuleSub 管理 / 排序、手动下载预览 / 逐条选择、书源 / RSS / 替换规则合并，默认保留已有项，用户可明确选择替换。Android 本快照 autoUpdate 仅存储于实体，未发现调度执行入口，故保留标记但不虚构定期后台更新要求。sourceSub.json 备份保留未知类型与字段，未知类型不可执行。
 
 #### RSS 与书架补齐
 
@@ -252,3 +252,11 @@
 - **Widgets / App Intents / Share Extension**：书架与进度展示、搜索 / 继续阅读、系统分享导入。
 - **VoiceOver / CarPlay**：画布和控制无障碍、听书模板；分别制定设备验收清单。
 - **局域网 API**：对齐本快照 [HttpServer.kt](../app/src/main/java/io/legado/app/web/HttpServer.kt) 的 12 GET / 14 POST 路由及相关 WebSocket 调试能力；后台可用性单独按 iOS 生命周期评估。
+
+### v0.3.3：备份保真、阅读设置与规则订阅
+
+- ZIP 中尚未建模的安全路径文件按原始字节保存并回写，支持仅含未知成员的包；拒绝路径穿越、重复核心文件、符号链接与超限解压数据（单文件 64 MiB，总量 256 MiB）。这不是执行 Android 平台配置。
+- 保留全部阅读样式与未知字段，当前选择 / ReaderPrefs 使用 iOS sidecar；恢复通知取消旧的延迟保存，及时刷新现有 ReaderConfig。本地 ZIP 工作移至后台，并从同一时刻的数据快照生成备份。
+- Android Book.readConfig 已接替换开关、每书翻页 / 图片样式及目录倒序；其它字段仍仅透传。每书覆盖可回到全局，避免污染其它书籍的全局设置。
+- 规则订阅按原生类型 0/1/2 预览书源 / RSS / 替换净化，支持逐条选择与明确替换开关；没有未经用户操作的自动应用。
+- 本轮非联网套件 408 项、3 skipped、0 失败；HTTP 下载 / 状态校验、ZIP 二次导出、未知配置、恢复取消旧保存与选择保留已覆盖。iOS Simulator 编译通过，设备 unsigned archive 通过；Android 真机双向 ZIP、后台音频和实际触摸手势不冒充已验收。
