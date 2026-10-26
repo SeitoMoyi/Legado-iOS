@@ -62,7 +62,7 @@ public class RuleAnalyzer {
                     .replacingOccurrences(of: "\\t", with: "\t")
             } else if innerExpr.starts(with: "java.") || innerExpr.starts(with: "source.") || innerExpr.starts(with: "book.") {
                 let jsRes = jsEngine.eval(script: innerExpr, result: content)
-                evaluatedValue = jsRes != nil ? "\(jsRes!)" : ""
+                evaluatedValue = jsRes.map(JSEngine.stringValue) ?? ""
             } else {
                 evaluatedValue = getString(innerExpr)
             }
@@ -90,7 +90,7 @@ public class RuleAnalyzer {
                 }
             }
             let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: targetContent)
-            let resStr = evalResult != nil ? "\(evalResult!)" : ""
+            let resStr = evalResult.map(JSEngine.stringValue) ?? ""
             return isUrl ? resolveUrl(resStr) : resStr
         }
 
@@ -139,18 +139,18 @@ public class RuleAnalyzer {
             let script = String(rule.dropFirst(4))
             let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: content)
             if let arr = evalResult as? [Any] {
-                return arr.map { "\(isUrl ? resolveUrl("\($0)") : "\($0)")" }
+                return arr.map { isUrl ? resolveUrl(JSEngine.stringValue($0)) : JSEngine.stringValue($0) }
             } else if let single = evalResult {
-                let str = "\(single)"
+                let str = JSEngine.stringValue(single)
                 return [isUrl ? resolveUrl(str) : str]
             }
             return []
         } else if let script = JSEngine.extractJSScript(from: rule) {
             let evalResult = jsEngine.eval(script: evaluateTemplate(script), result: content)
             if let arr = evalResult as? [Any] {
-                return arr.map { "\(isUrl ? resolveUrl("\($0)") : "\($0)")" }
+                return arr.map { isUrl ? resolveUrl(JSEngine.stringValue($0)) : JSEngine.stringValue($0) }
             } else if let single = evalResult {
-                let str = "\(single)"
+                let str = JSEngine.stringValue(single)
                 return [isUrl ? resolveUrl(str) : str]
             }
             return []
@@ -198,7 +198,7 @@ public class RuleAnalyzer {
                 case .js(let script):
                     let res = jsEngine.eval(script: script, result: text)
                     if let res = res {
-                        text = "\(res)"
+                        text = JSEngine.stringValue(res)
                     }
                 default:
                     break

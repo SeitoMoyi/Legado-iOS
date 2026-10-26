@@ -10,6 +10,17 @@
 	<string>54</string>
 	<key>objects</key>
 	<dict>
+		<key>005E3CC9960E097A4A500295</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/LegadoQuickJS.c</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>00A53D3303BC693F605060C5</key>
 		<dict>
 			<key>fileRef</key>
@@ -63,6 +74,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>04774EFD3BA6EB7E97BB1DB2</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Runtime/LegadoRuntime/QuickJSRuntime.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>071AA79AC133B7B7D4B4B0FE</key>
 		<dict>
 			<key>fileRef</key>
@@ -85,6 +107,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>0AF3F85E66BCB613C400DE93</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>0ACC150D97ADDD7A63122CBA</key>
+		<dict>
+			<key>fileRef</key>
+			<string>9BE610A904E91C5CFB99B4DC</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -457,10 +486,12 @@
 			<dict>
 				<key>ASSETCATALOG_COMPILER_APPICON_NAME</key>
 				<string>AppIcon</string>
+				<key>CLANG_C_LANGUAGE_STANDARD</key>
+				<string>gnu11</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -482,7 +513,13 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.0</string>
+				<string>0.3.1</string>
+				<key>OTHER_CFLAGS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>-include</string>
+					<string>$(SRCROOT)/Runtime/QuickJSBuildConfig.h</string>
+				</array>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -491,6 +528,16 @@
 				<string>5.0</string>
 				<key>TARGETED_DEVICE_FAMILY</key>
 				<string>1,2</string>
+				<key>HEADER_SEARCH_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
+				<key>SWIFT_INCLUDE_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
 			</dict>
 			<key>isa</key>
 			<string>XCBuildConfiguration</string>
@@ -666,6 +713,7 @@
 			<key>files</key>
 			<array>
 				<string>D1A2B3C4E5F60718293A4B5C</string>
+				<string>A595F14D334348198F367372</string>
 			</array>
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
@@ -737,6 +785,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>65D003BD862D210EF3AE35BF</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/vendor/cutils.c</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>66F32E672C0230504DDD4CA3</key>
 		<dict>
 			<key>isa</key>
@@ -785,6 +844,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>CDBED0CE99550E76E8C8289F</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>69790995BB60AECF87390A77</key>
+		<dict>
+			<key>fileRef</key>
+			<string>963F1A8E06554B70412E341A</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1005,6 +1071,14 @@
 				<string>FB664BC20410DC492F3AD91E</string>
 				<string>3C35F25125790C9CA0FE2CF5</string>
 				<string>59886D09717BD10442AD0980</string>
+				<string>04774EFD3BA6EB7E97BB1DB2</string>
+				<string>005E3CC9960E097A4A500295</string>
+				<string>963F1A8E06554B70412E341A</string>
+				<string>85EEF8552D364065A180B49A</string>
+				<string>982DA7D6767DB10D41499980</string>
+				<string>9BE610A904E91C5CFB99B4DC</string>
+				<string>65D003BD862D210EF3AE35BF</string>
+				<string>9929C99A6C754F0A9473A91D</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1097,6 +1171,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>85EEF8552D364065A180B49A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/vendor/dtoa.c</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>877A59C8A2B3DE9D57625958</key>
 		<dict>
 			<key>buildConfigurations</key>
@@ -1158,6 +1243,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>90E977AD54D81ACA8A5B24CA</key>
+		<dict>
+			<key>fileRef</key>
+			<string>65D003BD862D210EF3AE35BF</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>913C796CDE416D2C894DD5E3</key>
 		<dict>
 			<key>isa</key>
@@ -1205,6 +1297,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>963F1A8E06554B70412E341A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/vendor/quickjs.c</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>96674C3FF4C27A98F9B32CFA</key>
 		<dict>
 			<key>isa</key>
@@ -1234,6 +1337,17 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>982DA7D6767DB10D41499980</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/vendor/libregexp.c</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>9946C064294873BDE8BC5720</key>
 		<dict>
 			<key>isa</key>
@@ -1245,6 +1359,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>9ADE2CB31A999AEDE64FBBB3</key>
+		<dict>
+			<key>fileRef</key>
+			<string>85EEF8552D364065A180B49A</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>9B292CF3921DD001DFCE5E30</key>
 		<dict>
 			<key>isa</key>
@@ -1253,6 +1374,17 @@
 			<string>sourcecode.swift</string>
 			<key>path</key>
 			<string>Sources/LegadoCore/Models/SearchKeyword.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>9BE610A904E91C5CFB99B4DC</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.c.c</string>
+			<key>path</key>
+			<string>Runtime/CQuickJS/vendor/libunicode.c</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
@@ -1345,6 +1477,13 @@
 				<string>A997C2F58BF53BA77649D2FB</string>
 				<string>03382A77229562B04BDE8D3F</string>
 				<string>B42601E9F685A64C3D78395B</string>
+				<string>F6BD828F1BCA972DFBD193D7</string>
+				<string>CBA4764BDBEA79A58D0D6907</string>
+				<string>69790995BB60AECF87390A77</string>
+				<string>9ADE2CB31A999AEDE64FBBB3</string>
+				<string>E4426AB2522941A4E635D5E9</string>
+				<string>0ACC150D97ADDD7A63122CBA</string>
+				<string>90E977AD54D81ACA8A5B24CA</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1642,6 +1781,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>CBA4764BDBEA79A58D0D6907</key>
+		<dict>
+			<key>fileRef</key>
+			<string>005E3CC9960E097A4A500295</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>CDBED0CE99550E76E8C8289F</key>
 		<dict>
 			<key>isa</key>
@@ -1867,6 +2013,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>E4426AB2522941A4E635D5E9</key>
+		<dict>
+			<key>fileRef</key>
+			<string>982DA7D6767DB10D41499980</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>E464E64AA30610B9849489AB</key>
 		<dict>
 			<key>fileRef</key>
@@ -1977,10 +2130,12 @@
 			<dict>
 				<key>ASSETCATALOG_COMPILER_APPICON_NAME</key>
 				<string>AppIcon</string>
+				<key>CLANG_C_LANGUAGE_STANDARD</key>
+				<string>gnu11</string>
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>3</string>
+				<string>4</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -2002,7 +2157,13 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.3.0</string>
+				<string>0.3.1</string>
+				<key>OTHER_CFLAGS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>-include</string>
+					<string>$(SRCROOT)/Runtime/QuickJSBuildConfig.h</string>
+				</array>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -2011,6 +2172,16 @@
 				<string>5.0</string>
 				<key>TARGETED_DEVICE_FAMILY</key>
 				<string>1,2</string>
+				<key>HEADER_SEARCH_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
+				<key>SWIFT_INCLUDE_PATHS</key>
+				<array>
+					<string>$(inherited)</string>
+					<string>$(SRCROOT)/Runtime/CQuickJS/include</string>
+				</array>
 			</dict>
 			<key>isa</key>
 			<string>XCBuildConfiguration</string>
@@ -2030,6 +2201,13 @@
 			<string>Release</string>
 			<key>isa</key>
 			<string>XCConfigurationList</string>
+		</dict>
+		<key>F6BD828F1BCA972DFBD193D7</key>
+		<dict>
+			<key>fileRef</key>
+			<string>04774EFD3BA6EB7E97BB1DB2</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
 		</dict>
 		<key>F71089882BF468CCF7FF2A11</key>
 		<dict>
@@ -2084,6 +2262,24 @@
 			<string>E6A5696F85EF7F1815D5F780</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>9929C99A6C754F0A9473A91D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>text</string>
+			<key>path</key>
+			<string>Runtime/LICENSE.QuickJS</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A595F14D334348198F367372</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>9929C99A6C754F0A9473A91D</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

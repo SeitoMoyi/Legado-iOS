@@ -759,7 +759,7 @@ public class BookStore: ObservableObject {
         }
 
         _ = jsEngine.eval(script: JSEngine.extractJSScript(from: loginScript) ?? loginScript)
-        if let message = jsEngine.lastScriptError ?? jsEngine.context.exception?.toString() {
+        if let message = jsEngine.lastScriptError {
             throw NSError(domain: "BookStore", code: 2,
                           userInfo: [NSLocalizedDescriptionKey: message])
         }

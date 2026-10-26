@@ -6,6 +6,10 @@
 
 typedef struct LQJSRuntime LQJSRuntime;
 typedef struct LQJSCancellation LQJSCancellation;
+/* Host returns an owned malloc-compatible JSON envelope: {"value":...} or {"error":...}.
+ * It is called on the evaluating thread; the adapter releases the returned buffer. */
+typedef char *(*LQJSHostCall)(void *opaque, const char *action, const char *arguments);
+typedef int (*LQJSShouldCancel)(void *opaque);
 
 typedef enum {
     LQJS_OK = 0,
@@ -27,6 +31,9 @@ void lqjs_destroy(LQJSRuntime *runtime);
 LQJSCancellation *lqjs_cancellation_create(void);
 void lqjs_cancellation_cancel(LQJSCancellation *cancellation);
 void lqjs_cancellation_destroy(LQJSCancellation *cancellation);
+int lqjs_cancellation_is_cancelled(const LQJSCancellation *cancellation);
+void lqjs_set_host(LQJSRuntime *runtime, LQJSHostCall callback, LQJSShouldCancel should_cancel, void *opaque);
+LQJSResult lqjs_set_global(LQJSRuntime *runtime, const char *name, const char *json, size_t length);
 
 /* Serial calls only. The cancellation signal may be set from any thread. No OS / shell
  * module, filesystem, network, module loader, or asynchronous job pump is installed. */

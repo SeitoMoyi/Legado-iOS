@@ -1,235 +1,294 @@
 import Foundation
+import CoreFoundation
 import SwiftSoup
-import JavaScriptCore
+#if canImport(LegadoRuntime)
+import LegadoRuntime
+#endif
 
-@objc public protocol JavaShimProtocol: JSExport {
-    func ajax(_ url: String) -> String
-    func connect(_ url: String) -> JSValue
-    func connect(_ url: String, _ header: String) -> JSValue
-    func post(_ url: String, _ body: String, _ header: JSValue) -> JSValue
-    func get(_ key: String) -> String?
-    func put(_ key: String, _ value: String) -> String
-    func md5Encode(_ str: String) -> String
-    func base64Encode(_ str: String) -> String
-    func base64Decode(_ str: String) -> String
-    func timeFormat(_ timestamp: JSValue) -> String
-    func getString(_ path: String) -> String
-    func refreshTocUrl()
-    func reGetBook()
-}
-
-@objc public class JavaShim: NSObject, JavaShimProtocol {
-    private var kvStore: [String: String] = [:]
-    private let lock = NSLock()
-    private weak var jsContext: JSContext?
-    private let baseURL: String?
-    /// Resolves the owning source's headers (loginHeader → header, JS-evaluated).
-    /// `java.ajax(url)` without them cannot reach Cookie-gated APIs (Android parity).
-    public var defaultHeaderProvider: (() -> String?)?
-    var refreshTocAction: (() throws -> Void)?
-    var reGetBookAction: (() throws -> Void)?
-    var variableReader: ((String) -> String?)?
-    var variableWriter: ((String, String) -> Void)?
-
-    public func refreshTocUrl() { performPreUpdateAction(refreshTocAction) }
-    public func reGetBook() { performPreUpdateAction(reGetBookAction) }
-
-    private func performPreUpdateAction(_ action: (() throws -> Void)?) {
-        guard let context = jsContext else { return }
-        do {
-            guard let action = action else {
-                throw SourceRuntimeError.bridge("只能在 preUpdateJs 中调用此方法")
-            }
-            try action()
-        } catch {
-            context.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: context)
-        }
-    }
-
-    public init(context: JSContext?, baseURL: String? = nil) {
-        self.jsContext = context
-        self.baseURL = baseURL
-        super.init()
-    }
-
-    public func ajax(_ url: String) -> String {
-        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?(), baseUrl: baseURL) else { return "" }
-        let resp = NetworkClient.shared.requestSync(parsed: parsed)
-        return resp?.bodyString ?? ""
-    }
-
-    public func connect(_ url: String) -> JSValue {
-        return connect(url, defaultHeaderProvider?() ?? "")
-    }
-
-    public func connect(_ url: String, _ header: String) -> JSValue {
-        guard let ctx = jsContext else {
-            return JSValue(undefinedIn: JSContext())
-        }
-        guard let parsed = NetworkClient.parseLegadoUrl(url, defaultHeader: header, baseUrl: baseURL) else {
-            return JSValue(nullIn: ctx)
-        }
-        return responseValue(NetworkClient.shared.requestSync(parsed: parsed), url: parsed.url.absoluteString, context: ctx)
-    }
-
-    public func post(_ url: String, _ body: String, _ header: JSValue) -> JSValue {
-        guard let ctx = jsContext else {
-            return JSValue(undefinedIn: JSContext())
-        }
-
-        guard let base = NetworkClient.parseLegadoUrl(url, defaultHeader: defaultHeaderProvider?(), baseUrl: baseURL) else {
-            return JSValue(nullIn: ctx)
-        }
-        var headerDict = base.headers
-        if header.isObject || header.isString {
-            if let dict = header.toDictionary() as? [String: Any] {
-                for (k, v) in dict {
-                    NetworkClient.mergeHeaders([k: "\(v)"], into: &headerDict)
-                }
-            } else if let str = header.toString(), let data = str.data(using: .utf8),
-                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                for (k, v) in dict {
-                    NetworkClient.mergeHeaders([k: "\(v)"], into: &headerDict)
-                }
-            }
-        }
-
-        if !headerDict.keys.contains(where: { $0.caseInsensitiveCompare("Content-Type") == .orderedSame }) {
-            headerDict["Content-Type"] = "application/json"
-        }
-
-        let parsed = NetworkClient.ParsedRequest(url: base.url, method: "POST", headers: headerDict, body: body.data(using: .utf8))
-        return responseValue(NetworkClient.shared.requestSync(parsed: parsed), url: base.url.absoluteString, context: ctx)
-    }
-
-    private func responseValue(_ response: NetworkResponse?, url: String, context: JSContext) -> JSValue {
-        let body = response?.bodyString ?? ""
-        let code = response?.statusCode ?? 0
-        let result = JSValue(newObjectIn: context)
-        let bodyBlock: @convention(block) () -> String = { body }
-        let codeBlock: @convention(block) () -> Int = { code }
-        let urlBlock: @convention(block) () -> String = { url }
-        result?.setValue(bodyBlock, forProperty: "body")
-        result?.setValue(codeBlock, forProperty: "statusCode")
-        result?.setValue(urlBlock, forProperty: "url")
-        result?.setValue(body, forProperty: "text")
-        return result ?? JSValue(nullIn: context)
-    }
-
-    public func get(_ key: String) -> String? {
-        // With a book context its variable map is authoritative, including deletion and
-        // empty values. Falling back to kvStore could resurrect an earlier java.put value.
-        if let reader = variableReader { return reader(key) ?? "" }
-        lock.lock()
-        defer { lock.unlock() }
-        return kvStore[key]
-    }
-
-    public func put(_ key: String, _ value: String) -> String {
-        lock.lock()
-        kvStore[key] = value
-        lock.unlock()
-        variableWriter?(key, value)
-        return value
-    }
-
-    public func md5Encode(_ str: String) -> String {
-        return CryptoUtils.md5(str)
-    }
-
-    public func base64Encode(_ str: String) -> String {
-        return CryptoUtils.base64Encode(str)
-    }
-
-    public func base64Decode(_ str: String) -> String {
-        return CryptoUtils.base64Decode(str)
-    }
-
-    public func timeFormat(_ timestamp: JSValue) -> String {
-        var num = timestamp.toNumber()?.doubleValue ?? 0
-        if num == 0, let str = timestamp.toString(), let d = Double(str) {
-            num = d
-        }
-        guard num > 0 else { return "" }
-        if num > 10_000_000_000 {
-            num /= 1000
-        }
-        let date = Date(timeIntervalSince1970: num)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
-    }
-
-    public func getString(_ path: String) -> String {
-        guard let ctx = jsContext, let resVal = ctx.objectForKeyedSubscript("result" as NSString) else {
-            return ""
-        }
-        if resVal.isObject {
-            let cleanKey = path.replacingOccurrences(of: "$.", with: "").replacingOccurrences(of: "$", with: "")
-            if let prop = resVal.forProperty(cleanKey), !prop.isUndefined && !prop.isNull {
-                return prop.toString() ?? ""
-            }
-            if let dict = resVal.toDictionary() {
-                if let evaluated = JSONPath.evaluate(path: path, json: dict) {
-                    return "\(evaluated)"
-                }
-            }
-        }
-        let jsonStr = resVal.toString() ?? ""
-        if let data = jsonStr.data(using: .utf8),
-           let obj = try? JSONSerialization.jsonObject(with: data, options: []),
-           let evaluated = JSONPath.evaluate(path: path, json: obj) {
-            return "\(evaluated)"
-        }
-        return ""
-    }
-}
-
-/// Minimal surface for `resolvedSourceHeader` — both `BookSource` and `RssSource` ship a
-/// static `header` rule plus a login-captured `loginHeader`.
 public protocol HeaderRuleProviding {
     var bookSourceUrl: String { get }
     var header: String? { get }
     var loginHeader: String? { get }
 }
-
 extension BookSource: HeaderRuleProviding {}
 extension RssSource: HeaderRuleProviding {
     public var bookSourceUrl: String { sourceUrl }
-    /// RSS 源暂未采集登录头（Android RssSource 同样没有 loginHeader 字段）。
     public var loginHeader: String? { nil }
 }
 
-public class JSEngine {
-    public let context: JSContext
-    private let javaShim: JavaShim
-    private var isResolvingHeader = false
+/// Legado's synchronous script surface, backed by a bounded QuickJS context. All Swift
+/// host bridges pass JSON values and execute on the same serialized evaluation thread.
+public final class JSEngine {
+    public private(set) var runtime: QuickJSRuntime?
     public private(set) var initializationError: Error?
     public private(set) var lastScriptError: String?
-    private var readBook: (() -> Book)?
-    private var replaceBook: ((Book) -> Void)?
+    public private(set) var lastExecutionError: Error?
     public var onLoginHeaderUpdated: ((String) -> Void)?
     public var onBookVariableUpdated: ((String?) -> Void)?
-
+    public var timeout: TimeInterval = 15
+    public var cancellationCheck: () -> Bool
+    private var source: BookSource?
+    private var currentBook: Book
+    private let hasBookContext: Bool
+    private let baseUrl: String?
+    private var loginHeader: String?
+    private var loginInfo: String?
+    private var sourceVariable: String?
+    private var kvStore: [String: String] = [:]
+    private var isResolvingHeader = false
+    private var refreshAction: ((Book) throws -> Book)?
+    private var reGetAction: ((Book) throws -> Book)?
     private static let variableLock = NSLock()
     private static var bookVariableCache: [String: String] = [:]
     private static var sourceVariableCache: [String: String] = [:]
 
-    public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil) {
-        self.context = JSContext()
-        self.javaShim = JavaShim(context: context, baseURL: baseUrl ?? bookSource?.bookSourceUrl)
-
-        setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
-        let legacyLibrary: String?
-        if case let .string(value)? = bookSource?.extra["jsLib"] { legacyLibrary = value } else { legacyLibrary = nil }
-        if let library = bookSource?.jsLib ?? legacyLibrary, !library.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            do {
-                for script in try SourceLibraryStore.shared.scripts(for: library) {
+    public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil,
+                shouldCancel: @escaping () -> Bool = { Task.isCancelled }) {
+        self.source = bookSource
+        self.baseUrl = baseUrl ?? bookSource?.bookSourceUrl
+        self.hasBookContext = book != nil
+        self.cancellationCheck = shouldCancel
+        self.loginHeader = bookSource?.loginHeader
+        self.loginInfo = bookSource?.loginInfo
+        let sourceKey = bookSource?.bookSourceUrl ?? ""
+        self.currentBook = book ?? Book(bookUrl: baseUrl ?? sourceKey, name: "", author: "", origin: sourceKey)
+        Self.variableLock.lock()
+        if currentBook.variable == nil, !currentBook.bookUrl.isEmpty {
+            currentBook.variable = Self.bookVariableCache[currentBook.bookUrl]
+                ?? UserDefaults.standard.string(forKey: "legado_book_var_\(currentBook.bookUrl)")
+        }
+        self.sourceVariable = bookSource?.variable ?? Self.sourceVariableCache[sourceKey]
+            ?? UserDefaults.standard.string(forKey: "legado_source_var_\(sourceKey)")
+        Self.variableLock.unlock()
+        do {
+            let runtime = try QuickJSRuntime(limits: .init(memoryBytes: 64 * 1024 * 1024,
+                                                          sourceBytes: 2 * 1024 * 1024, outputBytes: 8 * 1024 * 1024))
+            self.runtime = runtime
+            runtime.hostCall = { [weak self] action, arguments in
+                guard let self = self else { throw CancellationError() }
+                return try self.callHost(action, arguments)
+            }
+            try runtime.setGlobal("book", value: Self.bookBindings(currentBook))
+            try runtime.setGlobal("source", value: ["bookSourceUrl": sourceKey,
+                                                    "bookSourceName": bookSource?.bookSourceName ?? "",
+                                                    "loginUrl": bookSource?.loginUrl ?? ""])
+            if let baseUrl = self.baseUrl { try runtime.setGlobal("baseUrl", value: baseUrl) }
+            _ = try runtime.evaluate(Self.environment, timeout: timeout, shouldCancel: shouldCancel)
+            let legacy: String?
+            if case let .string(value)? = bookSource?.extra["jsLib"] { legacy = value } else { legacy = nil }
+            if let library = bookSource?.jsLib ?? legacy {
+                for script in try SourceLibraryStore.shared.scripts(for: library, shouldCancel: shouldCancel) {
                     _ = try evalChecked(script: Self.extractJSScript(from: script) ?? script, stage: "jsLib")
                 }
-            } catch { initializationError = error }
+            }
+        } catch { initializationError = error }
+    }
+
+    public func setGlobal(_ value: Any, for name: String) {
+        do { try runtime?.setGlobal(name, value: Self.scriptValue(value)) }
+        catch { initializationError = error }
+    }
+
+    public func eval(script: String, result: Any? = nil) -> Any? {
+        lastScriptError = nil
+        lastExecutionError = nil
+        do {
+            try checkReady()
+            if let result = result { try runtime?.setGlobal("result", value: Self.scriptValue(result)) }
+            guard let json = try runtime?.evaluate(script, timeout: timeout, shouldCancel: cancellationCheck),
+                  let data = json.data(using: .utf8) else { return nil }
+            let value = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            lastScriptError = nil
+            lastExecutionError = nil
+            return value is NSNull ? nil : value
+        } catch {
+            lastExecutionError = error
+            lastScriptError = error.localizedDescription
+            return nil
         }
     }
+
+    public var didTimeOut: Bool { (lastExecutionError as? QuickJSRuntimeError) == .timeout }
+
+    public func evalString(_ script: String, result: Any? = nil) -> String? {
+        eval(script: script, result: result).map(Self.stringValue)
+    }
+
+    public func checkReady() throws {
+        if let error = initializationError { throw error }
+        guard runtime != nil else { throw SourceRuntimeError.bridge("Script runtime unavailable") }
+    }
+
+    @discardableResult
+    public func evalChecked(script: String, result: Any? = nil, stage: String) throws -> Any? {
+        try checkReady()
+        let value = eval(script: script, result: result)
+        if let message = lastScriptError { throw SourceRuntimeError.script(stage: stage, message: message) }
+        return value
+    }
+
+    func bookSnapshot() -> Book? {
+        guard let values = eval(script: "book") as? [String: Any] else { return nil }
+        var book = currentBook
+        book.name = values["name"] as? String ?? book.name
+        book.author = values["author"] as? String ?? book.author
+        book.bookUrl = values["bookUrl"] as? String ?? book.bookUrl
+        book.tocUrl = values["tocUrl"] as? String ?? book.tocUrl
+        return book
+    }
+
+    func installPreUpdateActions(refresh: @escaping (Book) throws -> Book, reGet: @escaping (Book) throws -> Book) {
+        refreshAction = refresh
+        reGetAction = reGet
+    }
+
+    private func persistBookVariable() {
+        let key = currentBook.bookUrl
+        guard !key.isEmpty else { return }
+        Self.variableLock.lock()
+        Self.bookVariableCache[key] = currentBook.variable
+        Self.variableLock.unlock()
+        UserDefaults.standard.set(currentBook.variable, forKey: "legado_book_var_\(key)")
+        onBookVariableUpdated?(currentBook.variable)
+    }
+
+    private func callHost(_ action: String, _ args: [Any]) throws -> Any? {
+        func string(_ index: Int) -> String { index < args.count ? Self.stringValue(args[index]) : "" }
+        func optional(_ index: Int) -> String? { index < args.count && !(args[index] is NSNull) ? Self.stringValue(args[index]) : nil }
+        guard !cancellationCheck(), runtime?.shouldStop != true else { throw CancellationError() }
+        switch action {
+        case "java.get": return hasBookContext ? (string(0) == "bookName" ? (bookSnapshot()?.name ?? currentBook.name) : currentBook.getVariable(string(0))) : kvStore[string(0)]
+        case "java.put":
+            if hasBookContext { currentBook.putVariable(key: string(0), value: string(1)); persistBookVariable() }
+            else { kvStore[string(0)] = string(1) }
+            return string(1)
+        case "java.md5Encode": return CryptoUtils.md5(string(0))
+        case "java.base64Encode": return CryptoUtils.base64Encode(string(0))
+        case "java.base64Decode": return CryptoUtils.base64Decode(string(0))
+        case "java.timeFormat":
+            var value = Double(string(0)) ?? 0
+            guard value.isFinite, value > 0 else { return "" }
+            if value > 10_000_000_000 { value /= 1000 }
+            let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            return formatter.string(from: Date(timeIntervalSince1970: value))
+        case "java.getString":
+            guard args.count > 1 else { return "" }
+            let value: Any
+            if let text = args[1] as? String, let data = text.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) { value = json }
+            else { value = args[1] }
+            return JSONPath.evaluate(path: string(0), json: value).map(Self.stringValue) ?? ""
+        case "source.getLoginHeader": return loginHeader
+        case "source.putLoginHeader": loginHeader = string(0); onLoginHeaderUpdated?(string(0)); return nil
+        case "source.getLoginInfo": return loginInfo
+        case "source.putLoginInfo": loginInfo = string(0); return nil
+        case "source.getVariable": return sourceVariable ?? ""
+        case "source.setVariable":
+            sourceVariable = string(0)
+            let key = source?.bookSourceUrl ?? ""
+            if !key.isEmpty {
+                Self.variableLock.lock(); Self.sourceVariableCache[key] = string(0); Self.variableLock.unlock()
+                UserDefaults.standard.set(string(0), forKey: "legado_source_var_\(key)")
+            }
+            return nil
+        case "book.getVariable": return currentBook.getVariable(optional(0))
+        case "book.putVariable": currentBook.putVariable(key: optional(0), value: optional(1)); persistBookVariable(); return nil
+        case "java.refreshTocUrl", "java.reGetBook":
+            guard let operation = action == "java.refreshTocUrl" ? refreshAction : reGetAction else {
+                throw SourceRuntimeError.bridge("只能在 preUpdateJs 中调用此方法")
+            }
+            let updated = try operation(bookSnapshot() ?? currentBook)
+            currentBook = updated
+            let data = try JSONSerialization.data(withJSONObject: Self.bookBindings(updated))
+            let json = String(decoding: data, as: UTF8.self)
+            _ = try evalChecked(script: "Object.assign(book, \(json))", stage: "book")
+            return nil
+        case "java.ajax", "java.connect", "java.post":
+            let header = source.flatMap { Self.resolvedSourceHeader($0, engine: self, loginHeaderOverride: loginHeader) }
+            guard let parsed = NetworkClient.parseLegadoUrl(string(0), defaultHeader: header, baseUrl: baseUrl) else { return nil }
+            var headers = parsed.headers
+            var method = parsed.method
+            var body = parsed.body
+            if action == "java.connect", let supplied = optional(1), !supplied.isEmpty,
+               let data = supplied.data(using: .utf8), let values = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                NetworkClient.mergeHeaders(values, into: &headers)
+            }
+            if action == "java.post" {
+                method = "POST"; body = string(1).data(using: .utf8)
+                if args.count > 2 {
+                    var values = args[2] as? [String: Any]
+                    if values == nil, let data = optional(2)?.data(using: .utf8) { values = try? JSONSerialization.jsonObject(with: data) as? [String: Any] }
+                    for (key, value) in values ?? [:] { NetworkClient.mergeHeaders([key: Self.stringValue(value)], into: &headers) }
+                }
+                if !headers.keys.contains(where: { $0.caseInsensitiveCompare("Content-Type") == .orderedSame }) {
+                    headers["Content-Type"] = "application/json"
+                }
+            }
+            let request = NetworkClient.ParsedRequest(url: parsed.url, method: method, headers: headers, body: body, charset: parsed.charset, retry: parsed.retry)
+            let response = NetworkClient.shared.requestSync(parsed: request, timeout: min(15, runtime?.remainingTime ?? 15),
+                                                           shouldCancel: { self.cancellationCheck() || self.runtime?.shouldStop == true })
+            guard !cancellationCheck(), runtime?.shouldStop != true else { throw CancellationError() }
+            if action == "java.ajax" { return response?.bodyString ?? "" }
+            return ["text": response?.bodyString ?? "", "code": response?.statusCode ?? 0, "url": request.url.absoluteString]
+        default: throw SourceRuntimeError.bridge("Unsupported host call: \(action)")
+        }
+    }
+
+    private static func bookBindings(_ book: Book) -> [String: Any] {
+        ["name": book.name, "author": book.author, "bookUrl": book.bookUrl,
+         "tocUrl": book.tocUrl, "origin": book.origin]
+    }
+
+    public static func stringValue(_ value: Any) -> String {
+        if value is NSNull { return "" }
+        if let value = value as? String { return value }
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return number.boolValue ? "true" : "false" }
+            return number.stringValue
+        }
+        if let array = value as? [Any] { return array.map(stringValue).joined(separator: ",") }
+        if value is [String: Any] { return "[object Object]" }
+        return String(describing: value)
+    }
+
+    private static let environment = """
+    function __response(r) {
+      if (!r) return null;
+      return {text:r.text, body:function(){return r.text}, statusCode:function(){return r.code}, url:function(){return r.url}};
+    }
+    var java = {
+      ajax:function(u){return __legadoHost('java.ajax',String(u))},
+      connect:function(u,h){return __response(__legadoHost('java.connect',String(u),h == null ? null : (typeof h==='string' ? h : JSON.stringify(h))))},
+      post:function(u,b,h){return __response(__legadoHost('java.post',String(u),String(b),h))},
+      get:function(k){return __legadoHost('java.get',String(k))},
+      put:function(k,v){return __legadoHost('java.put',String(k),String(v))},
+      md5Encode:function(v){return __legadoHost('java.md5Encode',String(v))},
+      base64Encode:function(v){return __legadoHost('java.base64Encode',String(v))},
+      base64Decode:function(v){return __legadoHost('java.base64Decode',String(v))},
+      timeFormat:function(v){return __legadoHost('java.timeFormat',v)},
+      getString:function(p){return __legadoHost('java.getString',String(p),typeof result==='undefined'?null:result)},
+      refreshTocUrl:function(){__legadoHost('java.refreshTocUrl')},
+      reGetBook:function(){__legadoHost('java.reGetBook')}
+    };
+    ['getLoginHeader','putLoginHeader','getLoginInfo','putLoginInfo','getVariable','setVariable'].forEach(function(name){
+      source[name]=function(v){return __legadoHost('source.'+name,v)};
+    });
+    source.getLoginInfoMap=function(){
+      var info={}; try {info=JSON.parse(source.getLoginInfo()||'{}')} catch(e){}
+      info.get=function(k){return info[k]==null?'':String(info[k])}; return info;
+    };
+    book.getVariable=function(k){return __legadoHost('book.getVariable',k==null?null:String(k))};
+    book.putVariable=function(k,v){__legadoHost('book.putVariable',String(k),v==null?null:String(v))};
+    book.setVariable=function(k,v){
+      if(arguments.length===1) __legadoHost('book.putVariable',null,k==null?null:String(k));
+      else __legadoHost('book.putVariable',String(k),v==null?null:String(v));
+    };
+    var console={log:function(){},error:function(){}};
+    function format(s){return Array.isArray(s)?s.join('\\n\\n'):(s||'')}
+    function regex(s){return s||''}
+    function annotate(t,k){return t||''}
+    function update(u,t){}
+    """
 
     /// Splits a rule into its non-JS prefix (may be empty) and the `<js>…</js>` / `@js:`
     /// script body (`nil` when the rule carries no script). RuleAnalyzer's JS sites and the
@@ -274,7 +333,7 @@ public class JSEngine {
                 guard !evalEngine.isResolvingHeader else { continue }
                 evalEngine.isResolvingHeader = true
                 defer { evalEngine.isResolvingHeader = false }
-                guard let evaluated = evalEngine.context.evaluateScript(script)?.toString(),
+                guard let evaluated = evalEngine.evalString(script),
                       !evaluated.isEmpty, evaluated != "undefined", evaluated != "null" else { continue }
                 json = evaluated
             }
@@ -298,245 +357,7 @@ public class JSEngine {
         return str
     }
 
-    private func setupEnvironment(bookSource: BookSource?, book: Book?, baseUrl: String?) {
-        // Exception handler
-        context.exceptionHandler = { [weak self] _, exception in
-            self?.lastScriptError = exception?.toString() ?? "Unknown JavaScript error"
-            #if DEBUG
-            print("[JSEngine Error] \(exception?.toString() ?? "unknown error")")
-            #endif
-        }
-
-        // Expose java shim
-        context.setObject(javaShim, forKeyedSubscript: "java" as NSString)
-
-        // Expose source object
-        let sourceObj = JSValue(newObjectIn: context)
-        // Android `getLoginHeader()` reads only the login-captured header
-        // (`CacheManager.get("loginHeader_<key>")`) — the source's static `header` field must
-        // NOT satisfy it, or `<js>` scripts that branch on 登录状态 (e.g. xkvi exploreUrl's
-        // `level=${token ? 0 : 1}`) take the logged-in path with an invalid token and every
-        // category/browse request 401/502s.
-        var loginHeader: String? = bookSource?.loginHeader
-        var loginInfoStr: String? = bookSource?.loginInfo
-        let sourceKey = bookSource?.bookSourceUrl ?? ""
-        var variableStr: String? = bookSource?.variable ?? {
-            guard !sourceKey.isEmpty else { return nil }
-            Self.variableLock.lock()
-            defer { Self.variableLock.unlock() }
-            return Self.sourceVariableCache[sourceKey] ?? UserDefaults.standard.string(forKey: "legado_source_var_\(sourceKey)")
-        }()
-
-        // `java.ajax` / `java.connect` must carry the source's headers (Android builds
-        // `AnalyzeUrl(url, source = source)`): loginHeader first, then the static `header`,
-        // JS-evaluated so `<js>` Cookie headers actually ship. Without this, scripts that
-        // probe user endpoints inside exploreUrl (`java.ajax("/api/user/favored")`) hit the
-        // proxy without a Cookie and surface 502 as 未知错误.
-        javaShim.defaultHeaderProvider = { [weak self] in
-            guard let self, let source = bookSource else { return nil }
-            return JSEngine.resolvedSourceHeader(source, engine: self, loginHeaderOverride: loginHeader)
-        }
-
-        let getLoginHeaderBlock: @convention(block) () -> String? = { loginHeader }
-        let putLoginHeaderBlock: @convention(block) (String) -> Void = { [weak self] newH in
-            loginHeader = newH
-            self?.onLoginHeaderUpdated?(newH)
-        }
-        let getLoginInfoBlock: @convention(block) () -> String? = { loginInfoStr }
-        let putLoginInfoBlock: @convention(block) (String) -> Void = { newInfo in loginInfoStr = newInfo }
-        let getVariableBlock: @convention(block) () -> String = { variableStr ?? "" }
-        let setVariableBlock: @convention(block) (String) -> Void = { newV in
-            variableStr = newV
-            if !sourceKey.isEmpty {
-                Self.variableLock.lock()
-                Self.sourceVariableCache[sourceKey] = newV
-                Self.variableLock.unlock()
-                UserDefaults.standard.set(newV, forKey: "legado_source_var_\(sourceKey)")
-            }
-        }
-        let getLoginInfoMapBlock: @convention(block) () -> JSValue = { [weak self] in
-            guard let ctx = self?.context else { return JSValue(nullIn: JSContext()) }
-            let mapObj = JSValue(newObjectIn: ctx)
-            var values: [String: String] = [:]
-            if let info = loginInfoStr, let data = info.data(using: .utf8),
-               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                for (k, v) in dict {
-                    mapObj?.setValue(v, forProperty: k)
-                    values[k] = "\(v)"
-                }
-            }
-            let getBlock: @convention(block) (String) -> String = { key in
-                return values[key] ?? ""
-            }
-            mapObj?.setValue(getBlock, forProperty: "get")
-            return mapObj ?? JSValue(newObjectIn: ctx)
-        }
-
-        sourceObj?.setValue(getLoginHeaderBlock, forProperty: "getLoginHeader")
-        sourceObj?.setValue(putLoginHeaderBlock, forProperty: "putLoginHeader")
-        sourceObj?.setValue(getLoginInfoBlock, forProperty: "getLoginInfo")
-        sourceObj?.setValue(putLoginInfoBlock, forProperty: "putLoginInfo")
-        sourceObj?.setValue(getLoginInfoMapBlock, forProperty: "getLoginInfoMap")
-        sourceObj?.setValue(getVariableBlock, forProperty: "getVariable")
-        sourceObj?.setValue(setVariableBlock, forProperty: "setVariable")
-        sourceObj?.setValue(bookSource?.loginUrl ?? "", forProperty: "loginUrl")
-        sourceObj?.setValue(bookSource?.bookSourceUrl ?? "", forProperty: "bookSourceUrl")
-        sourceObj?.setValue(bookSource?.bookSourceName ?? "", forProperty: "bookSourceName")
-
-        context.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
-
-        // Expose book object with persistent variable map
-        let bookObj = JSValue(newObjectIn: context)
-        let bookKey = book?.bookUrl ?? baseUrl ?? sourceKey
-        var currentBook = book ?? Book(bookUrl: bookKey, name: "", author: "", origin: sourceKey)
-        if currentBook.variable == nil, !bookKey.isEmpty {
-            Self.variableLock.lock()
-            let cached = Self.bookVariableCache[bookKey] ?? UserDefaults.standard.string(forKey: "legado_book_var_\(bookKey)")
-            Self.variableLock.unlock()
-            currentBook.variable = cached
-        }
-
-        let persistBookVar: (String?) -> Void = { [weak self] updated in
-            if !bookKey.isEmpty {
-                Self.variableLock.lock()
-                Self.bookVariableCache[bookKey] = updated
-                Self.variableLock.unlock()
-                if let updated = updated {
-                    UserDefaults.standard.set(updated, forKey: "legado_book_var_\(bookKey)")
-                } else {
-                    UserDefaults.standard.removeObject(forKey: "legado_book_var_\(bookKey)")
-                }
-            }
-            self?.onBookVariableUpdated?(updated)
-        }
-
-        let getBookVarBlock: @convention(block) (JSValue) -> String = { keyVal in
-            let key: String? = (keyVal.isUndefined || keyVal.isNull) ? nil : keyVal.toString()
-            return currentBook.getVariable(key)
-        }
-        let putBookVarBlock: @convention(block) (String, JSValue) -> Void = { key, val in
-            let strVal: String? = (val.isUndefined || val.isNull) ? nil : val.toString()
-            currentBook.putVariable(key: key, value: strVal)
-            persistBookVar(currentBook.variable)
-        }
-        let setBookVarBlock: @convention(block) (JSValue, JSValue) -> Void = { first, second in
-            if second.isUndefined {
-                let v: String? = (first.isUndefined || first.isNull) ? nil : first.toString()
-                currentBook.putVariable(key: nil, value: v)
-            } else {
-                let k = first.toString() ?? ""
-                let v: String? = second.isNull ? nil : second.toString()
-                currentBook.putVariable(key: k, value: v)
-            }
-            persistBookVar(currentBook.variable)
-        }
-
-        bookObj?.setValue(getBookVarBlock, forProperty: "getVariable")
-        bookObj?.setValue(putBookVarBlock, forProperty: "putVariable")
-        bookObj?.setValue(setBookVarBlock, forProperty: "setVariable")
-        if book != nil {
-            javaShim.variableReader = { key in
-                key == "bookName" ? currentBook.name : currentBook.getVariable(key)
-            }
-            javaShim.variableWriter = { key, value in
-                currentBook.putVariable(key: key, value: value)
-                persistBookVar(currentBook.variable)
-            }
-        }
-        bookObj?.setValue(currentBook.name, forProperty: "name")
-        bookObj?.setValue(currentBook.author, forProperty: "author")
-        bookObj?.setValue(currentBook.bookUrl, forProperty: "bookUrl")
-        bookObj?.setValue(currentBook.tocUrl, forProperty: "tocUrl")
-        bookObj?.setValue(bookSource?.bookSourceUrl ?? currentBook.origin, forProperty: "origin")
-        readBook = {
-            var updated = currentBook
-            updated.name = bookObj?.forProperty("name")?.toString() ?? updated.name
-            updated.author = bookObj?.forProperty("author")?.toString() ?? updated.author
-            updated.bookUrl = bookObj?.forProperty("bookUrl")?.toString() ?? updated.bookUrl
-            updated.tocUrl = bookObj?.forProperty("tocUrl")?.toString() ?? updated.tocUrl
-            return updated
-        }
-        replaceBook = { updated in
-            currentBook = updated
-            bookObj?.setValue(updated.name, forProperty: "name")
-            bookObj?.setValue(updated.author, forProperty: "author")
-            bookObj?.setValue(updated.bookUrl, forProperty: "bookUrl")
-            bookObj?.setValue(updated.tocUrl, forProperty: "tocUrl")
-        }
-        context.setObject(bookObj, forKeyedSubscript: "book" as NSString)
-        if let baseUrl = baseUrl {
-            context.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
-        }
-
-        // Compatibility polyfills
-        context.evaluateScript("""
-        var console = {
-            log: function(msg) { },
-            error: function(msg) { }
-        };
-        function format(str) { return Array.isArray(str) ? str.join('\\n\\n') : (str || ''); }
-        function regex(str) { return str || ''; }
-        function annotate(text, kanji) { return text || ''; }
-        function update(url, token) { }
-        """)
-    }
-
-    /// Evaluates a JavaScript snippet with optional `result` value
-    public func eval(script: String, result: Any? = nil) -> Any? {
-        guard initializationError == nil else { return nil }
-        lastScriptError = nil
-        if let result = result {
-            context.setObject(Self.scriptValue(result), forKeyedSubscript: "result" as NSString)
-        }
-        let val = context.evaluateScript(script)
-        if val?.isUndefined == true || val?.isNull == true {
-            return nil
-        }
-        if val?.isString == true {
-            return val?.toString()
-        }
-        if val?.isNumber == true {
-            return val?.toNumber()
-        }
-        if val?.isBoolean == true {
-            return val?.toBool()
-        }
-        if val?.isArray == true {
-            return val?.toArray()
-        }
-        if val?.isObject == true {
-            return val?.toDictionary()
-        }
-        return val?.toObject()
-    }
-
-    public func checkReady() throws {
-        if let error = initializationError { throw error }
-    }
-
-    @discardableResult
-    public func evalChecked(script: String, result: Any? = nil, stage: String) throws -> Any? {
-        try checkReady()
-        let value = eval(script: script, result: result)
-        if let message = lastScriptError { throw SourceRuntimeError.script(stage: stage, message: message) }
-        return value
-    }
-
-    func bookSnapshot() -> Book? { readBook?() }
-
-    func installPreUpdateActions(refresh: @escaping (Book) throws -> Book,
-                                 reGet: @escaping (Book) throws -> Book) {
-        javaShim.refreshTocAction = { [weak self] in
-            guard let self = self, let book = self.readBook?() else { return }
-            self.replaceBook?(try refresh(book))
-        }
-        javaShim.reGetBookAction = { [weak self] in
-            guard let self = self, let book = self.readBook?() else { return }
-            self.replaceBook?(try reGet(book))
-        }
-    }
-
-    /// SwiftSoup nodes cannot be bridged directly into JavaScriptCore (copyWithZone crash).
+    /// HTML nodes cross the JSON bridge as source text, matching the existing rule surface.
     /// Give scripts HTML text, also when a selector returns a list of nodes.
     private static func scriptValue(_ value: Any) -> Any {
         if let node = value as? Node { return (try? node.outerHtml()) ?? "" }
@@ -548,7 +369,7 @@ public class JSEngine {
     /// Evaluates template strings containing `{{ ... }}`
     public func renderTemplate(_ text: String, variables: [String: Any] = [:]) -> String {
         for (k, v) in variables {
-            context.setObject(v, forKeyedSubscript: k as NSString)
+            setGlobal(v, for: k)
         }
 
         var result = text
@@ -565,8 +386,7 @@ public class JSEngine {
             let innerRange = match.range(at: 1)
             let expression = nsString.substring(with: innerRange).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let evaluated = eval(script: expression)
-            let replacement = evaluated != nil ? "\(evaluated!)" : ""
+            let replacement = evalString(expression) ?? ""
             result = (result as NSString).replacingCharacters(in: fullRange, with: replacement)
         }
 

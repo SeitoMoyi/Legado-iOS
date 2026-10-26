@@ -27,6 +27,7 @@ let package = Package(
         .target(
             name: "LegadoCore",
             dependencies: [
+                "LegadoRuntime",
                 "SwiftSoup",
                 "ZIPFoundation"
             ]),

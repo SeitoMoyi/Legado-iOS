@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register new Swift files in Legado.xcodeproj.
+"""Register Swift and C source files in Legado.xcodeproj.
 
 The Xcode project lists every source file explicitly (no synchronized folder group,
 Xcode 14.2 cannot use one). SwiftPM picks files up by directory glob, so `swift build`
@@ -8,7 +8,7 @@ unregistered files, which breaks the iOS build and the release workflow.
 
 Usage:
     python3 tools/xcode_add_sources.py Sources/LegadoCore/Models/Bookmark.swift ...
-    python3 tools/xcode_add_sources.py --check          # list unregistered files
+    python3 tools/xcode_add_sources.py --check          # list unregistered Swift / C source files
     python3 tools/xcode_add_sources.py --remove Sources/LegadoApp/Services/Old.swift
 """
 
@@ -72,13 +72,13 @@ def referenced_paths(objects):
 
 
 def all_swift_files():
-    root = os.path.join(REPO_ROOT, "Sources")
     found = []
-    for dirpath, _, filenames in os.walk(root):
-        for filename in sorted(filenames):
-            if filename.endswith(".swift"):
-                full = os.path.join(dirpath, filename)
-                found.append(os.path.relpath(full, REPO_ROOT))
+    for folder in ("Sources", "Runtime"):
+        for dirpath, _, filenames in os.walk(os.path.join(REPO_ROOT, folder)):
+            for filename in sorted(filenames):
+                if filename.endswith((".swift", ".c")):
+                    full = os.path.join(dirpath, filename)
+                    found.append(os.path.relpath(full, REPO_ROOT))
     return sorted(found)
 
 
@@ -110,7 +110,7 @@ def register(paths):
         file_ref = new_id(objects)
         objects[file_ref] = {
             "isa": "PBXFileReference",
-            "lastKnownFileType": "sourcecode.swift",
+            "lastKnownFileType": "sourcecode.c.c" if path.endswith(".c") else "sourcecode.swift",
             "path": path,
             "sourceTree": "<group>",
         }

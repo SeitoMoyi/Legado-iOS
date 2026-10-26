@@ -19,6 +19,18 @@ public class BookExploreService {
 
     /// Parses the categories configured in a BookSource's `exploreUrl`
     public func parseExploreCategories(source: BookSource) -> [ExploreCategory] {
+        (try? parseCategoriesChecked(source: source)) ?? []
+    }
+
+    /// Nonisolated async entry keeps source scripts and their host requests off the UI actor.
+    public func loadExploreCategories(source: BookSource) async throws -> [ExploreCategory] {
+        try Task.checkCancellation()
+        let categories = try parseCategoriesChecked(source: source)
+        try Task.checkCancellation()
+        return categories
+    }
+
+    private func parseCategoriesChecked(source: BookSource) throws -> [ExploreCategory] {
         guard let exploreUrl = source.exploreUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
               !exploreUrl.isEmpty else {
             return []
@@ -29,8 +41,8 @@ public class BookExploreService {
         // JS script wrapped in <js>…</js> or prefixed @js:
         if let script = JSEngine.extractJSScript(from: exploreUrl) {
             let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-            guard engine.initializationError == nil else { return [] }
-            if let result = engine.eval(script: script) {
+            try engine.checkReady()
+            if let result = try engine.evalChecked(script: script, stage: "exploreUrl") {
                 if let str = result as? String {
                     jsonString = str
                 } else if let arr = result as? [[String: Any]],
@@ -81,9 +93,9 @@ public class BookExploreService {
         var renderedUrl = categoryUrl
         let jsEngine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
         try jsEngine.checkReady()
-        jsEngine.context.setObject(page, forKeyedSubscript: "page" as NSString)
-        jsEngine.context.setObject(page, forKeyedSubscript: "searchPage" as NSString)
-        jsEngine.context.setObject(source.bookSourceUrl, forKeyedSubscript: "baseUrl" as NSString)
+        jsEngine.setGlobal(page, for: "page")
+        jsEngine.setGlobal(page, for: "searchPage")
+        jsEngine.setGlobal(source.bookSourceUrl, for: "baseUrl")
 
         renderedUrl = renderedUrl
             .replacingOccurrences(of: "{{page}}", with: "\(page)")

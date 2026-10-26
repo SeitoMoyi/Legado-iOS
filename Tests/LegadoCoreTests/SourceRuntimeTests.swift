@@ -1,5 +1,5 @@
 import XCTest
-import JavaScriptCore
+import LegadoRuntime
 @testable import LegadoCore
 
 final class SourceRuntimeTests: XCTestCase {
@@ -237,13 +237,13 @@ extension SourceRuntimeTests {
 
     func testBookBridgeAndLibraryContextsAreReleased() throws {
         weak var releasedEngine: JSEngine?
-        weak var releasedContext: JSContext?
+        weak var releasedContext: QuickJSRuntime?
         try autoreleasepool {
             let engine = JSEngine(bookSource: source(library: "function helper(){return 'ok';}"), book: book())
             try engine.checkReady()
             _ = try engine.evalChecked(script: "java.put('release-test',helper());", stage: "test")
             releasedEngine = engine
-            releasedContext = engine.context
+            releasedContext = engine.runtime
         }
         XCTAssertNil(releasedEngine)
         XCTAssertNil(releasedContext, "Native variable callbacks must not retain the exported book JS object")

@@ -14,6 +14,7 @@ public struct SourceDetailView: View {
     @State private var showSingleSourceSearch: Bool = false
     @State private var categories: [ExploreCategory] = []
     @State private var isRefreshingCategories: Bool = false
+    @State private var categoryTask: Task<Void, Never>?
     @State private var selectedCategoryForExplore: ExploreCategory? = nil
 
     public init(source: BookSource) {
@@ -359,10 +360,15 @@ public struct SourceDetailView: View {
     }
 
     private func refreshCategories() {
+        categoryTask?.cancel()
         isRefreshingCategories = true
-        let parsed = BookExploreService.shared.parseExploreCategories(source: currentSource)
-        self.categories = parsed
-        self.isRefreshingCategories = false
+        let source = currentSource
+        categoryTask = Task { @MainActor in
+            let parsed = (try? await BookExploreService.shared.loadExploreCategories(source: source)) ?? []
+            guard !Task.isCancelled, currentSource == source else { return }
+            categories = parsed
+            isRefreshingCategories = false
+        }
     }
 
     private func openScopedSearch() {

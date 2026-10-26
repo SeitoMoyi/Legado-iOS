@@ -11,9 +11,9 @@ QuickJS **2026-06-04** release:
   generated binaries, upstream build products and test suite.
 
 `LegadoQuickJS.c` and `LegadoRuntime/QuickJSRuntime.swift` are this project's adapter.
-The separate SwiftPM product has no dependency from `LegadoCore` or `LegadoApp` yet.
-It is the first v0.3.1 implementation step, not a replacement of the released app engine.
-The existing Xcode app target is unchanged; full app integration and bridge migration remain.
+The SwiftPM Core target now depends on the product; the Xcode app compiles the same C and
+Swift sources through its explicit source registration and native module map. JSEngine uses
+this adapter for the app's source, login, formatting and replacement script calls.
 
 The adapter owns one serialized runtime/context, installs a monotonic deadline and atomic
 cancellation signal for evaluation and JSON serialization, and bounds heap, stack, source
@@ -23,14 +23,18 @@ The evaluation timeout starts after acquiring the runtime lock; it is not a queu
 Cancellation can interrupt a running evaluation through VM polling, but not cancel a caller
 waiting for that lock. A token is one-shot and must remain alive for the evaluation.
 
-Only synchronous global evaluation is exposed. Results cross the boundary as JSON text;
-undefined and non-JSON results return nil. There are no Legado Java/source/book bindings,
-network/filesystem host calls, module loader or Promise job pump. No source runs on the new
-adapter through the app yet. Native regex / large-number work and OS scheduling may delay
-interrupt polling; this is not a strict wall-clock guarantee for every engine operation.
+The adapter exposes synchronous global evaluation and a JSON host callback. JSEngine installs
+the existing Java/source/book bindings, including bounded HTTP operations. Nested evaluations
+share deadlines and restore the outer interrupt handler; nesting is capped at 16. Global
+bindings are defined directly so an untrusted setter cannot execute outside a budget. No
+module loader, OS/shell module, filesystem host access or Promise job pump is installed.
 
-Regression tests exercise JSON/context isolation, 50 timeout/recovery cycles, cancellation,
-recursion and allocation failures, serialization/error-conversion interruption, input/output
-limits, syntax errors and 50 ownership/release cycles. Weak-reference checks are not a
-substitute for a leak detector. Cross-compilation proves iOS compiler compatibility, not
-iOS runtime acceptance or parity with JavaScriptCore.
+Results cross the boundary as JSON text; undefined and non-JSON results return nil. Native
+regex backtracking, recursion, memory failures, serialization/error conversion and cancellation
+have regression coverage. This is not a strict wall-clock guarantee for every native engine
+operation or queue wait and is not process isolation.
+
+Tests include 50 timeout/recovery cycles and 50 ownership/release cycles; weak references are
+not a leak detector. The integrated C probe also executed successfully in an isolated iOS
+17.2 simulator (50 nested-host timeout/recovery cycles and cross-thread cancellation). The
+Xcode app build passed; complete interactive-device and bridge parity remain distinct checks.

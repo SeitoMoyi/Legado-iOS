@@ -2,6 +2,39 @@ import XCTest
 import LegadoRuntime
 
 final class QuickJSRuntimeTests: XCTestCase {
+    func testNativeRegexBacktrackingObservesInterruptAndRecovers() throws {
+        let runtime = try QuickJSRuntime()
+        XCTAssertThrowsError(try runtime.evaluate("/(a+)+$/.test('a'.repeat(10000)+'!')", timeout: 0.005)) {
+            XCTAssertEqual($0 as? QuickJSRuntimeError, .timeout)
+        }
+        XCTAssertEqual(try runtime.evaluate("/a/.test('a')"), "true")
+    }
+
+    func testNestedHostEvaluationPreservesOuterInterruptAndBindings() throws {
+        let runtime = try QuickJSRuntime()
+        runtime.hostCall = { [weak runtime] action, arguments in
+            XCTAssertEqual(action, "nested")
+            XCTAssertEqual(arguments.first as? Int, 3)
+            return try runtime?.evaluate("1+1")
+        }
+        try runtime.setGlobal("input", value: ["name": "Book", "count": 3])
+        XCTAssertEqual(try runtime.evaluate("__legadoHost('nested',input.count)"), #""2""#)
+        XCTAssertThrowsError(try runtime.evaluate("__legadoHost('nested',3); while(true){}", timeout: 0.01)) {
+            XCTAssertEqual($0 as? QuickJSRuntimeError, .timeout)
+        }
+        XCTAssertEqual(try runtime.evaluate("input.name"), #""Book""#)
+        runtime.hostCall = { [weak runtime] _, _ in try runtime?.evaluate("__legadoHost('recursive')") }
+        XCTAssertThrowsError(try runtime.evaluate("__legadoHost('recursive')"))
+        XCTAssertEqual(try runtime.evaluate("2+2"), "4")
+    }
+
+    func testBindingCannotInvokeUnboundedSetterOutsideEvaluation() throws {
+        let runtime = try QuickJSRuntime()
+        _ = try runtime.evaluate("Object.defineProperty(globalThis,'blocked',{set(){while(true){}},configurable:false}); undefined")
+        XCTAssertThrowsError(try runtime.setGlobal("blocked", value: "value"))
+        XCTAssertEqual(try runtime.evaluate("1+1"), "2")
+    }
+
     func testJsonBoundaryAndFreshContextIsolation() throws {
         let first = try QuickJSRuntime()
         XCTAssertEqual(try first.evaluate("var shared = 7; ({value: shared, text: '正文'})"), #"{"value":7,"text":"正文"}"#)

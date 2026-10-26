@@ -35,14 +35,18 @@ jobs:
 
       - name: Determine Release Tag
         id: version_step
+        env:
+          RELEASE_TAG_OVERRIDE: ${{ github.event.inputs.tag_name }}
         run: |
-          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            TAG="${{ github.event.inputs.tag_name }}"
+          if [ -n "$RELEASE_TAG_OVERRIDE" ]; then
+            TAG="$RELEASE_TAG_OVERRIDE"
           elif [ -f "VERSION" ]; then
             TAG=$(cat VERSION | tr -d '[:space:]')
           else
-            TAG="v0.2.2"
+            echo "VERSION file is missing" >&2
+            exit 1
           fi
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
       - name: Build Archive (Unsigned)
@@ -88,11 +92,11 @@ jobs:
 
             #### 🌟 更新内容
             详细功能特性与实施规划请参阅仓库内 [README.md](README.md) 与 [Plan.md](Plan.md)。
-            - **书源运行时基础**：执行内联 / 远程 jsLib、刷新前 preUpdateJs，以及 refreshTocUrl / reGetBook；保护书籍迁移时的进度与书架身份。
-            - **阅读器修复**：退出首章 / 未缓存章节加载时取消请求与预取；拒绝晚到结果；换源时清理旧任务，加载页提供返回书架按钮。
-            - **代码复核**：修复已删除变量返回旧值、取消竞争与旧源正文回写；移除重复进度保存。
-            - **验证**：363 项非联网测试，3 项外部样本显式 skipped，0 失败；iOS Simulator 编译通过。未做本轮真机 / 实际退出交互验收。
-            - **版本边界**：App 仍使用 JavaScriptCore，无法硬中断运行中的纯 JS 死循环；QuickJS 仅完成独立调查原型，v0.3.1 开始原生适配器接入。
+            - **可中断运行时**：App 脚本已切换 QuickJS，循环 / 回溯正则、取消与内存 / 栈限制有回归覆盖；不使用 JavaScriptCore 私有 API。
+            - **宿主兼容**：迁移既有 Java / source / book API、变量、HTTP 响应方法、登录头与目录上下文；嵌套调用保留外层期限，HTTP 和库下载等待支持取消。
+            - **界面可靠性**：分类脚本离开 UI actor；切源取消旧解析；修复 Boolean 文本转换及超时后工作池耗尽。
+            - **验证**：377 项非联网测试、3 skipped、0 失败；iOS Simulator 编译和 50 次嵌套超时恢复 / 跨线程取消原生探针通过。
+            - **边界**：真实书源冒烟因远端 TLS 连接失败跳过；未做本轮真机验收。仍非完整 Android 桥 / 进程隔离，复杂原生操作的严格墙钟保证不作承诺。
 
             #### 📱 安装说明
             下载下方的 `Legado-*.ipa` 附件，支持通过以下方式进行侧载安装：

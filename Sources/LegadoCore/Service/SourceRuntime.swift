@@ -29,7 +29,9 @@ public final class SourceLibraryStore {
 
     public func clearCache() { cache.removeAllObjects() }
 
-    func scripts(for declaration: String) throws -> [String] {
+    func scripts(for declaration: String, shouldCancel: () -> Bool = { Task.isCancelled }) throws -> [String] {
+        guard !shouldCancel() else { throw CancellationError() }
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
         let raw = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return [] }
         guard raw.hasPrefix("{") else { return [raw] }
@@ -47,6 +49,7 @@ public final class SourceLibraryStore {
         let ns = raw as NSString
         var scripts: [String] = []
         for match in regex.matches(in: raw, range: NSRange(location: 0, length: ns.length)) {
+            guard !shouldCancel() else { throw CancellationError() }
             let token = Data(ns.substring(with: match.range(at: 1)).utf8)
             let urlString = try JSONDecoder().decode(String.self, from: token)
             guard let url = URL(string: urlString), let scheme = url.scheme?.lowercased(),
@@ -58,7 +61,9 @@ public final class SourceLibraryStore {
             // Shared libraries are downloaded without the source's login cookies or headers,
             // like Android SharedJsScope. Header evaluation itself may depend on this library.
             guard let request = NetworkClient.parseLegadoUrl(urlString),
-                  let response = NetworkClient.shared.requestSync(parsed: request, handleCookies: false),
+                  let response = NetworkClient.shared.requestSync(parsed: request,
+                        timeout: min(15, max(0, deadline - ProcessInfo.processInfo.systemUptime)),
+                        handleCookies: false, shouldCancel: shouldCancel),
                   (200..<300).contains(response.statusCode), !response.data.isEmpty,
                   response.data.count <= Self.maxLibraryBytes else {
                 throw SourceRuntimeError.library("无法下载库 \(url.host ?? "")")

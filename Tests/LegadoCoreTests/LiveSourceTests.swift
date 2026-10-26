@@ -136,7 +136,7 @@ final class LiveSourceTests: XCTestCase {
             return nil
         }
         let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-        guard let evaluated = engine.context.evaluateScript(script)?.toString(),
+        guard let evaluated = engine.evalString(script),
               !evaluated.isEmpty, evaluated != "undefined",
               let data = evaluated.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -265,7 +265,7 @@ final class LiveSourceTests: XCTestCase {
         var capturedHeader: String? = nil
         jsEngine.onLoginHeaderUpdated = { capturedHeader = $0 }
         let loginScript = try XCTUnwrap(source.loginUrl, "loginUrl 不能为空")
-        _ = jsEngine.context.evaluateScript(loginScript)
+        _ = jsEngine.eval(script: loginScript)
 
         let tokenHeader = try XCTUnwrap(capturedHeader, "登录未能捕获 Token Header（检查账号密码或站点可用性）")
         print("登录成功，Token Header: \(tokenHeader.prefix(80))...")

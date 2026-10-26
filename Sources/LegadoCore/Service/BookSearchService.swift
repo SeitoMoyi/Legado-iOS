@@ -17,14 +17,14 @@ public class BookSearchService {
         var renderedUrl = rawSearchUrl
 
         // Inject standard Legado search variables
-        jsEngine.context.setObject(key, forKeyedSubscript: "key" as NSString)
-        jsEngine.context.setObject(key, forKeyedSubscript: "searchKey" as NSString)
-        jsEngine.context.setObject(page, forKeyedSubscript: "page" as NSString)
-        jsEngine.context.setObject(page, forKeyedSubscript: "searchPage" as NSString)
-        jsEngine.context.setObject(source.bookSourceUrl, forKeyedSubscript: "baseUrl" as NSString)
+        jsEngine.setGlobal(key, for: "key")
+        jsEngine.setGlobal(key, for: "searchKey")
+        jsEngine.setGlobal(page, for: "page")
+        jsEngine.setGlobal(page, for: "searchPage")
+        jsEngine.setGlobal(source.bookSourceUrl, for: "baseUrl")
 
         if let script = JSEngine.extractJSScript(from: renderedUrl) {
-            if let result = jsEngine.context.evaluateScript(script)?.toString(),
+            if let result = jsEngine.evalString(script),
                !result.isEmpty && result != "undefined" && result != "null" {
                 renderedUrl = result
             }

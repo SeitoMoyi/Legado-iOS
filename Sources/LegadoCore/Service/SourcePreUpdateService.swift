@@ -2,7 +2,7 @@ import Foundation
 
 /// Runs Android's explicit preUpdateJs hook off the UI executor. Native bridge calls may
 /// synchronously wait here while their existing async network services run on another task.
-/// This bounds native waits and cancels queued work; it cannot interrupt a pure JS loop.
+/// Native waits and the QuickJS evaluation both observe cancellation and execution budgets.
 public final class SourcePreUpdateService {
     private static let workers: OperationQueue = {
         let queue = OperationQueue()
@@ -27,7 +27,9 @@ public final class SourcePreUpdateService {
                     guard !completion.isCancelled else { return }
                     do {
                         let deadline = ProcessInfo.processInfo.systemUptime + Self.bridgeBudget
-                        let engine = JSEngine(bookSource: source, book: book, baseUrl: book.bookUrl)
+                        let engine = JSEngine(bookSource: source, book: book, baseUrl: book.bookUrl,
+                                              shouldCancel: { completion.isCancelled })
+                        engine.timeout = Self.bridgeBudget
                         try engine.checkReady()
                         engine.installPreUpdateActions(refresh: { current in
                             try Self.waitForNative(completion: completion, deadline: deadline) {

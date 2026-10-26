@@ -206,8 +206,9 @@ public class NetworkClient {
 
     /// Performs a synchronous HTTP request (useful for JS rule evaluation)
     public func requestSync(parsed: ParsedRequest, timeout: TimeInterval = 15.0,
-                            handleCookies: Bool = true) -> NetworkResponse? {
-        guard timeout.isFinite, timeout > 0 else { return nil }
+                            handleCookies: Bool = true,
+                            shouldCancel: () -> Bool = { Task.isCancelled }) -> NetworkResponse? {
+        guard timeout.isFinite, timeout > 0, !shouldCancel() else { return nil }
         var req = URLRequest(url: parsed.url)
         req.httpMethod = parsed.method
         req.httpBody = parsed.body
@@ -240,10 +241,14 @@ public class NetworkClient {
             resultLock.unlock()
         }
         task.resume()
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            task.cancel()
-            return nil
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while semaphore.wait(timeout: .now() + min(0.05, timeout)) == .timedOut {
+            if shouldCancel() || ProcessInfo.processInfo.systemUptime >= deadline {
+                task.cancel()
+                return nil
+            }
         }
+        guard !shouldCancel() else { task.cancel(); return nil }
         resultLock.lock()
         defer { resultLock.unlock() }
         return result

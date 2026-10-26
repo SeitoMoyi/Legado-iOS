@@ -1,5 +1,4 @@
 import Foundation
-import JavaScriptCore
 
 public class BookContentService {
     public static let shared = BookContentService()
@@ -290,15 +289,15 @@ public class BookContentService {
             let itemAnalyzer = RuleAnalyzer(content: item, baseUrl: pageUrl,
                                             bookSource: nil, jsEngine: jsEngine)
             var chapter = BookChapter(bookUrl: bookUrl, url: "", title: "", index: 0)
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             chapter.title = itemAnalyzer.getString(tocRule.chapterName)
             guard !chapter.title.isEmpty else { continue }
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             let rawUrl = itemAnalyzer.getString(tocRule.chapterUrl).trimmingCharacters(in: .whitespacesAndNewlines)
             chapter.url = rawUrl
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             chapter.tag = itemAnalyzer.getString(tocRule.updateTime)
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             let isVolume = ruleIsTrue(itemAnalyzer.getString(tocRule.isVolume))
             let url: String
             if rawUrl.isEmpty, isVolume {
@@ -309,9 +308,9 @@ public class BookContentService {
             guard !url.isEmpty else { continue }
             chapter.url = url
             chapter.isVolume = isVolume
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             chapter.isVip = ruleIsTrue(itemAnalyzer.getString(tocRule.isVip))
-            jsEngine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
+            jsEngine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
             chapter.isPay = ruleIsTrue(itemAnalyzer.getString(tocRule.isPay))
             chapter.index = chapters.count
             chapters.append(chapter)
@@ -337,21 +336,18 @@ public class BookContentService {
     static func formatChapters(_ chapters: [BookChapter], script: String?) throws -> [BookChapter] {
         guard let script = script, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return chapters }
         let engine = JSEngine()
-        var failed = false
-        engine.context.exceptionHandler = { _, _ in failed = true }
-        engine.context.setObject(0, forKeyedSubscript: "gInt" as NSString)
+        engine.setGlobal(0, for: "gInt")
         let body = JSEngine.extractJSScript(from: script) ?? script
         return try chapters.map { chapter in
             try Task.checkCancellation()
-            failed = false
             var formatted = chapter
-            engine.context.setObject(Self.chapterBindings(chapter), forKeyedSubscript: "chapter" as NSString)
-            engine.context.setObject(chapter.index + 1, forKeyedSubscript: "index" as NSString)
-            engine.context.setObject(chapter.title, forKeyedSubscript: "title" as NSString)
-            if let result = engine.context.evaluateScript(body), !failed, !result.isNull, !result.isUndefined,
-               let title = result.toString() {
+            engine.setGlobal(Self.chapterBindings(chapter), for: "chapter")
+            engine.setGlobal(chapter.index + 1, for: "index")
+            engine.setGlobal(chapter.title, for: "title")
+            if let title = engine.evalString(body) {
                 formatted.title = title
             }
+            if engine.didTimeOut { throw SourceRuntimeError.script(stage: "formatJs", message: "Script execution timed out") }
             return formatted
         }
     }

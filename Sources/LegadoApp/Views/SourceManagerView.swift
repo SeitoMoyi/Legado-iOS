@@ -26,6 +26,7 @@ public struct SourceManagerView: View {
     @State private var validationTotal: Int = 0
     @State private var validationFailedCount: Int = 0
     @State private var validationTask: Task<Void, Never>? = nil
+    @State private var refreshTask: Task<Void, Never>?
 
     @State private var showImportSheet: Bool = false
     @State private var showFileImporter: Bool = false
@@ -574,13 +575,18 @@ public struct SourceManagerView: View {
     }
 
     private func refreshSource(_ source: BookSource) {
-        let cats = BookExploreService.shared.parseExploreCategories(source: source)
-        if !cats.isEmpty {
-            alertMessage = "书源「\(source.bookSourceName)」已刷新，发现分类获取正常（共 \(cats.count) 个分类）！"
-        } else {
-            alertMessage = "书源「\(source.bookSourceName)」连接正常！"
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor in
+            do {
+                let cats = try await BookExploreService.shared.loadExploreCategories(source: source)
+                guard !Task.isCancelled else { return }
+                alertMessage = "书源「\(source.bookSourceName)」分类解析完成（共 \(cats.count) 个分类）"
+            } catch {
+                guard !Task.isCancelled else { return }
+                alertMessage = "分类解析失败：\(error.localizedDescription)"
+            }
+            showAlert = true
         }
-        showAlert = true
     }
 
     @ViewBuilder

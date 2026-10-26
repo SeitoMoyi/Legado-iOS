@@ -26,6 +26,8 @@ public struct CategoryExploreView: View {
     @State private var isLoadingMore: Bool = false
     @State private var hasMore: Bool = true
     @State private var errorMessage: String? = nil
+    @State private var categoryTask: Task<Void, Never>?
+    @State private var bookTask: Task<Void, Never>?
 
     @State private var showAllCategoriesSheet: Bool = false
     @State private var selectedBookForDetail: SearchBook? = nil
@@ -381,22 +383,32 @@ public struct CategoryExploreView: View {
     }
 
     private func loadCategories(for source: BookSource) {
+        categoryTask?.cancel()
+        bookTask?.cancel()
         categoriesSourceUrl = source.bookSourceUrl
-        let cats = BookExploreService.shared.parseExploreCategories(source: source)
-        self.categories = cats
-
-        // Prefer selecting "全部" as initial category so public books load immediately; presets like 阅读历史 remain available in the top bar
-        if let allCategory = cats.first(where: { $0.title == "全部" && $0.url != nil && !$0.url!.isEmpty }) {
-            selectCategory(allCategory)
-        } else if let firstActionable = cats.first(where: { !$0.isHeader && $0.url != nil && !$0.url!.isEmpty }) {
-            selectCategory(firstActionable)
-        } else {
-            selectedCategory = nil
-            books = []
+        categories = []
+        isLoadingMore = false
+        isLoading = true
+        errorMessage = nil
+        categoryTask = Task { @MainActor in
+            do {
+                let cats = try await BookExploreService.shared.loadExploreCategories(source: source)
+                guard !Task.isCancelled, currentSource?.bookSourceUrl == source.bookSourceUrl else { return }
+                categories = cats
+                isLoading = false
+                if let category = cats.first(where: { $0.title == "全部" && !$0.isHeader })
+                    ?? cats.first(where: { !$0.isHeader }) { selectCategory(category) }
+                else { selectedCategory = nil; books = [] }
+            } catch {
+                guard !Task.isCancelled, currentSource?.bookSourceUrl == source.bookSourceUrl else { return }
+                isLoading = false
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func selectCategory(_ category: ExploreCategory) {
+        isLoadingMore = false
         selectedCategory = category
         books = []
         currentPage = 1
@@ -409,10 +421,13 @@ public struct CategoryExploreView: View {
         isLoading = true
         errorMessage = nil
 
-        Task {
+        bookTask?.cancel()
+        bookTask = Task {
             do {
                 let fetched = try await BookExploreService.shared.fetchExploreBooks(source: src, categoryUrl: rawUrl, page: page)
                 await MainActor.run {
+                    guard !Task.isCancelled, currentSource?.bookSourceUrl == src.bookSourceUrl,
+                          selectedCategory?.id == category.id else { return }
                     self.currentPage = page
                     self.books = fetched
                     self.isLoading = false
@@ -420,6 +435,8 @@ public struct CategoryExploreView: View {
                 }
             } catch {
                 await MainActor.run {
+                    guard !Task.isCancelled, currentSource?.bookSourceUrl == src.bookSourceUrl,
+                          selectedCategory?.id == category.id else { return }
                     if error.localizedDescription.contains("403") {
                         self.errorMessage = "请先在书源管理中登录该书源账号以同步查看「\(category.title)」"
                     } else {

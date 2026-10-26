@@ -386,6 +386,8 @@ public final class ContentProcessor {
         guard let regex = try? NSRegularExpression(pattern: rule.pattern) else { return .failed }
         let script = rule.replacement.hasPrefix("@js:") ? String(rule.replacement.dropFirst(4)) : nil
         let engine = script.map { _ in JSEngine() }
+        engine?.timeout = Double(min(rule.effectiveTimeout, 60_000)) / 1000
+        engine?.cancellationCheck = { shouldStop?() == true }
         let ns = text as NSString
         var result = ""
         var cursor = 0
@@ -400,7 +402,13 @@ public final class ContentProcessor {
             result += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
             if let script = script, let engine = engine {
                 let matched = ns.substring(with: match.range)
+                engine.timeout = max(0.001, deadline - ProcessInfo.processInfo.systemUptime)
                 result += engine.eval(script: script, result: matched).map { "\($0)" } ?? matched
+                if engine.didTimeOut || shouldStop?() == true || ProcessInfo.processInfo.systemUptime >= deadline {
+                    timedOut = true
+                    stop.pointee = true
+                    return
+                }
             } else {
                 result += regex.replacementString(for: match, in: text, offset: 0, template: rule.replacement)
             }

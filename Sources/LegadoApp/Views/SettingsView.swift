@@ -245,6 +245,11 @@ struct OtherConfigView: View {
 
 /// 关于 — Android `AboutActivity` counterpart (应用名称 / 当前版本 / 内核引擎).
 struct AboutView: View {
+    private var quickJSNotice: String {
+        guard let url = Bundle.main.url(forResource: "LICENSE", withExtension: "QuickJS"),
+              let text = try? String(contentsOf: url) else { return "QuickJS — MIT License" }
+        return text
+    }
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "未知"
     }
@@ -267,7 +272,7 @@ struct AboutView: View {
                 HStack {
                     Text("内核引擎")
                     Spacer()
-                    Text("Swift 原生 + JavaScriptCore")
+                    Text("Swift 原生 + QuickJS")
                         .foregroundColor(.secondary)
                 }
             }
@@ -278,6 +283,10 @@ struct AboutView: View {
                     Spacer()
                     Text("GPLv3")
                         .foregroundColor(.secondary)
+                }
+                NavigationLink("QuickJS · MIT") {
+                    ScrollView { Text(quickJSNotice).font(.footnote).padding() }
+                        .navigationTitle("QuickJS")
                 }
             }
         }
