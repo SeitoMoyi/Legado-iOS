@@ -4,7 +4,7 @@ import XCTest
 /// Plan §二 #15: models must round-trip Android fields they do not declare.
 ///
 /// Android serialises `BookSource` / `RssSource` / `Book` with GSON, so a payload can carry
-/// `jsLib`, `concurrentRate`, `Book.customTag`, `Book.charset`, … iOS models whitelist their
+/// `concurrentRate`, `Book.customTag`, `Book.charset`, … iOS models whitelist their
 /// own keys; these tests pin the `extra` passthrough that keeps undeclared keys lossless
 /// through import → export / WebDAV backup.
 final class JSONExtrasTests: XCTestCase {
@@ -31,7 +31,7 @@ final class JSONExtrasTests: XCTestCase {
         ])
 
         let decoded = try XCTUnwrap(BookSource.decodeWithExtras(from: data))
-        XCTAssertEqual(decoded.extra["jsLib"], JSONValue.string("<js>lib()</js>"))
+        XCTAssertEqual(decoded.jsLib, "<js>lib()</js>")
         XCTAssertEqual(decoded.extra["concurrentRate"], JSONValue.string("1/1000"))
         XCTAssertEqual(decoded.extra["enabledCookieJar"], JSONValue.bool(true))
         XCTAssertEqual(decoded.extra["ruleReview"], JSONValue.string("class.review@text"))
@@ -61,7 +61,7 @@ final class JSONExtrasTests: XCTestCase {
             "jsLib": "lib"
         ])
         let decoded = TolerantJSON.decode(BookSource.self, from: data, fallback: BookSource(bookSourceUrl: "", bookSourceName: ""))
-        XCTAssertEqual(decoded?.extra["jsLib"], JSONValue.string("lib"))
+        XCTAssertEqual(decoded?.jsLib, "lib")
     }
 
     // MARK: - Book
@@ -136,7 +136,7 @@ final class JSONExtrasTests: XCTestCase {
         ])
         let list = try XCTUnwrap(BookSource.decodeListWithExtras(from: data))
         XCTAssertEqual(list.count, 2)
-        XCTAssertEqual(list[0].extra["jsLib"], JSONValue.string("a-lib"))
+        XCTAssertEqual(list[0].jsLib, "a-lib")
         XCTAssertEqual(list[1].extra["concurrentRate"], JSONValue.string("2/500"))
 
         let reencoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(list)) as! [[String: Any]]
@@ -156,7 +156,7 @@ extension JSONExtrasTests {
         let object = json(["bookSourceUrl": "https://example.com", "jsLib": "custom script"])
         let imported = try XCTUnwrap(BookSource.decodeListOrObjectWithExtras(from: object))
         XCTAssertEqual(imported.count, 1)
-        XCTAssertEqual(imported[0].extra["jsLib"], .string("custom script"))
+        XCTAssertEqual(imported[0].jsLib, "custom script")
         XCTAssertEqual(BookSource.decodeListOrObjectWithExtras(from: Data("[]".utf8)), [])
     }
 

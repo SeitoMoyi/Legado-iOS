@@ -14,6 +14,8 @@ import JavaScriptCore
     func base64Decode(_ str: String) -> String
     func timeFormat(_ timestamp: JSValue) -> String
     func getString(_ path: String) -> String
+    func refreshTocUrl()
+    func reGetBook()
 }
 
 @objc public class JavaShim: NSObject, JavaShimProtocol {
@@ -24,6 +26,25 @@ import JavaScriptCore
     /// Resolves the owning source's headers (loginHeader → header, JS-evaluated).
     /// `java.ajax(url)` without them cannot reach Cookie-gated APIs (Android parity).
     public var defaultHeaderProvider: (() -> String?)?
+    var refreshTocAction: (() throws -> Void)?
+    var reGetBookAction: (() throws -> Void)?
+    var variableReader: ((String) -> String?)?
+    var variableWriter: ((String, String) -> Void)?
+
+    public func refreshTocUrl() { performPreUpdateAction(refreshTocAction) }
+    public func reGetBook() { performPreUpdateAction(reGetBookAction) }
+
+    private func performPreUpdateAction(_ action: (() throws -> Void)?) {
+        guard let context = jsContext else { return }
+        do {
+            guard let action = action else {
+                throw SourceRuntimeError.bridge("只能在 preUpdateJs 中调用此方法")
+            }
+            try action()
+        } catch {
+            context.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: context)
+        }
+    }
 
     public init(context: JSContext?, baseURL: String? = nil) {
         self.jsContext = context
@@ -96,6 +117,9 @@ import JavaScriptCore
     }
 
     public func get(_ key: String) -> String? {
+        // With a book context its variable map is authoritative, including deletion and
+        // empty values. Falling back to kvStore could resurrect an earlier java.put value.
+        if let reader = variableReader { return reader(key) ?? "" }
         lock.lock()
         defer { lock.unlock() }
         return kvStore[key]
@@ -103,8 +127,9 @@ import JavaScriptCore
 
     public func put(_ key: String, _ value: String) -> String {
         lock.lock()
-        defer { lock.unlock() }
         kvStore[key] = value
+        lock.unlock()
+        variableWriter?(key, value)
         return value
     }
 
@@ -179,6 +204,10 @@ public class JSEngine {
     public let context: JSContext
     private let javaShim: JavaShim
     private var isResolvingHeader = false
+    public private(set) var initializationError: Error?
+    public private(set) var lastScriptError: String?
+    private var readBook: (() -> Book)?
+    private var replaceBook: ((Book) -> Void)?
     public var onLoginHeaderUpdated: ((String) -> Void)?
     public var onBookVariableUpdated: ((String?) -> Void)?
 
@@ -191,6 +220,15 @@ public class JSEngine {
         self.javaShim = JavaShim(context: context, baseURL: baseUrl ?? bookSource?.bookSourceUrl)
 
         setupEnvironment(bookSource: bookSource, book: book, baseUrl: baseUrl)
+        let legacyLibrary: String?
+        if case let .string(value)? = bookSource?.extra["jsLib"] { legacyLibrary = value } else { legacyLibrary = nil }
+        if let library = bookSource?.jsLib ?? legacyLibrary, !library.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            do {
+                for script in try SourceLibraryStore.shared.scripts(for: library) {
+                    _ = try evalChecked(script: Self.extractJSScript(from: script) ?? script, stage: "jsLib")
+                }
+            } catch { initializationError = error }
+        }
     }
 
     /// Splits a rule into its non-JS prefix (may be empty) and the `<js>…</js>` / `@js:`
@@ -262,7 +300,8 @@ public class JSEngine {
 
     private func setupEnvironment(bookSource: BookSource?, book: Book?, baseUrl: String?) {
         // Exception handler
-        context.exceptionHandler = { _, exception in
+        context.exceptionHandler = { [weak self] _, exception in
+            self?.lastScriptError = exception?.toString() ?? "Unknown JavaScript error"
             #if DEBUG
             print("[JSEngine Error] \(exception?.toString() ?? "unknown error")")
             #endif
@@ -395,11 +434,35 @@ public class JSEngine {
         bookObj?.setValue(getBookVarBlock, forProperty: "getVariable")
         bookObj?.setValue(putBookVarBlock, forProperty: "putVariable")
         bookObj?.setValue(setBookVarBlock, forProperty: "setVariable")
+        if book != nil {
+            javaShim.variableReader = { key in
+                key == "bookName" ? currentBook.name : currentBook.getVariable(key)
+            }
+            javaShim.variableWriter = { key, value in
+                currentBook.putVariable(key: key, value: value)
+                persistBookVar(currentBook.variable)
+            }
+        }
         bookObj?.setValue(currentBook.name, forProperty: "name")
         bookObj?.setValue(currentBook.author, forProperty: "author")
         bookObj?.setValue(currentBook.bookUrl, forProperty: "bookUrl")
         bookObj?.setValue(currentBook.tocUrl, forProperty: "tocUrl")
         bookObj?.setValue(bookSource?.bookSourceUrl ?? currentBook.origin, forProperty: "origin")
+        readBook = {
+            var updated = currentBook
+            updated.name = bookObj?.forProperty("name")?.toString() ?? updated.name
+            updated.author = bookObj?.forProperty("author")?.toString() ?? updated.author
+            updated.bookUrl = bookObj?.forProperty("bookUrl")?.toString() ?? updated.bookUrl
+            updated.tocUrl = bookObj?.forProperty("tocUrl")?.toString() ?? updated.tocUrl
+            return updated
+        }
+        replaceBook = { updated in
+            currentBook = updated
+            bookObj?.setValue(updated.name, forProperty: "name")
+            bookObj?.setValue(updated.author, forProperty: "author")
+            bookObj?.setValue(updated.bookUrl, forProperty: "bookUrl")
+            bookObj?.setValue(updated.tocUrl, forProperty: "tocUrl")
+        }
         context.setObject(bookObj, forKeyedSubscript: "book" as NSString)
         if let baseUrl = baseUrl {
             context.setObject(baseUrl, forKeyedSubscript: "baseUrl" as NSString)
@@ -420,6 +483,8 @@ public class JSEngine {
 
     /// Evaluates a JavaScript snippet with optional `result` value
     public func eval(script: String, result: Any? = nil) -> Any? {
+        guard initializationError == nil else { return nil }
+        lastScriptError = nil
         if let result = result {
             context.setObject(Self.scriptValue(result), forKeyedSubscript: "result" as NSString)
         }
@@ -443,6 +508,32 @@ public class JSEngine {
             return val?.toDictionary()
         }
         return val?.toObject()
+    }
+
+    public func checkReady() throws {
+        if let error = initializationError { throw error }
+    }
+
+    @discardableResult
+    public func evalChecked(script: String, result: Any? = nil, stage: String) throws -> Any? {
+        try checkReady()
+        let value = eval(script: script, result: result)
+        if let message = lastScriptError { throw SourceRuntimeError.script(stage: stage, message: message) }
+        return value
+    }
+
+    func bookSnapshot() -> Book? { readBook?() }
+
+    func installPreUpdateActions(refresh: @escaping (Book) throws -> Book,
+                                 reGet: @escaping (Book) throws -> Book) {
+        javaShim.refreshTocAction = { [weak self] in
+            guard let self = self, let book = self.readBook?() else { return }
+            self.replaceBook?(try refresh(book))
+        }
+        javaShim.reGetBookAction = { [weak self] in
+            guard let self = self, let book = self.readBook?() else { return }
+            self.replaceBook?(try reGet(book))
+        }
     }
 
     /// SwiftSoup nodes cannot be bridged directly into JavaScriptCore (copyWithZone crash).

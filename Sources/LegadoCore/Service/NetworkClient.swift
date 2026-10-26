@@ -205,12 +205,14 @@ public class NetworkClient {
     }
 
     /// Performs a synchronous HTTP request (useful for JS rule evaluation)
-    public func requestSync(parsed: ParsedRequest, timeout: TimeInterval = 15.0) -> NetworkResponse? {
+    public func requestSync(parsed: ParsedRequest, timeout: TimeInterval = 15.0,
+                            handleCookies: Bool = true) -> NetworkResponse? {
         guard timeout.isFinite, timeout > 0 else { return nil }
         var req = URLRequest(url: parsed.url)
         req.httpMethod = parsed.method
         req.httpBody = parsed.body
         req.timeoutInterval = timeout
+        req.httpShouldHandleCookies = handleCookies
         for (k, v) in parsed.headers {
             req.setValue(v, forHTTPHeaderField: k)
         }

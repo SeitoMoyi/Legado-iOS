@@ -24,8 +24,8 @@ public class BookContentService {
         }
     }
 
-    public func fetchBookDetail(book: Book, source: BookSource) async throws -> (book: Book, chapters: [BookChapter]) {
-        let result = try await fetchBookDetailResult(book: book, source: source)
+    public func fetchBookDetail(book: Book, source: BookSource, runPreUpdateJs: Bool = false) async throws -> (book: Book, chapters: [BookChapter]) {
+        let result = try await fetchBookDetailResult(book: book, source: source, runPreUpdateJs: runPreUpdateJs)
         guard result.complete else {
             throw NSError(domain: "Legado.TOC", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "目录抓取未完成，请重试"])
@@ -33,45 +33,31 @@ public class BookContentService {
         return (result.book, result.chapters)
     }
 
-    public func fetchBookDetailResult(book: Book, source: BookSource) async throws -> TocResult {
+    public func fetchBookDetailResult(book: Book, source: BookSource, runPreUpdateJs: Bool = false) async throws -> TocResult {
+        try Task.checkCancellation()
         guard let tocRule = source.ruleToc else {
             return TocResult(book: book, chapters: [], complete: false)
         }
 
-        let headerToUse = JSEngine.resolvedSourceHeader(source)
-        let detailUrl = source.ruleBookInfo == nil && !book.tocUrl.isEmpty ? book.tocUrl : book.bookUrl
+        let hasHook = runPreUpdateJs && !(tocRule.preUpdateJs?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let requestBook = hasHook ? try await SourcePreUpdateService().run(book: book, source: source) : book
+        let headerEngine = JSEngine(bookSource: source, book: requestBook, baseUrl: source.bookSourceUrl)
+        try headerEngine.checkReady()
+        let headerToUse = JSEngine.resolvedSourceHeader(source, engine: headerEngine)
+        // A pre-update bridge may have just refreshed details or relocated an expired URL.
+        // Use its directory directly; fetching old details first would defeat reGetBook.
+        let detailUrl = (hasHook || source.ruleBookInfo == nil) && !requestBook.tocUrl.isEmpty
+            ? requestBook.tocUrl : requestBook.bookUrl
         guard let detailRequest = NetworkClient.parseLegadoUrl(detailUrl, defaultHeader: headerToUse,
-                                                               baseUrl: source.bookSourceUrl) else {
+                                                               baseUrl: hasHook ? requestBook.bookUrl : source.bookSourceUrl) else {
             throw URLError(.badURL)
         }
-        let detailAnalyzer = try await makeAnalyzer(for: detailRequest, source: source, book: book)
-        var updatedBook = book
-        var latestFromRule = ""
-        if let infoRule = source.ruleBookInfo {
-            let infoAnalyzer: RuleAnalyzer
-            if let rule = infoRule.initRule, !rule.isEmpty,
-               let root = detailAnalyzer.getElements(rule).first {
-                infoAnalyzer = RuleAnalyzer(content: root, baseUrl: detailRequest.url.absoluteString,
-                                            bookSource: source, jsEngine: detailAnalyzer.jsEngine)
-            } else {
-                infoAnalyzer = detailAnalyzer
-            }
-            let name = infoAnalyzer.getString(infoRule.name)
-            if !name.isEmpty { updatedBook.name = name }
-            let author = infoAnalyzer.getString(infoRule.author)
-            if !author.isEmpty { updatedBook.author = author }
-            let intro = infoAnalyzer.getString(infoRule.intro)
-            if !intro.isEmpty { updatedBook.intro = Self.cleanHtml(intro) }
-            let kinds = infoAnalyzer.getStringList(infoRule.kind)
-            if !kinds.isEmpty { updatedBook.kind = kinds.joined(separator: ",") }
-            let wordCount = infoAnalyzer.getString(infoRule.wordCount)
-            if !wordCount.isEmpty { updatedBook.wordCount = wordCount }
-            let cover = infoAnalyzer.getString(infoRule.coverUrl, isUrl: true)
-            if !cover.isEmpty { updatedBook.coverUrl = cover }
-            latestFromRule = infoAnalyzer.getString(infoRule.lastChapter)
-            let tocUrl = infoAnalyzer.getString(infoRule.tocUrl, isUrl: true)
-            if !tocUrl.isEmpty { updatedBook.tocUrl = tocUrl }
-        }
+        let detailAnalyzer = try await makeAnalyzer(for: detailRequest, source: source, book: requestBook)
+        let info = hasHook ? (book: requestBook, latestFromRule: "")
+            : analyzeBookInfo(book: requestBook, source: source, analyzer: detailAnalyzer,
+                              baseUrl: detailRequest.url.absoluteString)
+        var updatedBook = info.book
+        let latestFromRule = info.latestFromRule
         if updatedBook.tocUrl.isEmpty { updatedBook.tocUrl = detailRequest.url.absoluteString }
         guard let tocRequest = NetworkClient.parseLegadoUrl(updatedBook.tocUrl, defaultHeader: headerToUse,
                                                             baseUrl: detailRequest.url.absoluteString) else {
@@ -84,13 +70,13 @@ public class BookContentService {
 
         // 1. Parse Chapters, following `nextTocUrl` when the source paginates its TOC
         var chapters = BookContentService.parseChapters(from: analyzer, tocRule: tocRule,
-                                                        bookUrl: book.bookUrl, jsEngine: jsEngine)
+                                                        bookUrl: updatedBook.bookUrl, jsEngine: jsEngine)
         var complete = true
 
         if let nextTocRule = tocRule.nextTocUrl, !nextTocRule.isEmpty {
             let extra = try await collectTocPages(
                 firstAnalyzer: analyzer, firstRequest: tocRequest, nextTocRule: nextTocRule, tocRule: tocRule,
-                bookUrl: book.bookUrl, source: source, header: headerToUse)
+                bookUrl: updatedBook.bookUrl, source: source, header: headerToUse)
             chapters.append(contentsOf: extra.chapters)
             complete = extra.complete
         }
@@ -105,6 +91,51 @@ public class BookContentService {
             updatedBook.latestChapterTitle = last.title
         }
         return TocResult(book: updatedBook, chapters: chapters, complete: complete)
+    }
+
+    /// Details-only refresh for the preUpdateJs bridge; never invokes the hook recursively.
+    public func fetchBookInfo(book: Book, source: BookSource) async throws -> Book {
+        let engine = JSEngine(bookSource: source, book: book, baseUrl: source.bookSourceUrl)
+        try engine.checkReady()
+        let header = JSEngine.resolvedSourceHeader(source, engine: engine)
+        guard let request = NetworkClient.parseLegadoUrl(book.bookUrl, defaultHeader: header,
+                                                        baseUrl: source.bookSourceUrl) else { throw URLError(.badURL) }
+        let analyzer = try await makeAnalyzer(for: request, source: source, book: book)
+        return analyzeBookInfo(book: book, source: source, analyzer: analyzer, baseUrl: request.url.absoluteString).book
+    }
+
+    private func analyzeBookInfo(book: Book, source: BookSource, analyzer: RuleAnalyzer, baseUrl: String) -> (book: Book, latestFromRule: String) {
+        var updatedBook = book
+        var latestFromRule = ""
+        if let infoRule = source.ruleBookInfo {
+            let infoAnalyzer: RuleAnalyzer
+            if let rule = infoRule.initRule, !rule.isEmpty,
+               let root = analyzer.getElements(rule).first {
+                infoAnalyzer = RuleAnalyzer(content: root, baseUrl: baseUrl,
+                                            bookSource: source, jsEngine: analyzer.jsEngine)
+            } else {
+                infoAnalyzer = analyzer
+            }
+            let name = infoAnalyzer.getString(infoRule.name)
+            if !name.isEmpty { updatedBook.name = name }
+            let author = infoAnalyzer.getString(infoRule.author)
+            if !author.isEmpty { updatedBook.author = author }
+            let intro = infoAnalyzer.getString(infoRule.intro)
+            if !intro.isEmpty { updatedBook.intro = Self.cleanHtml(intro) }
+            let kinds = infoAnalyzer.getStringList(infoRule.kind)
+            if !kinds.isEmpty { updatedBook.kind = kinds.joined(separator: ",") }
+            let wordCount = infoAnalyzer.getString(infoRule.wordCount)
+            if !wordCount.isEmpty { updatedBook.wordCount = wordCount }
+            let cover = infoAnalyzer.getString(infoRule.coverUrl, isUrl: true)
+            if !cover.isEmpty { updatedBook.coverUrl = cover }
+            latestFromRule = infoAnalyzer.getString(infoRule.lastChapter)
+            if !latestFromRule.isEmpty { updatedBook.latestChapterTitle = latestFromRule }
+            let tocUrl = infoAnalyzer.getString(infoRule.tocUrl, isUrl: true)
+            if !tocUrl.isEmpty { updatedBook.tocUrl = tocUrl }
+        }
+        if updatedBook.tocUrl.isEmpty { updatedBook.tocUrl = baseUrl }
+        if let snapshot = analyzer.jsEngine.bookSnapshot() { updatedBook.variable = snapshot.variable }
+        return (updatedBook, latestFromRule)
     }
 
     /// Fetches and parses the chapter list (Table of Contents)
@@ -126,6 +157,7 @@ public class BookContentService {
     public func fetchChapterContent(chapter: BookChapter, source: BookSource? = nil,
                                     nextChapterUrl: String? = nil,
                                     context: ProcessContext? = nil) async throws -> String {
+        try Task.checkCancellation()
         // An edited local chapter is an explicit cache override, just like a network chapter.
         if let cached = getCachedChapterContent(bookUrl: chapter.bookUrl, chapterIndex: chapter.index), !cached.isEmpty {
             return await finalize(cached, context: context, chapter: chapter)
@@ -167,12 +199,15 @@ public class BookContentService {
             return ""
         }
 
-        let headerToUse = JSEngine.resolvedSourceHeader(source)
+        let headerEngine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
+        try headerEngine.checkReady()
+        let headerToUse = JSEngine.resolvedSourceHeader(source, engine: headerEngine)
 
         print("[Content] 🚀 [\(source.bookSourceName)] Fetching chapter '\(chapter.title)' from: \(chapter.url)")
         let collected = try await collectContentFragments(
             startUrl: chapter.url, source: source, contentRule: contentRule,
             header: headerToUse, nextChapterUrl: nextChapterUrl)
+        try Task.checkCancellation()
 
         guard let firstPageUrl = collected.firstPageUrl else {
             print("[Content] ❌ [\(source.bookSourceName)] Failed to parse chapter URL: \(chapter.url)")
@@ -189,6 +224,7 @@ public class BookContentService {
 
         // Clean up common web garbage and sanitize HTML tags
         contentText = BookContentService.cleanHtml(contentText, baseUrl: firstPageUrl)
+        try Task.checkCancellation()
 
         // A truncated chapter must not be cached: the reader would keep showing the cut-off
         // version forever, because the cache is consulted before the network.
@@ -227,16 +263,19 @@ public class BookContentService {
     private func makeAnalyzer(for parsed: NetworkClient.ParsedRequest, source: BookSource,
                               book: Book? = nil) async throws -> RuleAnalyzer {
         let response = try await NetworkClient.shared.request(parsed: parsed)
+        try Task.checkCancellation()
         guard (200..<400).contains(response.statusCode) else {
             throw NSError(domain: "Legado.HTTP", code: response.statusCode,
                           userInfo: [NSLocalizedDescriptionKey: "HTTP \(response.statusCode)"])
         }
         let absolute = parsed.url.absoluteString
+        let engine = JSEngine(bookSource: source, book: book, baseUrl: absolute)
+        try engine.checkReady()
         return RuleAnalyzer(
             content: response.bodyString,
             baseUrl: absolute,
             bookSource: source,
-            jsEngine: JSEngine(bookSource: source, book: book, baseUrl: absolute)
+            jsEngine: engine
         )
     }
 
@@ -555,51 +594,46 @@ public class BookContentService {
         return FileManager.default.fileExists(atPath: file.path)
     }
 
-    private var preDownloadTask: Task<Void, Never>? = nil
-
     private func nextChapterUrl(after index: Int, in chapters: [BookChapter]) -> String? {
         guard index + 1 < chapters.count else { return nil }
         return chapters[index + 1].url
     }
 
-    /// 仿照 Android Legado preDownload()：在后台自动预缓存当前章节前后各 10 章
-    public func preDownloadChapters(around currentIndex: Int, chapters: [BookChapter], source: BookSource?, count: Int = 10) {
-        preDownloadTask?.cancel()
-        guard !chapters.isEmpty else { return }
+    /// Prefetches on the caller's task so leaving the reader cancels the active request
+    /// and the remaining queue together. The reader owns this work, not the singleton.
+    public func preDownloadChapters(around currentIndex: Int, chapters: [BookChapter], source: BookSource?, count: Int = 10) async {
+        guard !Task.isCancelled, !chapters.isEmpty, currentIndex >= 0,
+              currentIndex < chapters.count, count > 0 else { return }
 
-        preDownloadTask = Task.detached(priority: .utility) { [weak self] in
-            guard let self = self else { return }
-
-            // 1. 优先预下载后续章节 (currentIndex + 1 到 currentIndex + count)
-            let maxIndex = min(currentIndex + count, chapters.count - 1)
-            if currentIndex + 1 <= maxIndex {
-                for i in (currentIndex + 1)...maxIndex {
-                    if Task.isCancelled { return }
-                    let ch = chapters[i]
-                    if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
-                        continue
-                    }
-                    _ = try? await self.fetchChapterContent(
-                        chapter: ch, source: source,
-                        nextChapterUrl: self.nextChapterUrl(after: i, in: chapters))
-                    try? await Task.sleep(nanoseconds: 80_000_000) // 80ms 节奏间隔，避免被防爬虫限流
+        // 1. 优先预下载后续章节 (currentIndex + 1 到 currentIndex + count)
+        let maxIndex = min(currentIndex + count, chapters.count - 1)
+        if currentIndex + 1 <= maxIndex {
+            for i in (currentIndex + 1)...maxIndex {
+                if Task.isCancelled { return }
+                let ch = chapters[i]
+                if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
+                    continue
                 }
+                _ = try? await self.fetchChapterContent(
+                    chapter: ch, source: source,
+                    nextChapterUrl: self.nextChapterUrl(after: i, in: chapters))
+                try? await Task.sleep(nanoseconds: 80_000_000) // 80ms 节奏间隔，避免被防爬虫限流
             }
+        }
 
-            // 2. 预下载前面的章节 (currentIndex - 1 倒序到 currentIndex - count)
-            let minIndex = max(0, currentIndex - count)
-            if currentIndex - 1 >= minIndex {
-                for i in stride(from: currentIndex - 1, through: minIndex, by: -1) {
-                    if Task.isCancelled { return }
-                    let ch = chapters[i]
-                    if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
-                        continue
-                    }
-                    _ = try? await self.fetchChapterContent(
-                        chapter: ch, source: source,
-                        nextChapterUrl: self.nextChapterUrl(after: i, in: chapters))
-                    try? await Task.sleep(nanoseconds: 80_000_000)
+        // 2. 预下载前面的章节 (currentIndex - 1 倒序到 currentIndex - count)
+        let minIndex = max(0, currentIndex - count)
+        if currentIndex - 1 >= minIndex {
+            for i in stride(from: currentIndex - 1, through: minIndex, by: -1) {
+                if Task.isCancelled { return }
+                let ch = chapters[i]
+                if self.hasCachedChapter(bookUrl: ch.bookUrl, chapterIndex: ch.index) {
+                    continue
                 }
+                _ = try? await self.fetchChapterContent(
+                    chapter: ch, source: source,
+                    nextChapterUrl: self.nextChapterUrl(after: i, in: chapters))
+                try? await Task.sleep(nanoseconds: 80_000_000)
             }
         }
     }

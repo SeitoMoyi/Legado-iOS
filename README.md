@@ -7,14 +7,14 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-26）**：版本 `v0.2.8.2`，以 [VERSION](VERSION) 为准。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-26）**：发布版本 `v0.3.0`，以 [VERSION](VERSION) 为准；完成书源运行时基础，下一步 `v0.3.1` 接入可中断运行时。App 仍使用 JavaScriptCore，尚不能硬中断纯 JS 死循环。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
 
 ---
 
 ## 🌟 核心功能特性
 
 ### 1. Legado 3.0 常用书源与管理
-- **多语法规则引擎**：支持 CSS 选择器、部分 JSONPath（如 `$.data[*]`，递归查找取首个匹配）、轻量 XPath（`//`, `/`, `|`, `[@attr]`, `[contains()]`, `[last()]`）、正则清洗、JavaScript（`<js>` / `@js:`）与模板变量（`{{key}}`, `{{page}}`）。缺完整 JSONPath / XPath、`jsLib`、部分 Java 桥与 WebView 请求能力，详见 `Plan.md`。
+- **多语法规则引擎**：支持 CSS 选择器、部分 JSONPath（如 `$.data[*]`，递归查找取首个匹配）、轻量 XPath（`//`, `/`, `|`, `[@attr]`, `[contains()]`, `[last()]`）、正则清洗、JavaScript（`<js>` / `@js:`）与模板变量（`{{key}}`, `{{page}}`）。v0.3.0 支持书源 `jsLib` 内联 / 按序 URL 库与刷新前钩子；仍缺完整 JSONPath / XPath、部分 Java 桥与 WebView 请求能力，详见 `Plan.md`。
 - **6-Tab 书源编辑器**：提供 基本 / 搜索 / 发现 / 详情 / 目录 / 正文 6 大分区常用字段编辑，支持整源 JSON 拷贝与粘贴。尚非 Android 全字段覆盖，部分已展示字段也未接入执行链。
 - **四阶段实时调试台 (`SourceDebugSheet`)**：输入测试关键字即可实时流式执行「1. 搜索列表 → 2. 书籍详情 → 3. 目录解析 → 4. 首章正文」全链路调试，精确显示各阶段网络耗时与解析字段。
 - **书源管理与并发校验**：
@@ -24,7 +24,7 @@
   - 拖拽排序模式：长按把手重排书源，`customOrder` 重写为 0…n-1，换源候选按新优先级排列（对齐 Android 书源优先级语义）。
   - 5 并发搜索有效性校验（未覆盖 Android 全部校验阶段）：自动标记「失效」源并记录单次搜索耗时，显示层智能过滤第三方噪声与失败罚时；`bookSourceGroup` 等已知字段原样保留。
   - **扫码导入**：AVFoundation 相机扫码或相册选图 `CIDetector` 离线识别，按字段形态识别书源 / 替换规则 / 订阅源 / 字典规则 / WebDAV 配置；HTTP(S) 链接提供按网址添加书籍与复制，尚未接入扫码下载规则直链；书源管理长按菜单可**生成分享二维码**（单条书源的 JSON 数组，超容量自动提示）。
-  - 未知顶层字段透传：`BookSource` / `RssSource` / `Book` 经 extras 感知解码后，将未建模的顶层字段（如 `jsLib`、`concurrentRate`、`enabledCookieJar`、`Book.customTag` / `charset` / `type` / `syncTime`）保存在 `extra`，编码时扁平回写；`Book.order` 已是正式属性。搜索 / 发现 / 详情 / 目录 / 正文五类嵌套规则也保留未知键，覆盖编辑、持久化和 ZIP 往返；其它嵌套对象、类型不兼容与顶层直接 `JSONDecoder` 调用仍不受此保证，也不代表透传字段已生效（见 `Plan.md` §二 #15）。
+  - 未知顶层字段透传：`BookSource` / `RssSource` / `Book` 经 extras 感知解码后，将未建模的顶层字段（如 `concurrentRate`、`enabledCookieJar`、`Book.customTag` / `charset` / `type` / `syncTime`）保存在 `extra`，编码时扁平回写；`Book.order` 与书源 `jsLib` 已是正式属性。搜索 / 发现 / 详情 / 目录 / 正文五类嵌套规则也保留未知键，覆盖编辑、持久化和 ZIP 往返；其它嵌套对象、类型不兼容与顶层直接 `JSONDecoder` 调用仍不受此保证，也不代表透传字段已生效（见 `Plan.md` §二 #15）。
 - **书源导入与登录**：
   - 不预装书源，书架从零开始；章节 URL 与详情元数据由书源规则决定，已删除站点专用路径重写与 JSON 猜测分支。
   - 支持从本地 `.json` 文件导入、网络 URL 下载导入、剪贴板粘贴导入。
@@ -213,7 +213,7 @@
   - `chapterUrl`: 章节正文请求地址（如 `$.url` 或 `href`，自动补全相对路径）。
   - `nextTocUrl`: 分页目录下一页地址。
   - `isVolume` / `isVip` / `isPay` / `updateTime`: 求值分卷、VIP、已购买标记及章节 tag；无链接分卷保留为不请求网络的目录项。
-  - `formatJs`: 合并所有目录页、去重 / 反转 / 编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；脚本异常保留原标题。`preUpdateJs` 与 JS 硬中断仍待实现。
+  - `formatJs`: 合并所有目录页、去重 / 反转 / 编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；脚本异常保留原标题。v0.3.0 在显式刷新目录时执行 `preUpdateJs`，支持 `java.refreshTocUrl()` / `java.reGetBook()`；初次请求默认不执行。JS 硬中断尚未接入，细节见 [运行时说明](docs/SourceRuntime.md)。
 
 ### 4. 正文规则 (`ruleContent`)
 - `content`: 正文提取选择器。若为 HTML 内容建议使用 `@html`（如 `div#content@html`）。
@@ -282,7 +282,7 @@ Legado-iOS/
 │           ├── Search/                   # 搜索范围选择面板
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
-├── Tests/                        # 自动化单元测试套件（26 个测试文件 349 例：LegadoCoreTests + LegadoAppTests）
+├── Tests/                        # 自动化单元测试套件（28 个测试文件 370 例：LegadoCoreTests + LegadoAppTests）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -304,10 +304,10 @@ Legado-iOS/
    ```
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
-   swift test --skip LiveSourceTests   # 342 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 349 项；不可达时会跳过
+   swift test --skip LiveSourceTests   # 363 项非联网测试，缺少外部样本时显式 skipped
+   swift test                          # 另含 7 项真实书源联网冒烟，共 370 项；不可达时会跳过
    ```
-   本轮（2026-10-26）macOS SPM 报告 342 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0（2026-10-26）macOS SPM 报告 363 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash

@@ -138,7 +138,7 @@ public struct BookDetailView: View {
                         Button {
                             Task {
                                 chapters = []
-                                await loadBookDetails()
+                                await loadBookDetails(runPreUpdateJs: true)
                                 actionAlertMessage = "目录与详情已刷新"
                                 showActionAlert = true
                             }
@@ -659,7 +659,7 @@ public struct BookDetailView: View {
         }
     }
 
-    private func loadBookDetails() async {
+    private func loadBookDetails(runPreUpdateJs: Bool = false) async {
         guard chapters.isEmpty else { return }
 
         // If local book, load local chapters from BookStore
@@ -685,16 +685,15 @@ public struct BookDetailView: View {
         errorMessage = nil
 
         do {
-            let (detailedBook, fetchedChapters) = try await BookContentService.shared.fetchBookDetail(book: currentBook, source: src)
-            await MainActor.run {
-                self.currentBook = detailedBook
+            let originalURL = currentBook.bookUrl
+            let wasOnShelf = isInBookshelf
+            let (detailedBook, fetchedChapters) = try await BookContentService.shared.fetchBookDetail(book: currentBook, source: src, runPreUpdateJs: runPreUpdateJs)
+            try await MainActor.run {
+                let installed = wasOnShelf ? try self.bookStore.applyRefreshedBook(detailedBook, replacing: originalURL) : nil
+                self.currentBook = installed ?? detailedBook
                 self.chapters = fetchedChapters
                 self.isLoadingDetails = false
 
-                // If this book is already on the shelf, persist its fetched author, intro and chapters count
-                if self.isInBookshelf {
-                    _ = self.bookStore.saveOrUpdateBook(detailedBook)
-                }
             }
         } catch {
             await MainActor.run {

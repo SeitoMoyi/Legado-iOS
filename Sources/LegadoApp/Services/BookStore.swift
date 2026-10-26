@@ -524,6 +524,28 @@ public class BookStore: ObservableObject {
         return bookshelf[index]
     }
 
+    /// A preUpdateJs reGetBook may change identity. Replace the original shelf slot instead
+    /// of adding a duplicate, and keep reading progress changed while the refresh was in flight.
+    @discardableResult
+    public func applyRefreshedBook(_ refreshed: Book, replacing originalURL: String) throws -> Book? {
+        guard let index = bookshelf.firstIndex(where: { $0.bookUrl == originalURL }) else { return nil }
+        guard !bookshelf.enumerated().contains(where: { $0.offset != index && $0.element.bookUrl == refreshed.bookUrl }) else {
+            throw SourceRuntimeError.bridge("目标网址已存在另一条书架记录，已取消更新")
+        }
+        let current = bookshelf[index]
+        var updated = refreshed
+        updated.durChapterIndex = current.durChapterIndex
+        updated.durChapterPos = current.durChapterPos
+        updated.durChapterTitle = current.durChapterTitle
+        updated.durChapterTime = current.durChapterTime
+        updated.group = current.group
+        updated.order = current.order
+        bookshelf[index] = updated
+        saveBookshelf()
+        if originalURL != updated.bookUrl { BookContentService.shared.clearCache(for: originalURL) }
+        return updated
+    }
+
     /// Refreshes all network books on the bookshelf concurrently
     @MainActor
     public func refreshAllBooks() async {
@@ -532,11 +554,12 @@ public class BookStore: ObservableObject {
             guard let source = findSource(for: book) else { return nil }
             return (book, source)
         }
-        await withTaskGroup(of: (Book, [BookChapter])?.self) { group in
+        await withTaskGroup(of: (String, Book, [BookChapter])?.self) { group in
             for (book, source) in jobs {
                 group.addTask {
                     do {
-                        return try await BookContentService.shared.fetchBookDetail(book: book, source: source)
+                        let result = try await BookContentService.shared.fetchBookDetail(book: book, source: source, runPreUpdateJs: true)
+                        return (book.bookUrl, result.book, result.chapters)
                     } catch {
                         return nil
                     }
@@ -544,11 +567,9 @@ public class BookStore: ObservableObject {
             }
             for await result in group {
                 if Task.isCancelled { group.cancelAll(); break }
-                if let (updatedBook, chapters) = result {
-                    // A book removed while the refresh ran must not reappear on the shelf.
-                    guard bookshelf.contains(where: { $0.bookUrl == updatedBook.bookUrl }) else { continue }
-                    if !chapters.isEmpty { saveChapters(chapters, for: updatedBook.bookUrl) }
-                    _ = saveOrUpdateBook(updatedBook)
+                if let (originalURL, updatedBook, chapters) = result {
+                    guard let installed = try? applyRefreshedBook(updatedBook, replacing: originalURL) else { continue }
+                    if !chapters.isEmpty { saveChapters(chapters, for: installed.bookUrl) }
                 }
             }
         }
@@ -730,6 +751,7 @@ public class BookStore: ObservableObject {
         updatedSource.loginInfo = credJson
 
         let jsEngine = JSEngine(bookSource: updatedSource, baseUrl: source.bookSourceUrl)
+        try jsEngine.checkReady()
 
         var capturedHeader: String? = nil
         jsEngine.onLoginHeaderUpdated = { newH in
@@ -737,9 +759,9 @@ public class BookStore: ObservableObject {
         }
 
         _ = jsEngine.eval(script: JSEngine.extractJSScript(from: loginScript) ?? loginScript)
-        if let exception = jsEngine.context.exception {
+        if let message = jsEngine.lastScriptError ?? jsEngine.context.exception?.toString() {
             throw NSError(domain: "BookStore", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: exception.toString() ?? "登录脚本执行失败"])
+                          userInfo: [NSLocalizedDescriptionKey: message])
         }
 
         guard let finalHeader = capturedHeader, !finalHeader.isEmpty else {

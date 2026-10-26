@@ -29,6 +29,7 @@ public class BookExploreService {
         // JS script wrapped in <js>…</js> or prefixed @js:
         if let script = JSEngine.extractJSScript(from: exploreUrl) {
             let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
+            guard engine.initializationError == nil else { return [] }
             if let result = engine.eval(script: script) {
                 if let str = result as? String {
                     jsonString = str
@@ -79,6 +80,7 @@ public class BookExploreService {
     public func fetchExploreBooks(source: BookSource, categoryUrl: String, page: Int = 1) async throws -> [SearchBook] {
         var renderedUrl = categoryUrl
         let jsEngine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
+        try jsEngine.checkReady()
         jsEngine.context.setObject(page, forKeyedSubscript: "page" as NSString)
         jsEngine.context.setObject(page, forKeyedSubscript: "searchPage" as NSString)
         jsEngine.context.setObject(source.bookSourceUrl, forKeyedSubscript: "baseUrl" as NSString)

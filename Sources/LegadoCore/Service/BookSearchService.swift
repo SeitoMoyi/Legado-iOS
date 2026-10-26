@@ -13,6 +13,7 @@ public class BookSearchService {
 
         // Setup JS engine and render URL template
         let jsEngine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
+        try jsEngine.checkReady()
         var renderedUrl = rawSearchUrl
 
         // Inject standard Legado search variables

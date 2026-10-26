@@ -1,10 +1,10 @@
 # Legado iOS 迁移蓝图、功能差距清单与演进规划
 
-> **复核日期：2026-10-26；当前版本：`v0.2.8.2`（见 [VERSION](VERSION)）。**
+> **复核日期：2026-10-26；当前发布版本：`v0.3.0`（见 [VERSION](VERSION)）；下一开发阶段：`v0.3.1`。**
 > - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
-> - iOS 是 `ios/` 内的独立 Git 仓库，本次 `v0.2.8.2` 基于 `84e020a`，包含下列审计修复、目录兼容与阅读器回归修复。`Sources/` 共 80 个 Swift 文件、30,351 行（Core：38 文件 / 9,870 行；App：42 文件 / 20,481 行）；含 Tests 共 106 个 Swift 文件。
-> - 26 个测试文件声明 349 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **342 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
-> - `tools/xcode_add_sources.py --check` 通过。本次 iOS Simulator `xcodebuild` 编译及 `v0.2.8.2` 未签名 iOS Release archive 通过（Xcode 15.1 / iOS 17.2 SDK，未签名）；本轮另在 iPhone 13 / iOS 17.2 模拟器验证自定义主题首开：本地 TXT 连续滚动与本地 HTTP 样本首次联网分页，正文无需切换主题即可显示。另在用户运行中的 iPhone 11 / iOS 15.5 模拟器，用实际「机翻机器人」书源验证详情简介恢复为正文、第 63 话标题恢复两行。未做真机验收；相机、音频后台与其它手势仍待设备验证。
+> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 基于 `47b90a8` 完成书源运行时基础与阅读器修复；下一补丁版本继续运行时适配，见下方开发记录。`Sources/` 共 83 个 Swift 文件、30,844 行（Core：40 文件 / 10,202 行；App：43 文件 / 20,642 行）；含 Tests 共 111 个 Swift 文件。
+> - 28 个测试文件声明 370 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **363 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - `tools/xcode_add_sources.py --check` 通过。当前开发分支 iOS Simulator `xcodebuild` 编译通过；`v0.2.8.2` 发布时的未签名 iOS Release archive 也已通过（Xcode 15.1 / iOS 17.2 SDK，未签名）；`v0.2.8.2` 发布前另在 iPhone 13 / iOS 17.2 模拟器验证自定义主题首开：本地 TXT 连续滚动与本地 HTTP 样本首次联网分页，正文无需切换主题即可显示。另在用户运行中的 iPhone 11 / iOS 15.5 模拟器，用实际「机翻机器人」书源验证详情简介恢复为正文、第 63 话标题恢复两行。未做真机验收；相机、音频后台与其它手势仍待设备验证。
 > - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
 
 本文件记录源码可确认的迁移状态与待办；[README.md](README.md) 面向使用与开发入门。**字段能导入、能编辑、能导出，不代表对应 Android 行为已经执行。** 下表不再使用没有验收分母的百分比；「主流程已实现」也不表示全部分支与 Android 等价。
@@ -39,14 +39,14 @@
 | 6 | 搜索 | ⚠️ 多源并发流式结果、书名作者聚合、精准排序、范围选择、书架匹配、历史、停止 / 继续 | 缺空结果引导与后台挂起策略；全书搜索按并发批次完成后按章节顺序输出，并非每个网络请求完成即显示。 |
 | 7 | RSS | ⚠️ 源管理与编辑、分类、文章列表 / 3 种布局 / 分页、已读记录、正文纯文本、收藏、三阶段调试 | `loginUrl` / `loginUi` 仅可编辑，缺 RSS 登录；`style` / `enableJs` / `loadWithBaseUrl` / `singleUrl` 未接入文章渲染行为；分类仅文本 / URL，缺 JSON / JS 分类；规则解析未传入完整 RSS 源脚本环境。 |
 | 8 | 书源管理 | ⚠️ 搜索（含 `group:`）、启用状态筛选、批量操作、5 并发搜索校验、文件 / URL / 剪贴板 / 二维码导入、分享二维码、排序 | 缺逐条选择导入；校验主要验证搜索，不等于 Android 目录 / 正文等完整校验链。扫码直链仅有添加网址 / 复制，未接入规则下载；单对象 / 数组书源导入已统一，未知顶层字段透传。 |
-| 9 | 书源编辑 | ⚠️ 基本 / 搜索 / 发现 / 详情 / 目录 / 正文六分区；整源 JSON 拷贝粘贴 | 不是 Android 全字段编辑：例如 `jsLib`、`concurrentRate`、`enabledCookieJar` 无独立编辑项，`isPay` / `payAction` 等也不完整；缺语法高亮与辅助键盘。若干已展示字段尚未执行，见下表。 |
+| 9 | 书源编辑 | ⚠️ 基本 / 搜索 / 发现 / 详情 / 目录 / 正文六分区；整源 JSON 拷贝粘贴 | 不是 Android 全字段编辑：例如 `concurrentRate`、`enabledCookieJar` 无独立编辑项；v0.3.0 已加入 jsLib 编辑与执行，`isPay` / `payAction` 等也不完整；缺语法高亮与辅助键盘。若干已展示字段尚未执行，见下表。 |
 | 10 | 书源调试 | ⚠️ 搜索 → 详情 → 目录 → 首章正文四阶段日志 | 缺各阶段原始响应查看、WebSocket 实时调试。 |
 | 11 | 登录 / 浏览器 | ⚠️ WebKit 网页登录、手动 Cookie、头合并；`SourceLoginSheet` 的简单文本 / 密码表单与脚本执行入口 | 表单已拆 `<js>` / `@js:` 包装并拒绝脚本错误 / 未返回新凭据的登录；仍忽略 RowUi 按钮，未执行 `loginCheckJs`。登录浏览器已有前进 / 后退 / 刷新，缺通用浏览器入口、验证页自动重试与下载管理。 |
 | 12 | 我的 / 设置 | ⚠️ 对齐 `pref_main.xml` 的主要分区；备份、规则、主题、其它设置、书签与记录 | 布局接近不代表所有 Android 设置键都有行为；缺帮助文档站、私有文件管理等。 |
 | 13 | 规则管理 | ⚠️ 替换、TXT 目录、字典、HttpTTS 四类 CRUD / 导入导出 / 排序；替换规则扫码导入 | 四类规则页面已具备，不代表备份覆盖：HttpTTS 与字典尚未进入 ZIP；正则已通过进度回调中止超时匹配；JS 超时会返回并禁用规则，但已运行的 JS 仍缺硬中断。 |
 | 14 | 备份 / 数据互通 | ⚠️ WebDAV 与本地 ZIP；10 个已支持文件名、独立远端进度、书签汇总与导出 | Android 有 21 个候选备份成员；仍缺 11 个，且现有成员也有形态与合并语义差异。详见备份表，不能称为完整跨端互通。 |
 | 15 | 局域网 / 平台集成 | ⚠️ `Network.framework` 上传门户、TXT / EPUB 入库、`legado://` / `yuedu://`、主屏快捷操作 | 缺 Android REST / WebSocket 服务、Widgets、App Intents、Share Extension、CarPlay；iOS 后台持续服务需单独评估。 |
-| 16 | 规则与网络引擎 | ⚠️ CSS、部分 JSONPath / XPath、正则清洗、JS / 模板、变量、URL `method` / `headers` / `body` / `charset` / `retry` | JSONPath 递归查找取首个匹配，未实现完整过滤 / 切片；XPath 为子集。缺 jsLib、并发率 / CookieJar 开关语义、WebView 请求及 AES / RSA / HMAC 桥接；charset 已用于字符串请求体编码与响应解码，JSON 请求体仍按 UTF-8 编码。 |
+| 16 | 规则与网络引擎 | ⚠️ CSS、部分 JSONPath / XPath、正则清洗、JS / 模板、变量、URL `method` / `headers` / `body` / `charset` / `retry` | JSONPath 递归查找取首个匹配，未实现完整过滤 / 切片；XPath 为子集。v0.3.0 支持书源 jsLib 内联与 JSON URL 映射；仍缺并发率 / CookieJar 开关语义、WebView 请求及 AES / RSA / HMAC 桥接；charset 已用于字符串请求体编码与响应解码，JSON 请求体仍按 UTF-8 编码。 |
 | 17 | 本地格式 | ⚠️ TXT 编码探测 / 规则切章；EPUB3 nav、EPUB2 NCX、spine 兜底、图片与锚点片段提取 | Android 支持 TXT / EPUB / UMD / PDF / MOBI / AZW3；iOS 缺后四种。编码检测是启发式，不能保证所有文件无乱码。 |
 | 18 | 朗读 / 有声书 | ⚠️ 系统 TTS、HttpTTS、朗读面板 / 悬浮条、锁屏命令；音频书独立 AVPlayer 页面 | 滚动朗读已有段落高亮，缺自动跟随居中；后台、耳机与不同服务端音频格式需设备验收。音频书按书源 type 或 `kind` 的「音频」标签路由，未消费 Android `Book.type`。 |
 
@@ -55,7 +55,7 @@
 | 字段 / 行为 | 源码可确认的边界 | 依据 |
 |---|---|---|
 | `ruleBookInfo.init` 与详情 → 目录 | 本次已修复 Android `init` 键映射（兼读旧 iOS `initRule`），执行详情根节点预处理、name / author / intro / kind / wordCount / coverUrl / lastChapter / tocUrl，并按规则请求独立目录。仍未消费 updateTime。站点专用 JSON 元数据猜测与章节 API 路径重写已删除。 | [RuleModels.swift](Sources/LegadoCore/Models/RuleModels.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
-| 目录钩子与标记 | `formatJs` 已在跨页合并、去重、反转和重新编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；异常 / null / undefined 保留原标题。目录已求值 `isVolume` / `isVip` / `isPay` / `updateTime`（写入 `tag`），无链接分卷用稳定的合成 URL 保留并直接读取 tag，不请求网络。`preUpdateJs` 仍未执行；章节脚本对象仅提供当前已建模字段，不等价完整 Android Chapter 桥。 | [BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) 的 `parseChapters` |
+| 目录钩子与标记 | `formatJs` 已在跨页合并、去重、反转和重新编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；异常 / null / undefined 保留原标题。目录已求值 `isVolume` / `isVip` / `isPay` / `updateTime`（写入 `tag`），无链接分卷用稳定的合成 URL 保留并直接读取 tag，不请求网络。v0.3.0 已接入显式刷新时的 `preUpdateJs` 与 `refreshTocUrl` / `reGetBook`；初次详情请求默认不执行。章节脚本对象仅提供当前已建模字段，不等价完整 Android Chapter 桥。 | [BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) 的 `parseChapters` |
 | WebView / 解密 / 付费规则 | `coverDecodeJs`、`webJs`、`sourceRegex`、`imageDecode`、`payAction` 等未进入对应执行链；源级 `replaceRegex` 仅支持正则替换对，不能按 Android 完整规则 / JS 求值。 | [EditSourceSheet.swift](Sources/LegadoApp/Views/EditSourceSheet.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
 | JSON 往返 | `BookSource` / `RssSource` / `Book` 的未知顶层键仍须通过 extras 感知解码保留。五类书源嵌套规则（搜索 / 发现 / 详情 / 目录 / 正文）现在直接在 Codable 解码时保留未知键，支持对象及 JSON 字符串规则，编辑 / 持久化 / ZIP 往返已覆盖。已知键类型不兼容、其它嵌套对象不受此保证。`Book.order` 已是正式属性。 | [JSONValue.swift](Sources/LegadoCore/Utils/JSONValue.swift)、[JSONExtrasTests.swift](Tests/LegadoCoreTests/JSONExtrasTests.swift) |
 | 表单登录 | 简单表单、脚本包装拆分和错误检测已有实现；RowUi 按钮与登录校验尚未对齐。 | [SourceManagerView.swift](Sources/LegadoApp/Views/SourceManagerView.swift)、[BookStore.swift](Sources/LegadoApp/Services/BookStore.swift) 的 `performLogin` |
@@ -113,6 +113,36 @@
 
 以下为建议优先级与版本目标，不是发布日期承诺。`v0.2.8` 已有的功能保留为完成记录；兼容性与数据缺口先于新格式和平台扩展。
 
+### v0.3.0 发布范围：书源运行时基础（2026-10-26）
+
+- `v0.3.0` 的范围为 jsLib、preUpdateJs 基础链、阅读器回归修复与执行中断技术调查；不是整个 v0.3.x 路线图。`VERSION` / Xcode 版本为 `0.3.0`，build 3。
+- `BookSource.jsLib` 已建模并可编辑：内联脚本或按声明顺序加载 HTTP(S) 库映射，缓存文本、隔离每个引擎的可变全局；库下载关闭 Cookie 处理且不附加源登录头。失败在主服务请求前报告。缓存与大小限制的边界见 [SourceRuntime.md](docs/SourceRuntime.md)。
+- 阅读器更新目录、书架更新和详情页显式刷新已执行 `preUpdateJs`；支持 `java.refreshTocUrl()`、按书名 / 作者精确匹配的 `java.reGetBook()`、直接修改 book URL 和跨目录阶段的 book 变量。辅助方法在钩子以外会报错。
+- URL 迁移替换原书架位置并保留最新阅读进度 / 分组 / 顺序；已删除书籍不复活，目的 URL 冲突先报错再退出，避免覆盖其它书籍的缓存。原生网络等待可取消；钩子在线程池执行，不阻塞 UI 执行器。
+- **执行中断调查**：未使用 JavaScriptCore 私有超时 API。独立 QuickJS 原型完成 50/50 循环中断、后续表达式恢复和显式资源释放，核心 C 文件可交叉编译 iOS arm64。QuickJS 尚未链接进 App，不能宣称已实现 JS 硬中断；运行中的纯 JS 死循环仍未解决；硬中断接入列入 v0.3.1，完成前不宣称运行时隔离，详见 [原型说明](tools/runtime_probe/README.md)。
+- 运行时新增 16 个回归用例，阅读器加载会话另新增 5 个；当前非联网套件 **363 项、3 skipped、0 失败**，iOS Simulator 编译与工程源文件登记检查通过。库 / 钩子样本以确定性网络桩验证，尚无真机或真实依赖库书源验收。
+
+### 首次加载退出阅读器修复（2026-10-26，v0.3.0）
+
+- 阅读器以会话持有首次目录 / 正文、滚动请求、目录刷新与相邻章预取任务；退出立即取消会话和网络请求。取消或已被新请求替换的结果不再写入阅读器状态、更新进度或启动后续预取。
+- 磁盘预取改为调用方持有的异步任务，取消同时停止当前请求与剩余章节队列。加载占位页直接显示「返回书架」，无需等待正文或先展开菜单；关闭只走父级回调或环境 dismiss 中的一条路径。
+- 新增 4 个确定性回归测试，覆盖首章未缓存时退出 / 再打开、滚动加载与预取取消、不响应取消的晚到结果及快速切章。当前非联网套件 **363 项、3 skipped、0 失败**，iOS Simulator 编译通过。本轮没有运行中的模拟器，未做实际点击退出验收。
+
+### v0.3.0 范围复核与代码审查（2026-10-26）
+
+经用户澄清，按补丁版本逐步推进：**v0.3.0 完成书源运行时第一阶段、执行中断调查与已报告阅读器问题修复**。前次把整个 v0.3.x 和下一阶段硬中断接入都纳入 v0.3.0 门禁的描述予以纠正。v0.3.1 接入可中断运行时；浏览器 / 登录、备份互通、规则订阅及 RSS / 书架补齐继续按下方优先级推进。v0.3.0 保留 JavaScriptCore 的已知死循环限制，不宣称脚本隔离已完成。
+
+- 修复 book 变量删除 / 清空后 `java.get` 回退旧本地值的问题；有书籍上下文时以其变量表为准。
+- 换源或目录重排时取消旧请求，防止旧源正文和预取回写新缓存；退出后忽略滚动画布进度回调，并在自动换源的异步边界重新检查取消。
+- 删除退出与消失回调的重复进度保存；钩子取消状态与完成结果在同一锁内提交，避免取消后仍赢得成功回调。
+- 新增 2 个回归用例；非联网套件 363 项、3 skipped、0 失败。审查范围为本分支变更及其直接调用链，不代表对整个迁移项目的无缺陷保证。未发现新增生产站点专用 URL 分支；有意保留兼容桥及已说明的运行时限制。
+
+### v0.3.1 实施顺序（未发布）
+
+1. 原生运行时适配器：固定 QuickJS 来源 / 许可，接入公开中断、内存 / 栈限制、取消信号、资源释放；先保持现有 App 引擎路径，独立测试适配器。
+2. 分批迁移已有 Java / source / book 桥与规则调用，避免替换引擎时丢失原有书源能力；库加载与主机网络调用单独限制。
+3. 覆盖循环、递归、分配、取消与后续正常求值，验证 iOS 编译 / 运行及代表书源。只有完成接入验收后才宣称 App 支持硬中断，并发布 v0.3.1。
+
 ### v0.2.8.2 发布范围
 
 本版本收录目录规则与嵌套字段保真、正文净化 / 网络 / 备份审计修复，以及自定义主题首开、简介 JS 和标题二次换行回归修复。342 项非联网测试（3 skipped、0 失败）、iOS Simulator 编译与未签名 iOS Release archive 通过（应用版本 0.2.8.2 / build 2），实际机翻机器人书源与第 63 话已在 iPhone 11 / iOS 15.5 模拟器验收。`preUpdateJs`、`jsLib`、JS 硬中断与 v0.3.x 数据互通 / 浏览器任务继续保留为待办。
@@ -161,8 +191,8 @@
 
 | 优先项 | 建议验收条件 |
 |---|---|
-| 规则钩子与字段保真 | 本轮已覆盖目录格式化 / 标记与五类嵌套规则未知键往返；下一步补 `preUpdateJs` 所需桥接、`jsLib`、详情 updateTime，并扩大 Android 对照样本。 |
-| JS 执行隔离 | 验证不终止脚本的资源回收与可执行的中断方案；现有超时返回不等于终止 JS VM。 |
+| 规则钩子与字段保真 | v0.3.0 已实现 jsLib 与 preUpdateJs 的基础链路；继续补完整脚本上下文 / 搜索变量合并、详情 updateTime，并扩大 Android 对照样本。 |
+| JS 执行隔离 | QuickJS 独立原型已验证 50 次循环中断与恢复、核心可交叉编译 iOS arm64；下一步接入原生适配器和现有桥，并在 iOS 验证。现有 JavaScriptCore 超时 / 取消返回仍不等于终止 VM。 |
 | 分组兼容 | 明确单组到 Android 位掩码多组的映射，再接入分组定义备份。 |
 | 数据互通验收 | 用真实 Android ZIP 与 EPUB 样本验证往返；补全部样式 / 偏好 / 剩余备份成员。 |
 

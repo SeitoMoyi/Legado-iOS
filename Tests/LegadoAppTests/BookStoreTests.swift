@@ -28,7 +28,7 @@ final class BookStoreTests: XCTestCase {
         XCTAssertEqual(try store.importSources(json: first), 1)
         XCTAssertEqual(try store.importSources(json: second), 1)
         XCTAssertEqual(store.sources.count, 2)
-        XCTAssertEqual(store.sources[0].extra["jsLib"], .string("library"))
+        XCTAssertEqual(store.sources[0].jsLib, "library")
         XCTAssertThrowsError(try store.importSources(json: #"{"bookSourceName":"无地址"}"#))
     }
 
@@ -100,5 +100,39 @@ extension BookStoreTests {
         XCTAssertEqual(store.bookshelf.first?.name, "旧名")
         XCTAssertEqual(store.bookshelf.first?.durChapterIndex, 2)
         XCTAssertEqual(store.bookshelf.first?.durChapterTime, 200)
+    }
+}
+
+extension BookStoreTests {
+    func testRelocatedBookReplacesShelfEntryAndKeepsNewerReadingProgress() throws {
+        var original = Book(bookUrl: "old", name: "书", author: "作者")
+        original.durChapterIndex = 4
+        original.durChapterPos = 90
+        original.durChapterTime = 200
+        original.group = 8
+        original.order = 7
+        store.bookshelf = [original]
+        var fetched = original
+        fetched.bookUrl = "new"
+        fetched.tocUrl = "new-toc"
+        fetched.durChapterIndex = 1
+        fetched.durChapterPos = 0
+        fetched.durChapterTime = 100
+        let updated = try XCTUnwrap(try store.applyRefreshedBook(fetched, replacing: "old"))
+        XCTAssertEqual(store.bookshelf.count, 1)
+        XCTAssertEqual(updated.bookUrl, "new")
+        XCTAssertEqual(updated.durChapterIndex, 4)
+        XCTAssertEqual(updated.durChapterPos, 90)
+        XCTAssertEqual(updated.durChapterTime, 200)
+        XCTAssertEqual(updated.group, 8)
+        XCTAssertEqual(updated.order, 7)
+    }
+
+    func testRelocatedRefreshDoesNotResurrectDeletedBookOrOverwriteAnotherEntry() throws {
+        let updated = Book(bookUrl: "new", name: "书", author: "作者")
+        XCTAssertNil(try store.applyRefreshedBook(updated, replacing: "deleted"))
+        store.bookshelf = [Book(bookUrl: "old", name: "旧", author: "作者"), updated]
+        XCTAssertThrowsError(try store.applyRefreshedBook(updated, replacing: "old"))
+        XCTAssertEqual(store.bookshelf.map(\.bookUrl), ["old", "new"])
     }
 }

@@ -171,6 +171,10 @@ public struct EditSourceSheet: View {
             ruleMultilineField("登录检测 JS (loginCheckJs)", placeholder: "result", text: optionalBinding(\.loginCheckJs))
         }
 
+        Section(header: Text("共享 JavaScript 库")) {
+            ruleMultilineField("共享库 (jsLib)", placeholder: "JavaScript 或 {\"库名\":\"https://.../lib.js\"}", text: optionalBinding(\.jsLib))
+        }
+
         Section(header: Text("注释与变量说明")) {
             ruleMultilineField("书源注释 (bookSourceComment)", placeholder: "书源说明、注意事项...", text: optionalBinding(\.bookSourceComment))
             ruleMultilineField("变量说明 (variableComment)", placeholder: "提示用户如何设置源变量...", text: optionalBinding(\.variableComment))

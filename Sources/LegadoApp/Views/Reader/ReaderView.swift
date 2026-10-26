@@ -50,6 +50,7 @@ public struct ReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var readerConfig = ReaderConfig.shared
     @StateObject private var audioService = AudioBookService.shared
+    @StateObject private var loadSession = ReaderLoadSession()
 
     /// Mutable so 换源 can rewrite the shelf entry it is displaying.
     @State private var book: Book
@@ -442,9 +443,10 @@ public struct ReaderView: View {
         }
 
         .task {
-            await loadTOCAndStart()
+            startInitialLoad()
         }
         .onDisappear {
+            if !keepAloudInBackground { loadSession.stop() }
             saveCurrentProgress()
             if !keepAloudInBackground {
                 audioService.stop()
@@ -500,8 +502,13 @@ public struct ReaderView: View {
             Text("正在加载章节内容...")
                 .font(.subheadline)
                 .foregroundColor(readerConfig.effectiveTextColor.opacity(0.7))
+            Button("返回书架", action: exitReader)
+                .buttonStyle(.bordered)
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { toggleControls() }
     }
 
     private func loadFailureView(_ error: String) -> some View {
@@ -529,7 +536,7 @@ public struct ReaderView: View {
                 // Retrying has to restart from the TOC: the previous target,
                 // `loadInitialChapter`, begins with `guard !chapters.isEmpty` and so silently
                 // did nothing whenever the目录 was what failed.
-                Button("重试") { Task { await loadTOCAndStart() } }
+                Button("重试", action: startInitialLoad)
                     .buttonStyle(.borderedProminent)
                 Button("返回书架", action: exitReader)
                     .buttonStyle(.bordered)
@@ -697,6 +704,7 @@ public struct ReaderView: View {
             aloudParagraph: audioService.currentParagraph,
             aloudIsActive: audioService.isActive,
             onChapterChange: { newIdx, newTitle in
+                guard loadSession.isActive else { return }
                 if self.currentChapterIndex != newIdx {
                     self.currentChapterIndex = newIdx
                     self.preCacheNeighbors(around: newIdx)
@@ -710,6 +718,7 @@ public struct ReaderView: View {
                 }
             },
             onCharOffsetChange: { offset in
+                guard loadSession.isActive else { return }
                 self.scrollReadingCharOffset = offset
             },
             onTapZone: { action in
@@ -1201,7 +1210,7 @@ public struct ReaderView: View {
                     Section("缓存与离线") {
                         Button("离线下载章节...") { showRangeDownload = true }
                         Button("刷新本章") { reloadCurrentChapter() }
-                        Button("更新目录") { Task { await refreshTOC(force: true, notice: .always) } }
+                        Button("更新目录") { startTOCRefresh(force: true, notice: .always) }
                         Button("同步云端进度", action: performProgressSync)
                         Button("清理本书缓存") { clearBookCache() }
                         Button(isAutoPageTurning ? "停止自动翻页" : "开启自动翻页") {
@@ -1579,6 +1588,14 @@ public struct ReaderView: View {
 
     // MARK: - Data Loading Pipeline
 
+    private func startInitialLoad() {
+        loadSession.start("initialTOC") { _ in await loadTOCAndStart() }
+    }
+
+    private func startTOCRefresh(force: Bool, notice: TocRefreshNotice) {
+        loadSession.start("refreshTOC") { _ in await refreshTOC(force: force, notice: notice) }
+    }
+
     /// Installs a chapter list and keeps the reader's index inside its bounds.
     private func apply(chapters newChapters: [BookChapter]) {
         var rebuilt = newChapters
@@ -1596,6 +1613,7 @@ public struct ReaderView: View {
     /// always cost a round trip, and the reason an offline book could not be opened at all
     /// even though its chapters were on disk.
     private func loadTOCAndStart() async {
+        guard loadSession.isActive, !Task.isCancelled else { return }
         if book.isLocalBook {
             var localChapters = BookStore.shared.getChapters(for: book.bookUrl)
             if !localChapters.isEmpty {
@@ -1639,8 +1657,10 @@ public struct ReaderView: View {
 
         do {
             let result = try await BookContentService.shared.fetchBookDetailResult(book: book, source: source)
+            guard loadSession.isActive, !Task.isCancelled else { return }
             guard !result.chapters.isEmpty else {
                 if await tryAutoChangeSource() { return }
+                guard loadSession.isActive, !Task.isCancelled else { return }
                 self.errorMessage = "目录为空"
                 self.errorGuidance = "该书源没有返回任何章节。可重试，或换源后再读。"
                 self.isLoadingInitial = false
@@ -1657,7 +1677,9 @@ public struct ReaderView: View {
             }
             loadInitialChapter(at: currentChapterIndex)
         } catch {
+            guard loadSession.isActive, !Task.isCancelled else { return }
             if await tryAutoChangeSource() { return }
+            guard loadSession.isActive, !Task.isCancelled else { return }
             self.errorMessage = "目录解析失败: \(error.localizedDescription)"
             self.errorGuidance = "目录需要联网抓取。请检查网络后重试；离线时无法打开未缓存过目录的书。"
             self.isLoadingInitial = false
@@ -1676,6 +1698,7 @@ public struct ReaderView: View {
     }
 
     private func refreshTOC(force: Bool, notice: TocRefreshNotice) async {
+        guard loadSession.isActive, !Task.isCancelled else { return }
         guard let source = effectiveSource else { return }
         if !force && !BookStore.shared.tocIsStale(bookUrl: book.bookUrl) { return }
 
@@ -1685,17 +1708,21 @@ public struct ReaderView: View {
         let keepPos = currentChapterCharOffset()
 
         do {
-            let result = try await BookContentService.shared.fetchBookDetailResult(book: book, source: source)
+            let result = try await BookContentService.shared.fetchBookDetailResult(book: book, source: source, runPreUpdateJs: true)
+            guard loadSession.isActive, !Task.isCancelled else { return }
             // A truncated crawl is not a TOC; caching it would make 追更 compare against a
             // half-book list later.
             guard result.complete, !result.chapters.isEmpty else {
                 if notice == .always { showControlHint("目录未更新：抓取不完整或为空") }
                 return
             }
+            let originalURL = book.bookUrl
+            book = try BookStore.shared.applyRefreshedBook(result.book, replacing: originalURL) ?? result.book
             BookStore.shared.saveChapters(result.chapters, for: book.bookUrl)
             BookStore.shared.markTocFetched(bookUrl: book.bookUrl)
 
-            let unchanged = TocCache.isSameList(result.chapters, previous)
+            let identityChanged = originalURL != book.bookUrl
+            let unchanged = !identityChanged && TocCache.isSameList(result.chapters, previous)
             guard !unchanged else {
                 if notice == .always { showControlHint("目录已是最新（\(previous.count) 章）") }
                 return
@@ -1704,7 +1731,8 @@ public struct ReaderView: View {
             // The content cache is keyed by chapter index. As long as the new list is only the
             // old one plus appended chapters, every cached body still belongs to its index; any
             // other shape means the indices now point at different chapters.
-            if !TocCache.isAppendOnly(previous, result.chapters) {
+            if identityChanged || !TocCache.isAppendOnly(previous, result.chapters) {
+                loadSession.cancelPending()
                 chapterCache.removeAll()
                 BookContentService.shared.clearCache(for: book.bookUrl)
                 if notice != .silent { showControlHint("目录结构变化，已清除旧的章节缓存") }
@@ -1722,6 +1750,7 @@ public struct ReaderView: View {
                 showControlHint("目录已更新：\(previous.count) → \(result.chapters.count) 章")
             }
         } catch {
+            guard loadSession.isActive, !Task.isCancelled else { return }
             guard notice != .silent else { return }
             // This is the offline case that matters: the reader is showing a cached TOC, and
             // without a word about it a missing chapter looks like a broken book source.
@@ -1732,6 +1761,7 @@ public struct ReaderView: View {
     /// 自动换源: when the current source cannot produce a usable TOC, move the book to the
     /// first other source that can, without interrupting reading. Off by default.
     private func tryAutoChangeSource() async -> Bool {
+        guard loadSession.isActive, !Task.isCancelled else { return false }
         guard readerConfig.prefs.autoChangeSource, !isAutoChangingSource else { return false }
         isAutoChangingSource = true
         defer { isAutoChangingSource = false }
@@ -1739,6 +1769,7 @@ public struct ReaderView: View {
         let target = book
         let sources = BookStore.shared.sources
         for await candidate in ChangeSourceService.shared.verifiedCandidates(book: target, sources: sources) {
+            guard loadSession.isActive, !Task.isCancelled else { return false }
             guard candidate.found.bookUrl != target.bookUrl else { continue }
             let probe = Book(bookUrl: candidate.found.bookUrl, name: candidate.found.name,
                              author: candidate.found.author, origin: candidate.source.bookSourceUrl,
@@ -1746,6 +1777,7 @@ public struct ReaderView: View {
             guard let toc = try? await BookContentService.shared.fetchChapterList(book: probe,
                                                                                  source: candidate.source),
                   !toc.isEmpty else { continue }
+            guard loadSession.isActive, !Task.isCancelled else { return false }
             applySourceChange(candidate, toc)
             return true
         }
@@ -1780,20 +1812,26 @@ public struct ReaderView: View {
 
     @MainActor
     private func getOrFetchChapter(at index: Int) async -> LoadedChapter? {
+        guard loadSession.isActive, !Task.isCancelled else { return nil }
         guard index >= 0 && index < chapters.count else { return nil }
         if let cached = chapterCache[index] {
             return cached
         }
         let targetChapter = chapters[index]
         let context = processContext(for: targetChapter)
+        let source = effectiveSource
+        let nextURL = nextChapterUrl(after: index)
         do {
-            let content = try await BookContentService.shared.fetchChapterContent(
-                chapter: targetChapter, source: effectiveSource,
-                nextChapterUrl: nextChapterUrl(after: index), context: context)
+            let content = try await loadSession.value("canvas-\(index)") {
+                try await BookContentService.shared.fetchChapterContent(
+                    chapter: targetChapter, source: source,
+                    nextChapterUrl: nextURL, context: context)
+            }
             if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                await tryAutoChangeSource() {
                 return nil
             }
+            guard loadSession.isActive, !Task.isCancelled else { return nil }
             let loaded = makeLoadedChapter(chapter: targetChapter, content: content)
             self.chapterCache[index] = loaded
             return loaded
@@ -1803,15 +1841,19 @@ public struct ReaderView: View {
     }
 
     private func preCacheNeighbors(around index: Int) {
+        guard loadSession.isActive, !Task.isCancelled else { return }
         let source = effectiveSource
+        loadSession.cancel("previousChapter")
+        loadSession.cancel("nextChapter")
         // 1. In-memory pre-cache previous chapter
         if index > 0 && chapterCache[index - 1] == nil {
             let prevCh = chapters[index - 1]
             let prevNextUrl = chapters[index].url
             let prevContext = processContext(for: prevCh)
-            Task { @MainActor in
+            loadSession.start("previousChapter") { ticket in
                 if let content = try? await BookContentService.shared.fetchChapterContent(
                     chapter: prevCh, source: source, nextChapterUrl: prevNextUrl, context: prevContext) {
+                    guard loadSession.accepts(ticket) else { return }
                     let loaded = self.makeLoadedChapter(chapter: prevCh, content: content)
                     self.chapterCache[index - 1] = loaded
                 }
@@ -1822,16 +1864,20 @@ public struct ReaderView: View {
             let nextCh = chapters[index + 1]
             let afterNextUrl = index + 2 < chapters.count ? chapters[index + 2].url : nil
             let nextContext = processContext(for: nextCh)
-            Task { @MainActor in
+            loadSession.start("nextChapter") { ticket in
                 if let content = try? await BookContentService.shared.fetchChapterContent(
                     chapter: nextCh, source: source, nextChapterUrl: afterNextUrl, context: nextContext) {
+                    guard loadSession.accepts(ticket) else { return }
                     let loaded = self.makeLoadedChapter(chapter: nextCh, content: content)
                     self.chapterCache[index + 1] = loaded
                 }
             }
         }
         // 3. Disk cache pre-download for 10 chapters around
-        BookContentService.shared.preDownloadChapters(around: index, chapters: self.chapters, source: source)
+        let snapshot = chapters
+        loadSession.start("diskPrefetch") { _ in
+            await BookContentService.shared.preDownloadChapters(around: index, chapters: snapshot, source: source)
+        }
     }
 
     /// URL of the chapter following `index`; lets a paginated chapter stop before it
@@ -1857,7 +1903,7 @@ public struct ReaderView: View {
     ///   the chapter that position belongs to.
     private func loadInitialChapter(at index: Int, targetPageIndex: Int = 0, scrollToTargetEnd: Bool = false,
                                     targetCharPos: Int? = nil) {
-        guard !chapters.isEmpty, index < chapters.count else { return }
+        guard loadSession.isActive, !chapters.isEmpty, index >= 0, index < chapters.count else { return }
         let currentChapter = chapters[index]
         if loadedChapters.isEmpty {
             isLoadingInitial = true
@@ -1867,7 +1913,7 @@ public struct ReaderView: View {
 
         let source = effectiveSource
 
-        Task { @MainActor in
+        loadSession.start("currentChapter") { ticket in
             do {
                 let loaded: LoadedChapter
                 if let cached = self.chapterCache[index] {
@@ -1877,10 +1923,12 @@ public struct ReaderView: View {
                         chapter: currentChapter, source: source,
                         nextChapterUrl: nextChapterUrl(after: index),
                         context: processContext(for: currentChapter))
+                    guard loadSession.accepts(ticket) else { return }
                     loaded = self.makeLoadedChapter(chapter: currentChapter, content: content)
                     self.chapterCache[index] = loaded
                 }
 
+                guard loadSession.accepts(ticket) else { return }
                 self.currentChapterIndex = index
 
                 let restorePos = targetCharPos
@@ -1910,9 +1958,10 @@ public struct ReaderView: View {
                 // book (`ReadBook.upToc`), which is how new chapters show up without a manual
                 // 「更新目录」。
                 if index >= self.chapters.count - 3 {
-                    Task { await self.refreshTOC(force: false, notice: .silent) }
+                    startTOCRefresh(force: false, notice: .silent)
                 }
             } catch {
+                guard loadSession.accepts(ticket) else { return }
                 // Android renders the error as the page's text (`ReadBook.upMsg`) and keeps the
                 // reader navigable; the iOS equivalent is a banner when something is already on
                 // screen. Taking over the canvas here used to hide the previous chapter and, with
@@ -2019,6 +2068,8 @@ public struct ReaderView: View {
     // MARK: - 换源
 
     private func applySourceChange(_ candidate: ChangeSourceCandidate, _ toc: [BookChapter]) {
+        guard loadSession.isActive else { return }
+        loadSession.cancelPending()
         let mapped = ChapterMatcher.mapChapter(oldIndex: book.durChapterIndex,
                                                oldTitle: book.durChapterTitle ?? "",
                                                oldCount: max(book.totalChapterNum, 1),
@@ -2055,13 +2106,16 @@ public struct ReaderView: View {
     /// Chapter stepping driven by the aloud panel, the tap zones and the lock screen. It
     /// loads the chapter itself so speech continues without a gap in the queue.
     private func moveAloudChapter(by delta: Int) {
+        guard loadSession.isActive else { return }
         let target = currentChapterIndex + delta
         guard target >= 0, target < chapters.count else {
             audioService.stop()
             return
         }
-        Task { @MainActor in
-            guard let loaded = await getOrFetchChapter(at: target) else {
+        loadSession.start("aloudChapter") { ticket in
+            let loaded = await getOrFetchChapter(at: target)
+            guard loadSession.accepts(ticket) else { return }
+            guard let loaded = loaded else {
                 audioService.stop()
                 return
             }
@@ -2257,18 +2311,23 @@ public struct ReaderView: View {
         closePanel()
         if let onDismiss = onDismiss {
             onDismiss()
+        } else {
+            dismiss()
         }
-        dismiss()
     }
 
     /// The one way out of the reader. Also the only affordance on the failure page, which is
     /// why it must never depend on `showControls` or the canvas being rendered.
     private func exitReader() {
+        loadSession.stop()
+        stopAutoPageTurn()
+        controlHintTask?.cancel()
         audioService.stop()
         if let onDismiss = onDismiss {
             onDismiss()
+        } else {
+            dismiss()
         }
-        dismiss()
     }
 
     /// Hands paragraph stepping to whichever control asked for it.

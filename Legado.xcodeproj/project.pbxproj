@@ -56,6 +56,13 @@
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
+		<key>03382A77229562B04BDE8D3F</key>
+		<dict>
+			<key>fileRef</key>
+			<string>3C35F25125790C9CA0FE2CF5</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>071AA79AC133B7B7D4B4B0FE</key>
 		<dict>
 			<key>fileRef</key>
@@ -433,6 +440,17 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>3C35F25125790C9CA0FE2CF5</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/SourcePreUpdateService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
 		<key>3D8CC1E11ECF4F8A930479AB</key>
 		<dict>
 			<key>buildSettings</key>
@@ -442,7 +460,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>2</string>
+				<string>3</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -464,7 +482,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.8.2</string>
+				<string>0.3.0</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -615,6 +633,17 @@
 			<string>PBXBuildFile</string>
 			<key>productRef</key>
 			<string>18F2053E418685EEAF8FF6A6</string>
+		</dict>
+		<key>59886D09717BD10442AD0980</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoApp/Services/ReaderLoadSession.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>59FDF86580A1A156671F3F45</key>
 		<dict>
@@ -973,6 +1002,9 @@
 				<string>9207A4AE01D13AB46EC5608B</string>
 				<string>3DA2D7180F961E70E103B791</string>
 				<string>6199666D33FAEE07EB775F69</string>
+				<string>FB664BC20410DC492F3AD91E</string>
+				<string>3C35F25125790C9CA0FE2CF5</string>
+				<string>59886D09717BD10442AD0980</string>
 			</array>
 			<key>isa</key>
 			<string>PBXGroup</string>
@@ -1310,6 +1342,9 @@
 				<string>837E2176D768FBA6CBE1332B</string>
 				<string>F2AAAC10DADAABF86A8C433D</string>
 				<string>E9ABF1C88C146C65A8520642</string>
+				<string>A997C2F58BF53BA77649D2FB</string>
+				<string>03382A77229562B04BDE8D3F</string>
+				<string>B42601E9F685A64C3D78395B</string>
 			</array>
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
@@ -1388,6 +1423,13 @@
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
 		</dict>
+		<key>A997C2F58BF53BA77649D2FB</key>
+		<dict>
+			<key>fileRef</key>
+			<string>FB664BC20410DC492F3AD91E</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
 		<key>AA27E50E617AE08E1521EC7D</key>
 		<dict>
 			<key>fileRef</key>
@@ -1464,6 +1506,13 @@
 		<dict>
 			<key>fileRef</key>
 			<string>321266029D1E0072CC6A8652</string>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+		</dict>
+		<key>B42601E9F685A64C3D78395B</key>
+		<dict>
+			<key>fileRef</key>
+			<string>59886D09717BD10442AD0980</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
 		</dict>
@@ -1931,7 +1980,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>2</string>
+				<string>3</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -1953,7 +2002,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.2.8.2</string>
+				<string>0.3.0</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>io.legado.ios</string>
 				<key>PRODUCT_NAME</key>
@@ -1999,6 +2048,17 @@
 			<string>7A65BFBF9DF1BA7ED70DF463</string>
 			<key>isa</key>
 			<string>PBXBuildFile</string>
+		</dict>
+		<key>FB664BC20410DC492F3AD91E</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>Sources/LegadoCore/Service/SourceRuntime.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
 		</dict>
 		<key>FC0761DA18A9277792430EF8</key>
 		<dict>

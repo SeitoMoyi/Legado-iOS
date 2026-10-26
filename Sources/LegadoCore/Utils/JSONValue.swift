@@ -3,7 +3,7 @@ import Foundation
 /// A lossless JSON value — used to park fields the models do not declare.
 ///
 /// `BookSource` / `RssSource` / `Book` are decoded against a `CodingKeys` whitelist, so any
-/// Android-only field inside an imported payload (`jsLib`, `concurrentRate`, `enabledCookieJar`,
+/// Android-only field inside an imported payload (`concurrentRate`, `enabledCookieJar`,
 /// `Book.customTag` …) would be silently dropped on the next export or WebDAV backup. Models
 /// conforming to `JSONExtraPreserving` keep such keys in `extra: [String: JSONValue]` and write
 /// them back **flattened** (as top-level keys, not nested under "extra") on encode, so the

@@ -24,6 +24,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
     public var exploreUrl: String?
     public var exploreScreen: String?
     public var searchUrl: String?
+    public var jsLib: String?
 
     public var ruleExplore: ExploreRule?
     public var ruleSearch: SearchRule?
@@ -35,7 +36,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
     public var loginHeader: String?
     public var variable: String?
 
-    /// Android-only fields this model does not declare (`jsLib`, `concurrentRate`,
+    /// Android-only fields this model does not declare (`concurrentRate`,
     /// `enabledCookieJar`, `ruleReview` …), kept verbatim so import → export/backup round-trips
     /// without loss. See `JSONExtraPreserving` and Plan §二 #15.
     public var extra: [String: JSONValue] = [:]
@@ -106,7 +107,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         "bookUrlPattern", "customOrder", "enabled", "enabledExplore", "header",
         "loginUrl", "loginUi", "loginCheckJs", "coverDecodeJs", "bookSourceComment",
         "variableComment", "lastUpdateTime", "respondTime", "weight", "exploreUrl",
-        "exploreScreen", "searchUrl", "ruleExplore", "ruleSearch", "ruleBookInfo",
+        "exploreScreen", "searchUrl", "jsLib", "ruleExplore", "ruleSearch", "ruleBookInfo",
         "ruleToc", "ruleContent", "loginInfo", "loginHeader", "variable"
     ]
 
@@ -132,6 +133,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         case exploreUrl
         case exploreScreen
         case searchUrl
+        case jsLib
         case ruleExplore
         case ruleSearch
         case ruleBookInfo
@@ -164,6 +166,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         exploreUrl: String? = nil,
         exploreScreen: String? = nil,
         searchUrl: String? = nil,
+        jsLib: String? = nil,
         ruleExplore: ExploreRule? = nil,
         ruleSearch: SearchRule? = nil,
         ruleBookInfo: BookInfoRule? = nil,
@@ -191,6 +194,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         self.exploreUrl = exploreUrl
         self.exploreScreen = exploreScreen
         self.searchUrl = searchUrl
+        self.jsLib = jsLib
         self.ruleExplore = ruleExplore
         self.ruleSearch = ruleSearch
         self.ruleBookInfo = ruleBookInfo
@@ -221,6 +225,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         self.exploreUrl = try container.decodeIfPresent(String.self, forKey: .exploreUrl)
         self.exploreScreen = try container.decodeIfPresent(String.self, forKey: .exploreScreen)
         self.searchUrl = try container.decodeIfPresent(String.self, forKey: .searchUrl)
+        self.jsLib = try container.decodeIfPresent(String.self, forKey: .jsLib)
 
         self.ruleExplore = decodeRule(ExploreRule.self, from: container, forKey: .ruleExplore)
         self.ruleSearch = decodeRule(SearchRule.self, from: container, forKey: .ruleSearch)
@@ -256,6 +261,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
         try container.encodeIfPresent(exploreUrl, forKey: .exploreUrl)
         try container.encodeIfPresent(exploreScreen, forKey: .exploreScreen)
         try container.encodeIfPresent(searchUrl, forKey: .searchUrl)
+        try container.encodeIfPresent(jsLib, forKey: .jsLib)
         try container.encodeIfPresent(ruleExplore, forKey: .ruleExplore)
         try container.encodeIfPresent(ruleSearch, forKey: .ruleSearch)
         try container.encodeIfPresent(ruleBookInfo, forKey: .ruleBookInfo)
