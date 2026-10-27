@@ -603,7 +603,7 @@ struct BookRow: View {
         HStack(alignment: .center, spacing: 14) {
             // Book cover with Unread Red Badge
             ZStack(alignment: .topTrailing) {
-                if let coverUrlStr = book.coverUrl, let url = URL(string: coverUrlStr) {
+                if let coverUrlStr = book.displayCoverURL, let url = URL(string: coverUrlStr) {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):
@@ -706,7 +706,7 @@ struct BookGridCell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                if let coverUrlStr = book.customCoverUrl ?? book.coverUrl, let url = URL(string: coverUrlStr) {
+                if let coverUrlStr = book.displayCoverURL, let url = URL(string: coverUrlStr) {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image):

@@ -25,4 +25,4 @@ The probe installs QuickJS's public interrupt callback, gives each script a 5 ms
 
 Also compiled the five core files (`quickjs.c`, `dtoa.c`, `libregexp.c`, `libunicode.c`, `cutils.c`) with the installed iPhoneOS SDK, targeting arm64 and iOS 15.0. The operating-system / shell module `quickjs-libc.c` was excluded. This confirms compilation, not iOS runtime behavior or a working Swift bridge.
 
-The next integration must preserve Legado's existing Java / book / source bindings, bound host HTTP calls separately, verify interruption and cleanup on iOS, and cover expensive native operations as well as loops. See [the runtime implementation notes](../../docs/SourceRuntime.md).
+This historical investigation was integrated into the app in v0.3.1 with the existing Java / book / source bindings and bounded host waits. Current native integration checks are documented in [native_probe](../native_probe/README.md); this standalone C probe alone does not establish app behavior. See [the runtime implementation notes](../../docs/SourceRuntime.md).

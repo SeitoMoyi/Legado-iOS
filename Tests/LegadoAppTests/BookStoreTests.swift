@@ -3,6 +3,44 @@ import LegadoCore
 @testable import LegadoApp
 
 final class BookStoreTests: XCTestCase {
+    func testUnknownOrAmbiguousOriginDoesNotSelectAnUnrelatedFirstSource() {
+        let first = BookSource(bookSourceUrl: "https://one.test/a", bookSourceName: "One")
+        let second = BookSource(bookSourceUrl: "https://one.test/b", bookSourceName: "Two")
+        store.sources = [first, second]
+        let unknown = Book(bookUrl: "https://missing.test/book", name: "Book", author: "Author", origin: "https://missing.test")
+        XCTAssertNil(store.findSource(for: unknown))
+        let ambiguous = Book(bookUrl: "https://one.test/book", name: "Book", author: "Author", origin: "https://one.test/old")
+        XCTAssertNil(store.findSource(for: ambiguous))
+        var identified = ambiguous; identified.origin = second.bookSourceUrl
+        XCTAssertEqual(store.findSource(for: identified)?.bookSourceName, "Two")
+        identified.origin = "https://old.test"; identified.originName = "Two"
+        XCTAssertEqual(store.findSource(for: identified)?.bookSourceName, "Two")
+    }
+
+    func testMetadataOverridesPreserveOriginalSourceValuesAndCanBeReset() throws {
+        let original = Book(bookUrl: "metadata", name: "Book", author: "Author", coverUrl: "source-cover", intro: "Source intro")
+        store.bookshelf = [original]
+        let custom = try XCTUnwrap(store.updateBookMetadata(bookUrl: original.bookUrl, name: "Book", author: "Author", coverUrl: "custom-cover", intro: "Custom intro"))
+        XCTAssertEqual(custom.intro, "Source intro"); XCTAssertEqual(custom.displayIntro, "Custom intro")
+        XCTAssertEqual(custom.coverUrl, "source-cover"); XCTAssertEqual(custom.displayCoverURL, "custom-cover")
+        var remote = original; remote.intro = "Updated source intro"; remote.coverUrl = "updated-cover"
+        let refreshed = store.saveOrUpdateBook(remote)
+        XCTAssertEqual(refreshed.displayIntro, "Custom intro")
+        let reset = try XCTUnwrap(store.updateBookMetadata(bookUrl: original.bookUrl, name: "Book", author: "Author", coverUrl: nil, intro: nil))
+        XCTAssertEqual(reset.displayIntro, "Updated source intro"); XCTAssertEqual(reset.displayCoverURL, "updated-cover")
+    }
+
+    func testImportedLoginHeaderReplacesCachedHeaderAndDeletionClearsIt() throws {
+        let url = "https://imported-login.test"
+        defer { SourceSessionStore.save(header: nil, for: url) }
+        SourceSessionStore.save(header: "old", for: url)
+        var source = BookSource(bookSourceUrl: url, bookSourceName: "Source"); source.loginHeader = "new"
+        _ = try store.importSources(json: String(decoding: JSONEncoder().encode([source]), as: UTF8.self))
+        XCTAssertEqual(SourceSessionStore.header(for: url), "new")
+        store.deleteSource(sourceUrl: url)
+        XCTAssertNil(SourceSessionStore.header(for: url))
+    }
+
     func testBookListInsertPreservesExistingProgressAndSanitizesDeletedGroup() throws {
         let group = try store.addBookGroup(name: "Imported")
         let original = Book(bookUrl: "existing", name: "Same", author: "Author", durChapterIndex: 8, durChapterPos: 70, group: group.groupId)

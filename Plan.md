@@ -1,9 +1,9 @@
 # Legado iOS 迁移蓝图、功能差距清单与演进规划
 
-> **复核日期：2026-10-27；当前发布版本：`v0.3.5`（见 [VERSION](VERSION)）；下一开发阶段：`v0.4.0`。**
+> **复核日期：2026-10-27；当前发布版本：`v0.4.0`（见 [VERSION](VERSION)）；后续按剩余差距另行拆分 v0.4.x。**
 > - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
-> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；v0.3.2 已在 `eafbc02` 推送并通过 GitHub 发布；v0.3.3 已在 `e82fded` 推送并通过 GitHub 发布；v0.3.4 已在 `8240bed` 推送并通过 GitHub 发布；当前分支 `feature/v0.3.5-shelf-integration` 补书单 / 日志与导出，见下方开发记录。`Sources/` 共 102 个 Swift 文件、32,870 行（Core：50 文件 / 11,187 行；App：52 文件 / 21,683 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 137 个 Swift 文件。
-> - 34 个测试文件声明 435 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **428 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；v0.3.2 已在 `eafbc02` 推送并通过 GitHub 发布；v0.3.3 已在 `e82fded` 推送并通过 GitHub 发布；v0.3.4 已在 `8240bed` 推送并通过 GitHub 发布；v0.3.5 已在 `dcb7098` 发布；v0.4.0 完成整合审计，见下方开发记录。`Sources/` 共 102 个 Swift 文件、33,101 行（Core：50 文件 / 11,347 行；App：52 文件 / 21,754 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 138 个 Swift 文件。
+> - 35 个测试文件声明 450 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **443 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
 > - `tools/xcode_add_sources.py --check` 通过。v0.3.1 已接入 App QuickJS 引擎，iOS Simulator 编译通过；独立 iOS 17.2 模拟器原生探针完成 50 次嵌套宿主调用后循环超时 / 恢复及跨线程取消。实际书源详情 / 目录 / 正文冒烟因 book.xkvi.top TLS 连接失败而显式跳过。历史 v0.3.0 / v0.2.8.2 archive 与主题 / 简介 / 标题模拟器验收结果保留在各版本记录；不冒充本轮真机验收。
 > - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）、ZIPFoundation（EPUB、备份与导出归档）及固定源码 QuickJS（脚本运行时）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
 
@@ -35,7 +35,7 @@
 |---|---|---|---|
 | 1 | 应用外壳 / 导航 | ⚠️ 书架、发现、订阅、我的四个固定 Tab；URL Scheme；主屏快捷操作 | 缺 Tab 显隐、默认主页、角标、启动隐私协议与备份密码处理；主屏快捷操作不是 App Intents。 |
 | 2 | 书架 | ⚠️ 列表 / 三列网格、5 种排序、列表拖拽、分组新增 / 删除 / 显隐、批量操作、缓存与导出、添加网址、WebDAV 远程文件导入 | v0.3.2 已接入位掩码多组、旧 ID 恢复迁移、重命名与刷新开关；已接书单预览 / 导入与会话日志；仍缺网格拖拽及原生每组排序行为，`bookSort` 目前仅保留。 |
-| 3 | 书籍详情 | ⚠️ 信息编辑、置顶、整书换源、拷贝 URL、分享二维码、目录过滤 / 倒序 / 缓存标识 | 缺 WebDAV 书籍文件上传；编辑简介写 `Book.intro`，不是 Android `customIntro` 的覆盖语义。详情页未提供独立的双向进度同步入口。 |
+| 3 | 书籍详情 | ⚠️ 信息编辑、置顶、整书换源、拷贝 URL、分享二维码、目录过滤 / 倒序 / 缓存标识 | 缺 WebDAV 书籍文件上传；已按 Android customIntro / customCover 覆盖显示，保留原始源信息。详情页未提供独立的双向进度同步入口。 |
 | 4 | 阅读器 | ⚠️ 统一 CoreText 排版、分页 / 双向连续滚动、图文页、5 个翻页选项（仿真降级）、主题与排版、书签、换源、章节编辑、区间下载、选词、全书搜索 | 滚动模式自动翻页实际为定时切下一章，缺逐屏 / 平滑滚动；章节编辑标题现已持久化目录；重置与 Android 一样只重置正文，保留编辑标题；本地正文现已优先读取编辑缓存。长按与把手等仅有几何单测，仍需真机验收。音量键、亮度、状态栏属于平台选择，见 §二。 |
 | 5 | 发现 | ⚠️ 切源胶囊、分类矩阵、JSON / 文本 / JS 分类解析、书籍流分页 | 缺按分组筛选、单源操作菜单、错误堆栈查看；`exploreScreen` 已建模但未接入筛选流程。 |
 | 6 | 搜索 | ⚠️ 多源并发流式结果、书名作者聚合、精准排序、范围选择、书架匹配、历史、停止 / 继续 | 缺空结果引导与后台挂起策略；全书搜索按并发批次完成后按章节顺序输出，并非每个网络请求完成即显示。 |
@@ -59,7 +59,7 @@
 | `ruleBookInfo.init` 与详情 → 目录 | 本次已修复 Android `init` 键映射（兼读旧 iOS `initRule`），执行详情根节点预处理、name / author / intro / kind / wordCount / coverUrl / lastChapter / tocUrl，并按规则请求独立目录。仍未消费 updateTime。站点专用 JSON 元数据猜测与章节 API 路径重写已删除。 | [RuleModels.swift](Sources/LegadoCore/Models/RuleModels.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
 | 目录钩子与标记 | `formatJs` 已在跨页合并、去重、反转和重新编号后执行，提供共享 `gInt`、1 起算 `index`、`chapter` 与 `title`；异常 / null / undefined 保留原标题。目录已求值 `isVolume` / `isVip` / `isPay` / `updateTime`（写入 `tag`），无链接分卷用稳定的合成 URL 保留并直接读取 tag，不请求网络。v0.3.0 已接入显式刷新时的 `preUpdateJs` 与 `refreshTocUrl` / `reGetBook`；初次详情请求默认不执行。章节脚本对象仅提供当前已建模字段，不等价完整 Android Chapter 桥。 | [BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) 的 `parseChapters` |
 | WebView / 解密 / 付费规则 | `coverDecodeJs`、`webJs`、`sourceRegex`、`imageDecode`、`payAction` 等未进入对应执行链；源级 `replaceRegex` 仅支持正则替换对，不能按 Android 完整规则 / JS 求值。 | [EditSourceSheet.swift](Sources/LegadoApp/Views/EditSourceSheet.swift)、[BookContentService.swift](Sources/LegadoCore/Service/BookContentService.swift) |
-| JSON 往返 | `BookSource` / `RssSource` / `Book` 的未知顶层键仍须通过 extras 感知解码保留。五类书源嵌套规则（搜索 / 发现 / 详情 / 目录 / 正文）现在直接在 Codable 解码时保留未知键，支持对象及 JSON 字符串规则，编辑 / 持久化 / ZIP 往返已覆盖。已知键类型不兼容、其它嵌套对象不受此保证。`Book.order` 已是正式属性。 | [JSONValue.swift](Sources/LegadoCore/Utils/JSONValue.swift)、[JSONExtrasTests.swift](Tests/LegadoCoreTests/JSONExtrasTests.swift) |
+| JSON 往返 | `BookSource` / `RssSource` / `Book` 的未知顶层键仍须通过 extras 感知解码保留。五类书源嵌套规则（搜索 / 发现 / 详情 / 目录 / 正文）现在直接在 Codable 解码时保留未知键，支持对象及 JSON 字符串规则，编辑 / 持久化 / ZIP 往返已覆盖。未知整数保留 Int64 边界精度；已知键类型不兼容、其它嵌套对象不受此保证。`Book.order` 已是正式属性。 | [JSONValue.swift](Sources/LegadoCore/Utils/JSONValue.swift)、[JSONExtrasTests.swift](Tests/LegadoCoreTests/JSONExtrasTests.swift) |
 | 表单登录 | 简单表单、脚本包装拆分和错误检测已有实现；已接 RowUi 按钮和原生 login()；响应校验可返回替换响应，仍是当前宿主桥支持范围。 | [SourceManagerView.swift](Sources/LegadoApp/Views/SourceManagerView.swift)、[BookStore.swift](Sources/LegadoApp/Services/BookStore.swift) 的 `performLogin` |
 
 ### 备份成员与语义
@@ -176,7 +176,7 @@
 ### 已实现记录（v0.2.8 系列）
 
 - **Part 4 文本选词**：双画布长按、拖拽与把手、复制 / 字典 / 书签 / 朗读 / 替换规则菜单已接入；几何单测通过，真实设备操作待验收。
-- **书架二级菜单**：缓存管理、全书 / 全架下载、TXT / EPUB 缓存导出、导出书单、添加网址、WebDAV 远程导入、分组显隐已有实现。导出仅含已缓存的未净化文本，未缓存章节跳过；EPUB 不嵌入图片。Android 的导入书单 / 日志入口仍缺，不能标为 `main_bookshelf.xml` 全量完成。
+- **书架二级菜单**：缓存管理、全书 / 全架下载、TXT / EPUB 缓存导出、导出书单、添加网址、WebDAV 远程导入、分组显隐已有实现。导出仅含已缓存的未净化文本，未缓存章节跳过；EPUB 可打包已有 PNG / JPEG / GIF，分享前报告缺章 / 缺图；已有书单导入与会话日志，仍不能标为 `main_bookshelf.xml` 全量完成。
 - **Part 3 二维码**：相机 / 相册识别、部分载荷导入、书源 / 书籍二维码生成已接入。扫码规则直链下载未接入；单对象书源与扫码 RSS 字段保真已在本次修复。书籍二维码为详情 URL，不能视为包含书籍文件的跨端迁移；相机权限与相册保存需设备验收。
 
 ### 简介脚本与标题二次换行修复（2026-10-26，v0.2.8.2）
@@ -277,3 +277,13 @@ v0.3.4 已接扫码规则直链、RSS 分类 / 源脚本与 HTML 渲染；v0.3.5
 - 导出工作离开 UI 线程；分享前展示缺章与缺图报告，批量失败不再静默忽略。同名导出使用独立目录，避免覆盖之前的结果。EPUB 打包现有 PNG / JPEG / GIF，插图去重并写 manifest；仅使用 URLCache 或该书 EPUB 目录的本地图片，不自动下载缺失资源，不读取任意设备文件。其它图片格式仍列为缺图。
 - 读者登录成功后取消旧请求并重试；换源流的消费者离开后取消后台工作。章节标题编辑写回持久目录，正文重置不假称重置标题，这与 Android ContentEditDialog 的独立标题编辑一致。
 - 428 项非联网测试、3 skipped、0 失败；新增精确匹配、已有进度保护、底层网络取消、日志并发 / 脱敏、图文 EPUB 结构与缺章报告等 10 项回归。iOS Simulator 编译通过；设备 unsigned 归档通过。
+
+### v0.4.0：整合、数据与原生验证（2026-10-27）
+
+- WebDAV 请求与重定向限制同源，避免认证跨域；恢复已建模成员前校验数组与解码数量，拒绝静默丢行。未知 JSON 整数保留 Android Long 边界精度。
+- RSS 脚本使用完整原生字段对象；每篇文章独立保存变量并用于正文请求；BaseSource getKey / getTag / get / put 已接入当前桥。
+- WebKit 站点 Cookie 同步与退出清理有等待上限；复用 RSS 视图时更新 CSS / JS / baseURL；浏览器识别 attachment 下载并保留原文件名入库。
+- 详情自定义简介 / 封面保留源数据；登录缓存更新与退出状态一致；书籍只匹配确切源或唯一旧名称 / 主机，不再猜第一个源。空样式恢复不再复活旧主题；稀疏偏好保留默认值和未知键。
+- 导出保留长文件名扩展名，不支持的目标编码明确失败。
+- 443 项离线测试（3 个外部样本 skipped、0 失败）；iOS 15.5 / 17.2 各 18 项原生检查通过。完整记录见 [Verification-v0.4.0.md](docs/Verification-v0.4.0.md)。实际 xkvi 冒烟因 TLS 失败跳过，不算源兼容验收。
+- v0.4.0 是生态 / 数据整合里程碑，不代表 Android 全量对齐。完整 Java / 加密桥、JSONPath / XPath、webJs 请求、7 类原字节保留配置的行为、其它电子书格式、背景图片 / 漫画界面、平台扩展、分组排序与平滑自动滚动仍待后续。

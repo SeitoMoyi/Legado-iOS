@@ -74,7 +74,7 @@ struct SourceBrowserView: View {
     }
 }
 
-private final class SourceBrowserState: NSObject, ObservableObject, WKNavigationDelegate, WKDownloadDelegate {
+final class SourceBrowserState: NSObject, ObservableObject, WKNavigationDelegate, WKDownloadDelegate {
     @Published var address: String
     @Published var title = ""
     @Published var loading = false
@@ -110,12 +110,12 @@ private final class SourceBrowserState: NSObject, ObservableObject, WKNavigation
         message = nil
         headerTask?.cancel()
         headerTask = Task { @MainActor in
-            var request = URLRequest(url: url)
+                var request = URLRequest(url: url)
             let headers = await SourceWebSession.prepare(source: source, url: url, webView: webView)
-            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+                for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
             guard !Task.isCancelled else { return }
             webView.load(request)
-        }
+            }
     }
     func stop() {
         headerTask?.cancel()
@@ -124,8 +124,13 @@ private final class SourceBrowserState: NSObject, ObservableObject, WKNavigation
         downloads.removeAll(); activeDownloads = 0
     }
     func reloadFiles() {
-        files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
-            .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        let roots = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
+        files = roots.flatMap { item -> [URL] in
+            if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                return (try? FileManager.default.contentsOfDirectory(at: item, includingPropertiesForKeys: nil)) ?? []
+            }
+            return [item]
+        }.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }.sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { loading = true }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -138,16 +143,26 @@ private final class SourceBrowserState: NSObject, ObservableObject, WKNavigation
         decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
+        let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        let attachment = disposition?.split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "attachment"
+        decisionHandler(attachment || !navigationResponse.canShowMIMEType ? .download : .allow)
     }
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { track(download) }
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { track(download) }
-    private func track(_ download: WKDownload) { downloads[ObjectIdentifier(download)] = (download, nil); activeDownloads = downloads.count; download.delegate = self }
+    private func track(_ download: WKDownload) {
+        loading = false
+        downloads[ObjectIdentifier(download)] = (download, nil)
+        activeDownloads = downloads.count
+        download.delegate = self
+    }
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let filename = WebDAVService.shared.sanitizeFileName(URL(fileURLWithPath: suggestedFilename).lastPathComponent)
-            let target = directory.appendingPathComponent("." + UUID().uuidString + "-" + (filename.isEmpty ? "download" : filename))
+            let raw = BookExportService.sanitizeFileName(URL(fileURLWithPath: suggestedFilename).lastPathComponent)
+            let filename = [".", ".."].contains(raw) ? "download" : raw
+            let folder = directory.appendingPathComponent("." + UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder.appendingPathComponent(filename)
             downloads[ObjectIdentifier(download)] = (download, target)
             completionHandler(target)
         } catch { message = error.localizedDescription; completionHandler(nil) }
@@ -155,8 +170,9 @@ private final class SourceBrowserState: NSObject, ObservableObject, WKNavigation
     func downloadDidFinish(_ download: WKDownload) {
         guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let temporary = item.1 else { return }
         do {
-            let target = temporary.deletingLastPathComponent().appendingPathComponent(String(temporary.lastPathComponent.dropFirst()))
-            try FileManager.default.moveItem(at: temporary, to: target)
+            let folder = temporary.deletingLastPathComponent()
+            let target = directory.appendingPathComponent(String(folder.lastPathComponent.dropFirst()), isDirectory: true)
+            try FileManager.default.moveItem(at: folder, to: target)
             message = "下载完成"
         } catch { message = error.localizedDescription }
         activeDownloads = downloads.count; reloadFiles()

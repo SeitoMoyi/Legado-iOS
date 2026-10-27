@@ -190,7 +190,7 @@ final class LiveSourceTests: XCTestCase {
     /// 分页搜索：第 1/2 页都应满页且互不重复。
     func testXkviJifanPaginationSearch() async throws {
         let sources = try await loadXkviSources()
-        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { return }
+        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { throw XCTSkip("The current remote source list contains no xkvi entry") }
 
         try await requireReachable([source.bookSourceUrl])
         let apiStatus = await searchApiStatus(source, keyword: "异世界")
@@ -211,7 +211,7 @@ final class LiveSourceTests: XCTestCase {
     /// 详情 + 目录 + 正文全链路（syosetu n4197mn，经反代域名访问）。
     func testXkviJifanDetailTocContentFlow() async throws {
         let sources = try await loadXkviSources()
-        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { return }
+        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { throw XCTSkip("The current remote source list contains no xkvi entry") }
 
         let testBook = Book(
             bookUrl: "https://book.xkvi.top/api/novel/syosetu/n4197mn",
@@ -237,7 +237,7 @@ final class LiveSourceTests: XCTestCase {
         XCTAssertFalse(detailedBook.intro!.isEmpty)
         XCTAssertFalse(chapters.isEmpty, "Chapters should be parsed")
 
-        if let firstRealChapter = chapters.first(where: { !$0.url.isEmpty }) {
+        if let firstRealChapter = chapters.first(where: { $0.isVolume != true && !$0.url.isEmpty }) {
             print("Fetching chapter content: \(firstRealChapter.title) -> \(firstRealChapter.url)")
             let content = try await BookContentService.shared.fetchChapterContent(chapter: firstRealChapter, source: source)
             print("Chapter content length: \(content.count), preview: \(content.prefix(120))")
@@ -298,7 +298,7 @@ final class LiveSourceTests: XCTestCase {
     /// 分卷章节连续性（kakuyomu 16818093077104932645，含分卷无 chapterId）。
     func testXkviJifanVolumeDividersChapterContiguity() async throws {
         let sources = try await loadXkviSources()
-        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { return }
+        guard let source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else { throw XCTSkip("The current remote source list contains no xkvi entry") }
 
         let testBook = Book(
             bookUrl: "https://book.xkvi.top/api/novel/kakuyomu/16818093077104932645",

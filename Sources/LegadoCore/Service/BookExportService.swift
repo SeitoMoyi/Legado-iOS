@@ -12,6 +12,7 @@ public enum BookExportService {
     public enum ExportError: LocalizedError {
         case noCachedContent
         case imagesTooLarge
+        case textEncodingUnavailable
 
         public var errorDescription: String? {
             switch self {
@@ -19,6 +20,8 @@ public enum BookExportService {
                 return "这本书还没有可导出的离线缓存章节"
             case .imagesTooLarge:
                 return "插图资源超过单次导出限制（256 MiB）"
+            case .textEncodingUnavailable:
+                return "部分文字无法使用所选编码导出，请选择 UTF-8"
             }
         }
     }
@@ -31,18 +34,17 @@ public enum BookExportService {
 
         public var id: String { rawValue }
 
-        public func encode(_ text: String) -> Data {
+        public func encode(_ text: String) throws -> Data {
+            let encoding: String.Encoding
             switch self {
-            case .utf8:
-                return text.data(using: .utf8) ?? Data()
-            case .utf16:
-                return text.data(using: .utf16) ?? Data()
+            case .utf8: encoding = .utf8
+            case .utf16: encoding = .utf16
             case .gb18030:
-                let nsEncoding = CFStringConvertEncodingToNSStringEncoding(
-                    CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
-                let encoding = String.Encoding(rawValue: nsEncoding)
-                return text.data(using: encoding) ?? (text.data(using: .utf8) ?? Data())
+                let value = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+                encoding = String.Encoding(rawValue: value)
             }
+            guard let data = text.data(using: encoding, allowLossyConversion: false) else { throw ExportError.textEncodingUnavailable }
+            return data
         }
     }
 
@@ -139,7 +141,6 @@ public enum BookExportService {
         }
 
         let url = exportURL(fileName: sanitizeFileName("\(book.name)-\(book.author).epub"))
-        try? FileManager.default.removeItem(at: url)
         let archive = try Archive(url: url, accessMode: .create)
         var finished = false
         defer { if !finished { try? FileManager.default.removeItem(at: url) } }
@@ -176,7 +177,7 @@ public enum BookExportService {
     public static func exportBookshelfJSON(books: [Book]) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
-        let data = try encoder.encode(books.map { ShelfBookInfo(name: $0.name, author: $0.author, intro: $0.intro) })
+        let data = try encoder.encode(books.map { ShelfBookInfo(name: $0.name, author: $0.author, intro: $0.displayIntro) })
         let url = exportURL(fileName: "bookshelf-\(Self.dateStamp()).json")
         try data.write(to: url)
         return url
@@ -192,10 +193,16 @@ public enum BookExportService {
 
     /// Mirrors `WebDAVService.sanitizeFileName`: path separators and control chars out.
     public static func sanitizeFileName(_ name: String) -> String {
-        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:").union(.controlCharacters).union(.illegalCharacters)
         let cleaned = name.components(separatedBy: invalid).joined(separator: "_")
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "export" : String(trimmed.prefix(80))
+        guard !trimmed.isEmpty else { return "export" }
+        let ext = (trimmed as NSString).pathExtension
+        if !ext.isEmpty, ext.count <= 10, ext.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) {
+            let suffix = "." + ext
+            return String(trimmed.dropLast(suffix.count).prefix(80 - suffix.count)) + suffix
+        }
+        return String(trimmed.prefix(80))
     }
 
     static func imageReferences(_ content: String) -> [String] {

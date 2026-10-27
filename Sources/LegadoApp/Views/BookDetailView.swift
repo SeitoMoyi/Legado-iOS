@@ -74,7 +74,7 @@ public struct BookDetailView: View {
     }
 
     private var displayIntro: String? {
-        guard let intro = currentBook.intro, !intro.isEmpty else { return nil }
+        guard let intro = currentBookshelfBook.displayIntro, !intro.isEmpty else { return nil }
         let cleaned = BookContentService.cleanHtml(intro)
         return cleaned.isEmpty ? nil : cleaned
     }
@@ -450,7 +450,7 @@ public struct BookDetailView: View {
 
     private var coverImage: some View {
         Group {
-            if let coverUrlStr = currentBook.coverUrl, let url = URL(string: coverUrlStr) {
+            if let coverUrlStr = currentBookshelfBook.displayCoverURL, let url = URL(string: coverUrlStr) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -917,8 +917,8 @@ struct BookInfoEditSheet: View {
         self.onSave = onSave
         self._name = State(initialValue: book.name)
         self._author = State(initialValue: book.author)
-        self._coverUrl = State(initialValue: book.customCoverUrl ?? book.coverUrl ?? "")
-        self._intro = State(initialValue: book.intro ?? "")
+        self._coverUrl = State(initialValue: book.displayCoverURL ?? "")
+        self._intro = State(initialValue: book.displayIntro ?? "")
     }
 
     var body: some View {

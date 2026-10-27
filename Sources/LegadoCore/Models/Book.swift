@@ -87,6 +87,15 @@ public struct Book: Codable, Identifiable, Equatable, JSONExtraPreserving {
         return false
     }
 
+    public var displayIntro: String? {
+        if case let .string(value)? = extra["customIntro"], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
+        return intro
+    }
+    public var displayCoverURL: String? {
+        if let custom = customCoverUrl, !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return custom }
+        return coverUrl
+    }
+
     public var isAudioBook: Bool { androidType & AndroidBookType.audio != 0 || (kind?.contains("音频") ?? false) }
 
     public var isLocalBook: Bool {

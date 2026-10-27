@@ -306,6 +306,7 @@ public class BookStore: ObservableObject {
 
         if let newSources = payload.sources {
             for s in newSources {
+                if let header = s.loginHeader { SourceSessionStore.save(header: header, for: s.bookSourceUrl) }
                 if let idx = self.sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
                     self.sources[idx] = s
                 } else {
@@ -574,11 +575,10 @@ public class BookStore: ObservableObject {
         let trimmedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedName.isEmpty { updated.name = trimmedName }
         if !trimmedAuthor.isEmpty { updated.author = trimmedAuthor }
-        updated.customCoverUrl = coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let custom = updated.customCoverUrl, !custom.isEmpty {
-            updated.coverUrl = custom
-        }
-        updated.intro = intro?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let customCover = coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updated.customCoverUrl = customCover.isEmpty || customCover == updated.coverUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ? nil : customCover
+        let customIntro = intro?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updated.extra["customIntro"] = customIntro.isEmpty || customIntro == updated.intro?.trimmingCharacters(in: .whitespacesAndNewlines) ? nil : .string(customIntro)
         bookshelf[index] = updated
         saveBookshelf()
         return updated
@@ -760,6 +760,7 @@ public class BookStore: ObservableObject {
 
         var count = 0
         for s in imported {
+            if let header = s.loginHeader { SourceSessionStore.save(header: header, for: s.bookSourceUrl) }
             if let idx = sources.firstIndex(where: { $0.bookSourceUrl == s.bookSourceUrl }) {
                 sources[idx] = s
             } else {
@@ -790,6 +791,7 @@ public class BookStore: ObservableObject {
     }
 
     public func deleteSource(sourceUrl: String) {
+        SourceSessionStore.save(header: nil, for: sourceUrl)
         sources.removeAll { $0.bookSourceUrl == sourceUrl }
         saveSources()
     }
@@ -803,6 +805,7 @@ public class BookStore: ObservableObject {
     }
 
     public func deleteSources(urls: Set<String>) {
+        for url in urls { SourceSessionStore.save(header: nil, for: url) }
         guard !urls.isEmpty else { return }
         sources.removeAll { urls.contains($0.bookSourceUrl) }
         saveSources()
@@ -836,45 +839,20 @@ public class BookStore: ObservableObject {
         saveSources()
     }
 
-    /// Robustly resolves the BookSource corresponding to a Book using URL, Name, Domain, or Aliases
+    /// Stored origin is authoritative. Legacy name/host fallbacks must be unambiguous;
+    /// selecting an unrelated first source can parse the wrong book or overwrite its TOC.
     public func findSource(for book: Book) -> BookSource? {
-        if book.isLocalBook {
-            return nil
+        guard !book.isLocalBook else { return nil }
+        if !book.origin.isEmpty, let exact = sources.first(where: { $0.bookSourceUrl == book.origin }) { return exact }
+        if !book.originName.isEmpty {
+            let named = sources.filter { $0.bookSourceName == book.originName }
+            if named.count == 1 { return named[0] }
         }
-
-        // 1. Exact URL match
-        if let s = sources.first(where: { $0.bookSourceUrl == book.origin }) {
-            return s
+        if let host = URL(string: book.origin)?.host ?? URL(string: book.bookUrl)?.host {
+            let matches = sources.filter { URL(string: $0.bookSourceUrl)?.host?.lowercased() == host.lowercased() }
+            if matches.count == 1 { return matches[0] }
         }
-
-        // 2. Exact Name match
-        if !book.originName.isEmpty, let s = sources.first(where: { $0.bookSourceName == book.originName }) {
-            return s
-        }
-
-        // 3. Domain / Host Match (book origin host == source host, covers mirror domains)
-        let bookHost = URL(string: book.origin)?.host ?? URL(string: book.bookUrl)?.host ?? ""
-        if !bookHost.isEmpty {
-            for s in sources {
-                let sHost = URL(string: s.bookSourceUrl)?.host ?? ""
-                if !sHost.isEmpty && sHost == bookHost {
-                    return s
-                }
-            }
-        }
-
-        // 4. Substring / URL contains matching
-        if let s = sources.first(where: {
-            book.origin.contains($0.bookSourceUrl) ||
-            $0.bookSourceUrl.contains(book.origin) ||
-            book.bookUrl.hasPrefix($0.bookSourceUrl) ||
-            (!book.originName.isEmpty && $0.bookSourceName.contains(book.originName)) ||
-            (!book.originName.isEmpty && book.originName.contains($0.bookSourceName))
-        }) {
-            return s
-        }
-
-        return sources.first
+        return nil
     }
 
     public func updateSource(originalSource: BookSource? = nil, newSource: BookSource) {
@@ -882,6 +860,10 @@ public class BookStore: ObservableObject {
         let oldName = originalSource?.bookSourceName ?? newSource.bookSourceName
 
         if let idx = sources.firstIndex(where: { $0.bookSourceUrl == oldUrl || $0.id == (originalSource?.id ?? newSource.id) }) {
+            if sources[idx].loginHeader != newSource.loginHeader || oldUrl != newSource.bookSourceUrl {
+                SourceSessionStore.save(header: nil, for: oldUrl)
+                SourceSessionStore.save(header: newSource.loginHeader, for: newSource.bookSourceUrl)
+            }
             sources[idx] = newSource
             saveSources()
         }

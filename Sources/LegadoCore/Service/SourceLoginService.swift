@@ -22,18 +22,20 @@ public struct SourceLoginResult {
 }
 
 public enum SourceLoginService {
-    public static func headers(source: BookSource) async -> String? {
+    public static func headers(source: BookSource, sourceObject: [String: Any]? = nil) async -> String? {
         guard !Task.isCancelled else { return nil }
-        return JSEngine.resolvedSourceHeader(source)
+        if JSEngine.extractJSScript(from: source.header ?? "") == nil { return JSEngine.resolvedSourceHeader(source) }
+        let engine = JSEngine(bookSource: source, sourceObject: sourceObject)
+        return JSEngine.resolvedSourceHeader(source, engine: engine)
     }
     /// Async non-actor entry keeps scripts and synchronous host requests off the UI actor.
-    public static func execute(source: BookSource, credentials: [String: String], action: String? = nil) async throws -> SourceLoginResult {
+    public static func execute(source: BookSource, credentials: [String: String], action: String? = nil, sourceObject: [String: Any]? = nil) async throws -> SourceLoginResult {
         try Task.checkCancellation()
         guard let raw = source.loginUrl, !raw.isEmpty else { throw SourceRuntimeError.bridge("该源未配置登录脚本") }
         var candidate = source
         let info = String(decoding: try JSONEncoder().encode(credentials), as: UTF8.self)
         candidate.loginInfo = info
-        let engine = JSEngine(bookSource: candidate)
+        let engine = JSEngine(bookSource: candidate, sourceObject: sourceObject)
         try engine.checkReady()
         var header: String?
         engine.onLoginHeaderUpdated = { header = $0 }
@@ -46,11 +48,15 @@ public enum SourceLoginService {
             guard let saved = header, !saved.isEmpty else { throw SourceRuntimeError.bridge("登录未返回有效凭据，请检查账号密码") }
         }
         try Task.checkCancellation()
-        return SourceLoginResult(header: header, info: info, message: value.map(JSEngine.stringValue))
+        return SourceLoginResult(header: header, info: engine.currentLoginInfo ?? info, message: value.map(JSEngine.stringValue))
     }
 }
 
 extension RssSource {
+    public var scriptObject: [String: Any] {
+        guard let data = try? JSONEncoder().encode(self), let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return result
+    }
     /// Reuse BaseSource bridges with RSS identity and metadata, without importing RSS into
     /// the bookshelf's source list.
     public var scriptSource: BookSource {

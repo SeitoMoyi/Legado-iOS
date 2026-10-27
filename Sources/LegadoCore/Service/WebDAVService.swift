@@ -177,7 +177,8 @@ public class WebDAVService {
     }
 
     /// Creates an authenticated URLRequest with WebDAV headers
-    private func makeRequest(url: URL, method: String, config: WebDAVConfig, body: Data? = nil, contentType: String? = nil) -> URLRequest {
+    private func makeRequest(url: URL, method: String, config: WebDAVConfig, body: Data? = nil, contentType: String? = nil) throws -> URLRequest {
+        guard let base = config.directoryURL, Self.isSameOrigin(url, base) else { throw WebDAVError.invalidURL }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.httpBody = body
@@ -189,6 +190,17 @@ public class WebDAVService {
         return req
     }
 
+    static func isSameOrigin(_ url: URL, _ base: URL) -> Bool {
+        func port(_ value: URL) -> Int { value.port ?? (value.scheme?.lowercased() == "https" ? 443 : 80) }
+        return url.user == nil && url.password == nil && ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+            && url.scheme?.lowercased() == base.scheme?.lowercased() && url.host?.lowercased() == base.host?.lowercased()
+            && url.host?.isEmpty == false && port(url) == port(base)
+    }
+
+    private func send(_ request: URLRequest, config: WebDAVConfig) async throws -> (Data, URLResponse) {
+        try await session.data(for: request, delegate: WebDAVRedirectGuard(config: config))
+    }
+
     /// Tests the connection to the WebDAV server. If the remote directory does not exist, attempts to create it via MKCOL.
     public func testConnection(config: WebDAVConfig) async throws -> String {
         guard let dirUrl = config.directoryURL else {
@@ -196,10 +208,10 @@ public class WebDAVService {
         }
 
         // Try PROPFIND on the directory
-        var req = makeRequest(url: dirUrl, method: "PROPFIND", config: config)
+        var req = try makeRequest(url: dirUrl, method: "PROPFIND", config: config)
         req.setValue("0", forHTTPHeaderField: "Depth")
 
-        let (_, response) = try await session.data(for: req)
+        let (_, response) = try await self.send(req, config: config)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw WebDAVError.custom("无法连接到服务器")
         }
@@ -220,8 +232,8 @@ public class WebDAVService {
 
         // In case PROPFIND is not supported (HTTP 405), fallback to GET / HEAD
         if httpResponse.statusCode == 405 {
-            let getReq = makeRequest(url: dirUrl, method: "GET", config: config)
-            let (_, getResponse) = try await session.data(for: getReq)
+            let getReq = try makeRequest(url: dirUrl, method: "GET", config: config)
+            let (_, getResponse) = try await self.send(getReq, config: config)
             if let gRes = getResponse as? HTTPURLResponse {
                 if gRes.statusCode == 401 || gRes.statusCode == 403 {
                     throw WebDAVError.unauthorized
@@ -242,8 +254,8 @@ public class WebDAVService {
     }
 
     public func createDirectoryIfNeeded(url: URL, config: WebDAVConfig) async throws {
-        let req = makeRequest(url: url, method: "MKCOL", config: config)
-        let (_, response) = try await session.data(for: req)
+        let req = try makeRequest(url: url, method: "MKCOL", config: config)
+        let (_, response) = try await self.send(req, config: config)
         guard let http = response as? HTTPURLResponse else {
             throw WebDAVError.custom("创建远程目录无响应")
         }
@@ -277,8 +289,8 @@ public class WebDAVService {
         let progData = try encoder.encode(prog)
         let cleanFileName = sanitizeFileName("\(book.name)_\(book.author).json")
         let progFileUrl = progressDirUrl.appendingPathComponent(cleanFileName)
-        let progReq = makeRequest(url: progFileUrl, method: "PUT", config: config, body: progData, contentType: "application/json; charset=utf-8")
-        let (_, response) = try await session.data(for: progReq)
+        let progReq = try makeRequest(url: progFileUrl, method: "PUT", config: config, body: progData, contentType: "application/json; charset=utf-8")
+        let (_, response) = try await self.send(progReq, config: config)
         if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
             throw WebDAVError.unauthorized
         }
@@ -290,8 +302,8 @@ public class WebDAVService {
         let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
         let cleanFileName = sanitizeFileName("\(book.name)_\(book.author).json")
         let progFileUrl = progressDirUrl.appendingPathComponent(cleanFileName)
-        let progReq = makeRequest(url: progFileUrl, method: "GET", config: config)
-        let (data, response) = try await session.data(for: progReq)
+        let progReq = try makeRequest(url: progFileUrl, method: "GET", config: config)
+        let (data, response) = try await self.send(progReq, config: config)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 404 { return nil }
             if http.statusCode == 401 || http.statusCode == 403 { throw WebDAVError.unauthorized }
@@ -524,8 +536,8 @@ public class WebDAVService {
             deviceName: config.deviceName
         )
         let zipUrl = dirUrl.appendingPathComponent(zipFileName)
-        let zipReq = makeRequest(url: zipUrl, method: "PUT", config: config, body: zipData, contentType: "application/zip")
-        let (_, zipResponse) = try await session.data(for: zipReq)
+        let zipReq = try makeRequest(url: zipUrl, method: "PUT", config: config, body: zipData, contentType: "application/zip")
+        let (_, zipResponse) = try await self.send(zipReq, config: config)
         guard let httpZip = zipResponse as? HTTPURLResponse else {
             throw WebDAVError.custom("上传备份压缩包无响应")
         }
@@ -539,13 +551,13 @@ public class WebDAVService {
         // 2. Also upload standalone bookshelf.json & bookSource.json for convenience and backwards compatibility
         let booksData = try encoder.encode(books)
         let booksUrl = dirUrl.appendingPathComponent("bookshelf.json")
-        let booksReq = makeRequest(url: booksUrl, method: "PUT", config: config, body: booksData, contentType: "application/json; charset=utf-8")
-        _ = try? await session.data(for: booksReq)
+        let booksReq = try makeRequest(url: booksUrl, method: "PUT", config: config, body: booksData, contentType: "application/json; charset=utf-8")
+        _ = try? await self.send(booksReq, config: config)
 
         let sourcesData = try encoder.encode(sources)
         let sourcesUrl = dirUrl.appendingPathComponent("bookSource.json")
-        let sourcesReq = makeRequest(url: sourcesUrl, method: "PUT", config: config, body: sourcesData, contentType: "application/json; charset=utf-8")
-        _ = try? await session.data(for: sourcesReq)
+        let sourcesReq = try makeRequest(url: sourcesUrl, method: "PUT", config: config, body: sourcesData, contentType: "application/json; charset=utf-8")
+        _ = try? await self.send(sourcesReq, config: config)
 
         // Update last sync time
         var updatedConfig = config
@@ -561,9 +573,9 @@ public class WebDAVService {
             throw WebDAVError.invalidURL
         }
 
-        var propReq = makeRequest(url: dirUrl, method: "PROPFIND", config: config)
+        var propReq = try makeRequest(url: dirUrl, method: "PROPFIND", config: config)
         propReq.setValue("1", forHTTPHeaderField: "Depth")
-        let (data, response) = try await session.data(for: propReq)
+        let (data, response) = try await self.send(propReq, config: config)
         guard let http = response as? HTTPURLResponse else {
             throw WebDAVError.custom("无法连接到 WebDAV 服务器")
         }
@@ -619,7 +631,7 @@ public class WebDAVService {
                 continue
             }
 
-            guard let fullUrl = URL(string: rawHref, relativeTo: baseURL)?.absoluteURL else {
+            guard let fullUrl = URL(string: rawHref, relativeTo: baseURL)?.absoluteURL, Self.isSameOrigin(fullUrl, baseURL) else {
                 continue
             }
 
@@ -666,9 +678,9 @@ public class WebDAVService {
 
     /// Depth-1 PROPFIND listing of an arbitrary directory URL, used by the 远程书籍 browser.
     public func listDirectory(url directoryURL: URL, config: WebDAVConfig) async throws -> [RemoteDirectoryEntry] {
-        var req = makeRequest(url: directoryURL, method: "PROPFIND", config: config)
+        var req = try makeRequest(url: directoryURL, method: "PROPFIND", config: config)
         req.setValue("1", forHTTPHeaderField: "Depth")
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await self.send(req, config: config)
         guard let http = response as? HTTPURLResponse else {
             throw WebDAVError.custom("无法连接到 WebDAV 服务器")
         }
@@ -709,7 +721,7 @@ public class WebDAVService {
             let decoded = rawHref.removingPercentEncoding ?? rawHref
             let name = URL(fileURLWithPath: decoded).lastPathComponent
             guard !name.isEmpty else { continue }
-            guard let fullURL = URL(string: rawHref, relativeTo: baseDir)?.absoluteURL else { continue }
+            guard let fullURL = URL(string: rawHref, relativeTo: baseDir)?.absoluteURL, Self.isSameOrigin(fullURL, baseURL) else { continue }
 
             let isDirectory = (collectionRegex?.firstMatch(
                 in: chunk, range: NSRange(chunk.startIndex..<chunk.endIndex, in: chunk)) != nil)
@@ -741,8 +753,8 @@ public class WebDAVService {
 
     /// Downloads one remote file (authenticated GET) — the 远程书籍 import step.
     public func downloadFileData(url fileURL: URL, config: WebDAVConfig) async throws -> Data {
-        let req = makeRequest(url: fileURL, method: "GET", config: config)
-        let (data, response) = try await session.data(for: req)
+        let req = try makeRequest(url: fileURL, method: "GET", config: config)
+        let (data, response) = try await self.send(req, config: config)
         guard let http = response as? HTTPURLResponse else {
             throw WebDAVError.custom("无法连接到 WebDAV 服务器")
         }
@@ -780,8 +792,8 @@ public class WebDAVService {
                 targetBackup = remoteBackups[0]
             }
 
-            let zipReq = makeRequest(url: targetBackup.url, method: "GET", config: config)
-            let (zipData, zipResp) = try await session.data(for: zipReq)
+            let zipReq = try makeRequest(url: targetBackup.url, method: "GET", config: config)
+            let (zipData, zipResp) = try await self.send(zipReq, config: config)
             guard let httpZip = zipResp as? HTTPURLResponse else { throw WebDAVError.custom("无效的备份响应") }
             if [401, 403].contains(httpZip.statusCode) { throw WebDAVError.unauthorized }
             guard (200..<300).contains(httpZip.statusCode) else { throw WebDAVError.serverError(httpZip.statusCode, targetBackup.fileName) }
@@ -796,9 +808,9 @@ public class WebDAVService {
             let entries = try await withThrowingTaskGroup(of: (String, Data?).self) { group in
                 for name in Self.supportedBackupMembers + Self.preservedAndroidBackupMembers {
                     group.addTask {
-                        var request = self.makeRequest(url: dirUrl.appendingPathComponent(name), method: "GET", config: config)
+                        var request = try self.makeRequest(url: dirUrl.appendingPathComponent(name), method: "GET", config: config)
                         request.timeoutInterval = 15
-                        let (data, response) = try await self.session.data(for: request)
+                        let (data, response) = try await self.send(request, config: config)
                         guard let response = response as? HTTPURLResponse else { throw WebDAVError.custom("无效的备份响应") }
                         if [401, 403].contains(response.statusCode) { throw WebDAVError.unauthorized }
                         if response.statusCode == 404 { return (name, nil) }
@@ -819,9 +831,9 @@ public class WebDAVService {
         // 3. Sync any latest progress from remote bookProgress/ folder using single PROPFIND + concurrent batch fetch
         if var books = payload.books {
             let progressDirUrl = dirUrl.appendingPathComponent("bookProgress")
-            var propReq = makeRequest(url: progressDirUrl, method: "PROPFIND", config: config)
+            var propReq = try makeRequest(url: progressDirUrl, method: "PROPFIND", config: config)
             propReq.setValue("1", forHTTPHeaderField: "Depth")
-            if let (propData, propResp) = try? await session.data(for: propReq),
+            if let (propData, propResp) = try? await self.send(propReq, config: config),
                let httpProp = propResp as? HTTPURLResponse, (200...299).contains(httpProp.statusCode) || httpProp.statusCode == 207,
                let propXml = String(data: propData, encoding: .utf8) {
 
@@ -835,7 +847,7 @@ public class WebDAVService {
                             let rawPath = String(propXml[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                             let decoded = rawPath.removingPercentEncoding ?? rawPath
                             let fn = URL(fileURLWithPath: decoded).lastPathComponent
-                            if let full = URL(string: rawPath, relativeTo: progressDirUrl)?.absoluteURL {
+                            if let full = URL(string: rawPath, relativeTo: progressDirUrl)?.absoluteURL, Self.isSameOrigin(full, dirUrl) {
                                 remoteFiles[fn] = full
                             }
                         }
@@ -854,8 +866,8 @@ public class WebDAVService {
                             await withTaskGroup(of: (Int, BookProgress?).self) { group in
                                 for item in tasks {
                                     group.addTask {
-                                        let pReq = self.makeRequest(url: item.url, method: "GET", config: config)
-                                        if let (pData, pResp) = try? await self.session.data(for: pReq),
+                                        guard let pReq = try? self.makeRequest(url: item.url, method: "GET", config: config) else { return (item.index, nil) }
+                                        if let (pData, pResp) = try? await self.send(pReq, config: config),
                                            let httpP = pResp as? HTTPURLResponse, (200...299).contains(httpP.statusCode),
                                            let prog = try? JSONDecoder().decode(BookProgress.self, from: pData) {
                                             return (item.index, prog)
@@ -1032,6 +1044,23 @@ public class WebDAVService {
             payload.httpTTS = engines
         }
 
+        // A malformed known member must fail before any store is changed. Import tools
+        // can be tolerant, but a backup must not silently discard invalid array rows.
+        let counts: [(String, Int?)] = [
+            ("bookshelf.json", payload.books?.count), ("bookSource.json", payload.sources?.count),
+            ("bookmark.json", payload.bookmarks?.count), ("replaceRule.json", payload.replaceRules?.count),
+            ("searchHistory.json", payload.searchHistory?.count), ("txtTocRule.json", payload.txtTocRules?.count),
+            ("readRecord.json", payload.readRecords?.count), ("rssSources.json", payload.rssSources?.count),
+            ("rssStar.json", payload.rssStars?.count), ("bookGroup.json", payload.bookGroups?.count),
+            ("dictRule.json", payload.dictRules?.count), ("httpTTS.json", payload.httpTTS?.count)
+        ]
+        for (name, count) in counts {
+            guard let data = try extractData(name) else { continue }
+            guard let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], count == array.count else {
+                throw WebDAVError.decodingFailed("\(name) 包含无效数据，未执行恢复")
+            }
+        }
+
         return payload
     }
 
@@ -1122,5 +1151,18 @@ public class WebDAVService {
                 books[i] = progress.applying(to: books[i])
             }
         }
+    }
+}
+
+/// A PROPFIND href or HTTP redirect must never send WebDAV credentials to another origin.
+final class WebDAVRedirectGuard: NSObject, URLSessionTaskDelegate {
+    private let config: WebDAVConfig
+    init(config: WebDAVConfig) { self.config = config }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url, let base = config.directoryURL, WebDAVService.isSameOrigin(url, base) else { completionHandler(nil); return }
+        var authorized = request
+        authorized.setValue(config.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        completionHandler(authorized)
     }
 }

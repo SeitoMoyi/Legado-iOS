@@ -26,9 +26,8 @@ public enum JSONValue: Codable, Equatable {
         case let number as NSNumber:
             if CFGetTypeID(number) == CFBooleanGetTypeID() {
                 self = .bool(number.boolValue)
-            } else if number.doubleValue.truncatingRemainder(dividingBy: 1) == 0,
-                      number.doubleValue >= -9.22e18, number.doubleValue <= 9.22e18 {
-                self = .int(number.int64Value)
+            } else if let integer = Int64(number.stringValue) {
+                self = .int(integer)
             } else {
                 self = .double(number.doubleValue)
             }

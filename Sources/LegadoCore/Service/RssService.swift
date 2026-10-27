@@ -34,7 +34,7 @@ public class RssService {
     private func categoriesChecked(source: RssSource) throws -> [RssCategory] {
         var text = source.sortUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if let script = JSEngine.extractJSScript(from: text) {
-            let engine = JSEngine(bookSource: source.scriptSource)
+            let engine = JSEngine(rssSource: source)
             let result = try engine.evalChecked(script: script, stage: "sortUrl")
             if let array = result as? [[String: Any]], let data = try? JSONSerialization.data(withJSONObject: array) {
                 text = String(decoding: data, as: UTF8.self)
@@ -63,7 +63,7 @@ public class RssService {
 
     /// Fetches one page of articles and resolves the `ruleNextPage` follow-up link.
     public func fetchArticlePage(source: RssSource, pageUrl: String, page: Int = 1) async throws -> ArticlePage {
-        let engine = JSEngine(bookSource: source.scriptSource, baseUrl: source.sourceUrl)
+        let engine = JSEngine(rssSource: source, baseUrl: source.sourceUrl)
         try engine.checkReady()
         let renderedUrl = resolveUrl(source: source, url: pageUrl, page: page, engine: engine)
 
@@ -110,7 +110,7 @@ public class RssService {
 
     /// Parses articles from raw XML/HTML/JSON content using ruleArticles, ruleTitle, etc.
     public func parseArticlesFromContent(_ content: String, source: RssSource, categoryUrl: String, engine suppliedEngine: JSEngine? = nil) throws -> [RssArticle] {
-        let engine = suppliedEngine ?? JSEngine(bookSource: source.scriptSource, baseUrl: categoryUrl)
+        let engine = suppliedEngine ?? JSEngine(rssSource: source, baseUrl: categoryUrl)
         try engine.checkReady()
         let analyzer = RuleAnalyzer(content: content, baseUrl: categoryUrl, jsEngine: engine)
 
@@ -132,8 +132,11 @@ public class RssService {
         let reverse = resolvedArticleRule.hasPrefix("-")
         let rawItems = analyzer.getElements(reverse ? String(resolvedArticleRule.dropFirst()) : resolvedArticleRule)
         var articles: [RssArticle] = []
+        let pageVariables = engine.ruleVariableSnapshot
 
         for (index, item) in rawItems.enumerated() {
+            try Task.checkCancellation()
+            engine.restoreRuleVariables(pageVariables)
             let itemAnalyzer = RuleAnalyzer(content: item, baseUrl: categoryUrl, jsEngine: engine)
 
             let titleRule = source.ruleTitle ?? "//title/text() || title@text || a@text"
@@ -166,7 +169,8 @@ public class RssService {
                 content: rawDesc.isEmpty ? nil : rawDesc,
                 image: image.isEmpty ? nil : image,
                 group: source.sourceGroup ?? "默认分组",
-                read: false
+                read: false,
+                variable: engine.ruleVariableSnapshot
             )
             articles.append(article)
         }
@@ -179,8 +183,9 @@ public class RssService {
     /// load the linked document. Never convert network errors into a misleading empty page.
     public func fetchArticleContent(article: RssArticle, source: RssSource) async throws -> String {
         if let cached = article.content ?? article.description, !cached.isEmpty { return cached }
-        let engine = JSEngine(bookSource: source.scriptSource, baseUrl: article.link)
+        let engine = JSEngine(rssSource: source, baseUrl: article.link)
         try engine.checkReady()
+        engine.restoreRuleVariables(article.variable)
         let rendered = engine.renderTemplate(article.link, variables: ["page": 1])
         guard let parsed = NetworkClient.parseLegadoUrl(rendered,
             defaultHeader: JSEngine.resolvedSourceHeader(source.scriptSource, engine: engine), baseUrl: source.sourceUrl) else {

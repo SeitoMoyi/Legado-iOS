@@ -184,7 +184,7 @@ public struct RssSourceListView: View {
                 else { RssArticleListView(source: source) }
             }
             .sheet(item: $loginSource) { original in
-                SourceLoginSheet(source: original.scriptSource) { result in
+                SourceLoginSheet(source: original.scriptSource, rssSource: original) { result in
                     if let index = sources.firstIndex(where: { $0.sourceUrl == original.sourceUrl }) {
                         sources[index].extra["loginHeader"] = result.loginHeader.map(JSONValue.string)
                         sources[index].extra["loginInfo"] = result.loginInfo.map(JSONValue.string)
@@ -1162,6 +1162,26 @@ struct RssSourceDebugSheet: View {
                 appendLog("▶ 调试结束，总耗时 \(Int(Date().timeIntervalSince(start) * 1000))ms")
                 isRunning = false
             }
+        }
+    }
+}
+
+struct RssSingleArticleView: View {
+    let source: RssSource
+    @State private var article: RssArticle?
+    @State private var error: String?
+    var body: some View {
+        Group {
+            if let article = article { RssArticleReaderView(article: article, source: source) }
+            else if let error = error { Text(error).padding() }
+            else { ProgressView("正在加载…") }
+        }
+        .task {
+            do {
+                let categories = try await RssService.shared.loadCategories(source: source)
+                try Task.checkCancellation()
+                article = RssArticle(origin: source.sourceUrl, title: source.sourceName, link: categories.first?.url ?? source.sourceUrl)
+            } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
         }
     }
 }

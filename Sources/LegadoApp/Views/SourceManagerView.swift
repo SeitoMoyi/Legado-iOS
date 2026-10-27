@@ -765,6 +765,7 @@ public struct SourceManagerView: View {
 
 public struct SourceLoginSheet: View {
     let source: BookSource
+    let rssSource: RssSource?
     let onLoginCompleted: ((BookSource) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var loginMode: String
@@ -791,8 +792,9 @@ public struct SourceLoginSheet: View {
 
     private var isWebLoginDefault: Bool { Self.isWebLoginDefault(source) }
 
-    public init(source: BookSource, onLoginCompleted: ((BookSource) -> Void)? = nil) {
+    public init(source: BookSource, rssSource: RssSource? = nil, onLoginCompleted: ((BookSource) -> Void)? = nil) {
         self.source = source
+        self.rssSource = rssSource
         self.onLoginCompleted = onLoginCompleted
         self._loginMode = State(initialValue: Self.isWebLoginDefault(source) ? "web" : "form")
     }
@@ -895,6 +897,7 @@ public struct SourceLoginSheet: View {
 
                     if source.isLogged {
                         Button(role: .destructive, action: {
+                            Task { await SourceWebSession.clear(sourceURL: source.bookSourceUrl) }
                             if let completed = onLoginCompleted {
                                 var updated = source; updated.loginHeader = nil; updated.loginInfo = nil
                                 SourceSessionStore.save(header: nil, for: source.bookSourceUrl)
@@ -950,7 +953,7 @@ public struct SourceLoginSheet: View {
         loginTask = Task { @MainActor in
             defer { if !Task.isCancelled { isLoggingIn = false } }
             do {
-                let result = try await SourceLoginService.execute(source: source, credentials: fieldValues, action: action)
+                let result = try await SourceLoginService.execute(source: source, credentials: fieldValues, action: action, sourceObject: rssSource?.scriptObject)
                 try Task.checkCancellation()
                 var updated = source
                 updated.loginInfo = result.info

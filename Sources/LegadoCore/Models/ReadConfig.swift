@@ -371,7 +371,8 @@ public struct ReadStyleConfig: Codable, Equatable, JSONExtraPreserving {
 
 /// Non-style reader preferences. Property names mirror Android `PreferKey` constants so a
 /// future `config.xml` mapping layer is mechanical.
-public struct ReaderPrefs: Codable, Equatable {
+public struct ReaderPrefs: Codable, Equatable, JSONExtraPreserving {
+    public var extra: [String: JSONValue] = [:]
 
     /// 0 默认 / 60 / 300 / 600 / -1 常亮 (Android `keep_light`)
     public var keepLight: Int = 0
@@ -412,6 +413,70 @@ public struct ReaderPrefs: Codable, Equatable {
     public var precisionSearch: Bool = false
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey, CaseIterable { case keepLight, hideStatusBar, screenOrientation, progressBarBehavior, textFullJustify, textBottomJustify, noAnimScrollPage, mouseWheelPage, pageTouchSlop, autoChangeSource, previewImageByClick, disableReturnKey, showReadTitleAddition, readBarStyleFollowPage, clickActions, chineseConverterType, replaceEnableDefault, imageStyle, ttsSpeechRate, ttsFollowSys, ttsTimer, readAloudByPage, searchScope, searchGroup, precisionSearch }
+    public static let modeledJSONKeys = Set(CodingKeys.allCases.map(\.rawValue))
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        keepLight = try c.decodeIfPresent(Int.self, forKey: .keepLight) ?? keepLight
+        hideStatusBar = try c.decodeIfPresent(Bool.self, forKey: .hideStatusBar) ?? hideStatusBar
+        screenOrientation = try c.decodeIfPresent(Int.self, forKey: .screenOrientation) ?? screenOrientation
+        progressBarBehavior = try c.decodeIfPresent(Int.self, forKey: .progressBarBehavior) ?? progressBarBehavior
+        textFullJustify = try c.decodeIfPresent(Bool.self, forKey: .textFullJustify) ?? textFullJustify
+        textBottomJustify = try c.decodeIfPresent(Bool.self, forKey: .textBottomJustify) ?? textBottomJustify
+        noAnimScrollPage = try c.decodeIfPresent(Bool.self, forKey: .noAnimScrollPage) ?? noAnimScrollPage
+        mouseWheelPage = try c.decodeIfPresent(Bool.self, forKey: .mouseWheelPage) ?? mouseWheelPage
+        pageTouchSlop = try c.decodeIfPresent(Int.self, forKey: .pageTouchSlop) ?? pageTouchSlop
+        autoChangeSource = try c.decodeIfPresent(Bool.self, forKey: .autoChangeSource) ?? autoChangeSource
+        previewImageByClick = try c.decodeIfPresent(Bool.self, forKey: .previewImageByClick) ?? previewImageByClick
+        disableReturnKey = try c.decodeIfPresent(Bool.self, forKey: .disableReturnKey) ?? disableReturnKey
+        showReadTitleAddition = try c.decodeIfPresent(Bool.self, forKey: .showReadTitleAddition) ?? showReadTitleAddition
+        readBarStyleFollowPage = try c.decodeIfPresent(Bool.self, forKey: .readBarStyleFollowPage) ?? readBarStyleFollowPage
+        clickActions = try c.decodeIfPresent([Int].self, forKey: .clickActions) ?? clickActions
+        chineseConverterType = try c.decodeIfPresent(Int.self, forKey: .chineseConverterType) ?? chineseConverterType
+        replaceEnableDefault = try c.decodeIfPresent(Bool.self, forKey: .replaceEnableDefault) ?? replaceEnableDefault
+        imageStyle = try c.decodeIfPresent(ReadImageStyle.self, forKey: .imageStyle) ?? imageStyle
+        ttsSpeechRate = try c.decodeIfPresent(Int.self, forKey: .ttsSpeechRate) ?? ttsSpeechRate
+        ttsFollowSys = try c.decodeIfPresent(Bool.self, forKey: .ttsFollowSys) ?? ttsFollowSys
+        ttsTimer = try c.decodeIfPresent(Int.self, forKey: .ttsTimer) ?? ttsTimer
+        readAloudByPage = try c.decodeIfPresent(Bool.self, forKey: .readAloudByPage) ?? readAloudByPage
+        searchScope = try c.decodeIfPresent(String.self, forKey: .searchScope) ?? searchScope
+        searchGroup = try c.decodeIfPresent(String.self, forKey: .searchGroup) ?? searchGroup
+        precisionSearch = try c.decodeIfPresent(Bool.self, forKey: .precisionSearch) ?? precisionSearch
+        extra = try decodeJSONExtras(from: decoder, excluding: Self.modeledJSONKeys)
+        normalizeClickActions()
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(keepLight, forKey: .keepLight)
+        try c.encode(hideStatusBar, forKey: .hideStatusBar)
+        try c.encode(screenOrientation, forKey: .screenOrientation)
+        try c.encode(progressBarBehavior, forKey: .progressBarBehavior)
+        try c.encode(textFullJustify, forKey: .textFullJustify)
+        try c.encode(textBottomJustify, forKey: .textBottomJustify)
+        try c.encode(noAnimScrollPage, forKey: .noAnimScrollPage)
+        try c.encode(mouseWheelPage, forKey: .mouseWheelPage)
+        try c.encode(pageTouchSlop, forKey: .pageTouchSlop)
+        try c.encode(autoChangeSource, forKey: .autoChangeSource)
+        try c.encode(previewImageByClick, forKey: .previewImageByClick)
+        try c.encode(disableReturnKey, forKey: .disableReturnKey)
+        try c.encode(showReadTitleAddition, forKey: .showReadTitleAddition)
+        try c.encode(readBarStyleFollowPage, forKey: .readBarStyleFollowPage)
+        try c.encode(clickActions, forKey: .clickActions)
+        try c.encode(chineseConverterType, forKey: .chineseConverterType)
+        try c.encode(replaceEnableDefault, forKey: .replaceEnableDefault)
+        try c.encode(imageStyle, forKey: .imageStyle)
+        try c.encode(ttsSpeechRate, forKey: .ttsSpeechRate)
+        try c.encode(ttsFollowSys, forKey: .ttsFollowSys)
+        try c.encode(ttsTimer, forKey: .ttsTimer)
+        try c.encode(readAloudByPage, forKey: .readAloudByPage)
+        try c.encode(searchScope, forKey: .searchScope)
+        try c.encode(searchGroup, forKey: .searchGroup)
+        try c.encode(precisionSearch, forKey: .precisionSearch)
+        try encodeJSONExtras(extra.filter { !Self.modeledJSONKeys.contains($0.key) }, to: encoder)
+    }
+
 
     /// Android forces the centre zone to "menu" when no zone is assigned to it, otherwise
     /// the reader can become impossible to operate. Same guard here.

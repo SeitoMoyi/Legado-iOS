@@ -45,7 +45,7 @@ public final class JSEngine {
     private static var bookVariableCache: [String: String] = [:]
     private static var sourceVariableCache: [String: String] = [:]
 
-    public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil,
+    public init(bookSource: BookSource? = nil, book: Book? = nil, baseUrl: String? = nil, sourceObject: [String: Any]? = nil,
                 shouldCancel: @escaping () -> Bool = { Task.isCancelled }) {
         self.source = bookSource
         self.baseUrl = baseUrl ?? bookSource?.bookSourceUrl
@@ -72,8 +72,8 @@ public final class JSEngine {
                 return try self.callHost(action, arguments)
             }
             try runtime.setGlobal("book", value: Self.bookBindings(currentBook))
-            var sourceBindings: [String: Any] = [:]
-            if let source = bookSource, let data = try? JSONEncoder().encode(source),
+            var sourceBindings: [String: Any] = sourceObject ?? [:]
+            if sourceObject == nil, let source = bookSource, let data = try? JSONEncoder().encode(source),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { sourceBindings = object }
             sourceBindings["bookSourceUrl"] = sourceKey
             try runtime.setGlobal("source", value: sourceBindings)
@@ -122,6 +122,19 @@ public final class JSEngine {
     public func checkReady() throws {
         if let error = initializationError { throw error }
         guard runtime != nil else { throw SourceRuntimeError.bridge("Script runtime unavailable") }
+    }
+
+    public convenience init(rssSource: RssSource, baseUrl: String? = nil) {
+        self.init(bookSource: rssSource.scriptSource, baseUrl: baseUrl ?? rssSource.sourceUrl, sourceObject: rssSource.scriptObject)
+    }
+
+    public var currentLoginInfo: String? { loginInfo }
+    public var ruleVariableSnapshot: String? {
+        guard !kvStore.isEmpty, let data = try? JSONEncoder().encode(kvStore) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+    public func restoreRuleVariables(_ raw: String?) {
+        kvStore = raw.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
     /// Android WebBook executes loginCheckJs against the response before extracting rules.
@@ -212,6 +225,13 @@ public final class JSEngine {
             else { value = args[1] }
             return JSONPath.evaluate(path: string(0), json: value).map(Self.stringValue) ?? ""
         case "source.getLoginHeader": return loginHeader
+        case "source.get":
+            let key = "legado_source_value_" + CryptoUtils.md5(source?.bookSourceUrl ?? "") + "_" + CryptoUtils.md5(string(0))
+            return UserDefaults.standard.string(forKey: key) ?? ""
+        case "source.put":
+            let key = "legado_source_value_" + CryptoUtils.md5(source?.bookSourceUrl ?? "") + "_" + CryptoUtils.md5(string(0))
+            UserDefaults.standard.set(string(1), forKey: key)
+            return string(1)
         case "source.putLoginHeader": loginHeader = string(0); onLoginHeaderUpdated?(string(0)); return nil
         case "source.getLoginInfo": return loginInfo
         case "source.putLoginInfo": loginInfo = string(0); return nil
@@ -311,6 +331,10 @@ public final class JSEngine {
       var info={}; try {info=JSON.parse(source.getLoginInfo()||'{}')} catch(e){}
       info.get=function(k){return info[k]==null?'':String(info[k])}; return info;
     };
+    source.getKey=function(){return source.bookSourceUrl};
+    source.getTag=function(){return source.sourceName || source.bookSourceName || ''};
+    source.get=function(k){return __legadoHost('source.get',String(k))};
+    source.put=function(k,v){return __legadoHost('source.put',String(k),String(v))};
     book.getVariable=function(k){return __legadoHost('book.getVariable',k==null?null:String(k))};
     book.putVariable=function(k,v){__legadoHost('book.putVariable',String(k),v==null?null:String(v))};
     book.setVariable=function(k,v){
@@ -361,7 +385,10 @@ public final class JSEngine {
         for raw in [source.header, loginHeaderOverride ?? SourceSessionStore.header(for: source.bookSourceUrl) ?? source.loginHeader] {
             guard var json = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !json.isEmpty else { continue }
             if let script = extractJSScript(from: json) {
-                let evalEngine = engine ?? JSEngine(bookSource: source as? BookSource, baseUrl: source.bookSourceUrl)
+                let evalEngine: JSEngine
+                if let existing = engine { evalEngine = existing }
+                else if let rss = source as? RssSource { evalEngine = JSEngine(rssSource: rss) }
+                else { evalEngine = JSEngine(bookSource: source as? BookSource, baseUrl: source.bookSourceUrl) }
                 // Header scripts may themselves call java.ajax. Do not recursively re-evaluate
                 // that same header while preparing the nested request.
                 guard !evalEngine.isResolvingHeader else { continue }

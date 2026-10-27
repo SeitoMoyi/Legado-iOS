@@ -279,8 +279,7 @@ public struct SourceWebLoginView: View {
             "type": "web_cookie",
             "url": currentUrl?.absoluteString ?? (source.loginUrl ?? source.bookSourceUrl),
             "cookiesCount": cookiesList.count,
-            "date": ISO8601DateFormatter().string(from: Date()),
-            "preview": String(cookieString.prefix(60)) + "..."
+            "date": ISO8601DateFormatter().string(from: Date())
         ]
         if let data = try? JSONSerialization.data(withJSONObject: infoDict),
            let infoStr = String(data: data, encoding: .utf8) {

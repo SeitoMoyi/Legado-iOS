@@ -103,7 +103,7 @@ public struct AudioPlayView: View {
 
     @ViewBuilder
     private var backgroundCoverArt: some View {
-        if let coverUrlStr = book.customCoverUrl ?? book.coverUrl, let url = URL(string: coverUrlStr) {
+        if let coverUrlStr = book.displayCoverURL, let url = URL(string: coverUrlStr) {
             AsyncImage(url: url) { phase in
                 if let img = phase.image {
                     img
@@ -168,7 +168,7 @@ public struct AudioPlayView: View {
                 .frame(width: 240, height: 240)
                 .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 2))
 
-            if let coverUrlStr = book.customCoverUrl ?? book.coverUrl, let url = URL(string: coverUrlStr) {
+            if let coverUrlStr = book.displayCoverURL, let url = URL(string: coverUrlStr) {
                 AsyncImage(url: url) { phase in
                     if let img = phase.image {
                         img

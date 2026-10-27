@@ -10,6 +10,17 @@ import LegadoCore
 @testable import LegadoApp
 
 final class ReaderThemeTests: XCTestCase {
+    func testRestoringEmptyStylesResetsLiveConfigInsteadOfRevivingOldStyle() {
+        let config = ReaderConfig(defaults: defaults)
+        let initial = config.styleConfig
+        config.fontSize = 31; config.theme = .dark
+        ReaderStore.saveStyles([], to: defaults)
+        config.reloadFromStore()
+        XCTAssertEqual(config.styleConfig, initial)
+        config.flushPendingSettings()
+        XCTAssertEqual(ReaderStore.loadStyle(from: defaults)?.textSize, initial.textSize)
+    }
+
     @MainActor
     func testRestoreReloadsLiveReaderAndCancelsOlderPendingSave() async throws {
         ReaderStore.save(ReadStyleConfig(name: "Old", textSize: 17), to: defaults)

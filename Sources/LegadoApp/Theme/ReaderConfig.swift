@@ -225,9 +225,11 @@ public final class ReaderConfig: ObservableObject {
     private var pendingSave: DispatchWorkItem?
     private var restoreObserver: NSObjectProtocol?
     private var baseStyle = ReadStyleConfig()
+    private var initialStyle: ReadStyleConfig?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        initialStyle = makeStyleConfig()
         restore()
         isRestoring = false
         restoreObserver = NotificationCenter.default.addObserver(forName: ReaderStore.didRestore, object: defaults, queue: .main) { [weak self] _ in
@@ -362,6 +364,7 @@ public final class ReaderConfig: ObservableObject {
         prefs = ReaderStore.loadPrefs(from: defaults)
 
         guard let saved = ReaderStore.loadStyle(from: defaults) else {
+            apply(style: initialStyle ?? ReadStyleConfig())
             applyLegacyPageMode()
             return
         }

@@ -51,7 +51,7 @@ public struct BookSource: Codable, Identifiable, Equatable, JSONExtraPreserving 
     }
 
     public var isLogged: Bool {
-        guard let h = loginHeader, !h.isEmpty else { return false }
+        guard let h = SourceSessionStore.header(for: bookSourceUrl) ?? loginHeader, !h.isEmpty else { return false }
         return true
     }
 

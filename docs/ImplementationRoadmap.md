@@ -12,8 +12,8 @@ not a claim that every Android format and platform integration is implemented.
 | v0.3.2 (published `eafbc02`) | Android group bitmasks and migration of existing iOS IDs; group management; modeled backup members for groups, dictionaries and HttpTTS | `BookGroup.kt`, `BookDao` group queries, `Backup.kt`/`Restore.kt`; imported Android-shaped fixtures must behave in the shelf and survive export. |
 | v0.3.3 (published `e82fded`) | Preserve unmodeled backup members, all reader styles/current selection and iOS preferences; read-config behavior and rule subscriptions | Preserve raw members without pretending they execute; subscription models/manual preview and import follow Android `RuleSub` and use explicit merge behavior. The Android snapshot stores `autoUpdate` but has no scheduler callsite; preserve it without inventing an automatic update requirement. Deterministic ZIP and HTTP fixtures. |
 | v0.3.4 (published `8240bed`) | Browser/login and RSS source context/category/rendering gaps; rule-link import | `BaseSource`, login RowUi/check hooks, Android RSS rule evaluation; shared authenticated context and bounded verification retries. Browser UI and downloads use platform APIs. Full webJs/sourceRegex-driven network requests and arbitrary Java RSS objects remain separate work; this row covers the implemented BaseSource bridge surface. |
-| v0.3.5 (implemented; release verification) | Shelf import/logging and reader behavior gaps required by these flows; integration regressions | Source/backup/subscription flows must work together; invalidate obsolete requests and preserve user edits and progress. |
-| v0.4.0 | Consolidation, code/doc audit, migration checks and release | Run the complete offline suite, platform builds/archive, simulator probes and available live-source smoke tests; record actual skips and device-only gaps. |
+| v0.3.5 (published `dcb7098`) | Shelf import/logging and reader behavior gaps required by these flows; integration regressions | Source/backup/subscription flows must work together; invalidate obsolete requests and preserve user edits and progress. |
+| v0.4.0 (consolidated milestone) | Consolidation, code/doc audit, migration checks and release | Run the complete offline suite, platform builds/archive, simulator probes and available live-source smoke tests; record actual skips and device-only gaps. |
 
 ## Release discipline
 
@@ -32,3 +32,5 @@ not a claim that every Android format and platform integration is implemented.
 The matrix in `Plan.md` continues to record remaining Android differences. This sequence
 replaces the old undifferentiated v0.3.x bucket; discoveries may refine a row, with the
 reason and verification recorded before its release.
+
+Final v0.4.0 evidence and explicit skips: [verification record](Verification-v0.4.0.md).

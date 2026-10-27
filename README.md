@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-27）**：发布版本 `v0.3.5`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；已补书单 / 日志、导出报告与图文 EPUB；下一步执行 v0.4.0 整合审计。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-27）**：发布版本 `v0.4.0`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；已补书单 / 日志、导出报告与图文 EPUB；已完成 v0.4.0 整合审计，修复 RSS 视图更新、Cookie / 下载、元数据覆盖与恢复一致性。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 443 项离线测试（3 skipped）无失败，iOS 15.5 / 17.2 各 18 项原生检查通过；详见 [验证记录](docs/Verification-v0.4.0.md)，未做真机交互验收。
 
 ---
 
@@ -116,7 +116,7 @@
 - **多选批量管理**：
   - 右上角 `⋯` 菜单进入选择模式，底部浮出批量操作栏：全选、反选、批量清理章节缓存、批量移入分组、批量移除书籍。
 - **书架二级菜单（部分对齐 Android `main_bookshelf.xml`）**：
-  - **缓存管理 (`CacheManageView`)**：按缓存体积列出书架书籍（已缓存/总章节数 + 占用，含尚无缓存的条目），支持**一键缓存全本**（⬇ 单键下载该书全部章节，行内实时进度、随时停止、已缓存自动跳过）、**一键缓存全部书籍**（逐本顺序队列）、单本清除与**整书导出**——TXT（UTF-8 / UTF-16 / GB18030 编码可选）与 EPUB（`mimetype` 首位 + container/OPF/nav/NCX 完整结构），以及「导出所有书籍」批量分享。导出仅包含已缓存的未净化正文，未缓存章节会跳过；EPUB 目前不嵌入图片资源。
+  - **缓存管理 (`CacheManageView`)**：按缓存体积列出书架书籍（已缓存/总章节数 + 占用，含尚无缓存的条目），支持**一键缓存全本**（⬇ 单键下载该书全部章节，行内实时进度、随时停止、已缓存自动跳过）、**一键缓存全部书籍**（逐本顺序队列）、单本清除与**整书导出**——TXT（UTF-8 / UTF-16 / GB18030 编码可选）与 EPUB（`mimetype` 首位 + container/OPF/nav/NCX 完整结构），以及「导出所有书籍」批量分享。导出仅包含已缓存的未净化正文，未缓存章节会跳过；EPUB 可打包已缓存 PNG / JPEG / GIF，分享前报告缺章 / 缺图。
   - **导出书单**：`bookshelf.json`（与 WebDAV 备份同编码形态）经系统分享面板导出。
   - **添加网址 (`AddUrlSheet`)**：粘贴章节/详情页 URL，按 `bookUrlPattern` → 前缀 → 同 host 三级匹配书源，自动抓取详情与目录后加架。
   - **远程书籍 (`RemoteBooksView`)**：WebDAV 目录浏览，点击 `.txt` / `.epub` 经鉴权会话下载并走本地导入链入库。
@@ -286,7 +286,7 @@ Legado-iOS/
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Runtime/                      # 固定 QuickJS 源码、C 宿主桥与 Swift 适配器，已接入 App
-├── Tests/                        # 自动化测试（34 文件 435 例：Core + App + Runtime）
+├── Tests/                        # 自动化测试（35 文件 450 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -309,9 +309,9 @@ Legado-iOS/
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
    swift test --skip LiveSourceTests   # 397 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 435 项；不可达时会跳过
+   swift test                          # 另含 7 项真实书源联网冒烟，共 450 项；不可达时会跳过
    ```
-   v0.3.0 发布验证为 363 项；v0.3.5 整合（2026-10-27）macOS SPM 报告 428 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0 发布验证为 363 项；v0.4.0 整合（2026-10-27）macOS SPM 报告 443 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash
