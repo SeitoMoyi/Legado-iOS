@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-27）**：发布版本 `v0.4.0`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；已补书单 / 日志、导出报告与图文 EPUB；已完成 v0.4.0 整合审计，修复 RSS 视图更新、Cookie / 下载、元数据覆盖与恢复一致性。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 443 项离线测试（3 skipped）无失败，iOS 15.5 / 17.2 各 18 项原生检查通过；详见 [验证记录](docs/Verification-v0.4.0.md)，未做真机交互验收。
+> **当前状态（2026-10-27）**：发布版本 `v0.4.1`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；已补书单 / 日志、导出报告与图文 EPUB；已完成 v0.4.0 整合审计，修复 RSS 视图更新、Cookie / 下载、元数据覆盖与恢复一致性。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；v0.4.1 修复登录恢复 / 重复提交与下载清理，446 项离线测试（3 skipped）无失败，iOS 15.5 原生 21 项检查与实际书源集成通过；详见 [审计记录](docs/CodeReview-2026-10-27.md)，未做真机交互验收。
 
 ---
 
@@ -286,7 +286,7 @@ Legado-iOS/
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Runtime/                      # 固定 QuickJS 源码、C 宿主桥与 Swift 适配器，已接入 App
-├── Tests/                        # 自动化测试（35 文件 450 例：Core + App + Runtime）
+├── Tests/                        # 自动化测试（35 文件 453 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -309,7 +309,7 @@ Legado-iOS/
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
    swift test --skip LiveSourceTests   # 397 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 450 项；不可达时会跳过
+   swift test                          # 另含 7 项真实书源联网冒烟，共 453 项；不可达时会跳过
    ```
    v0.3.0 发布验证为 363 项；v0.4.0 整合（2026-10-27）macOS SPM 报告 443 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 

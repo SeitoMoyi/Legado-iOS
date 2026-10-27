@@ -563,7 +563,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -590,7 +590,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.0</string>
+				<string>0.4.1</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>
@@ -2533,7 +2533,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Automatic</string>
 				<key>CURRENT_PROJECT_VERSION</key>
-				<string>9</string>
+				<string>10</string>
 				<key>DEVELOPMENT_TEAM</key>
 				<string></string>
 				<key>ENABLE_PREVIEWS</key>
@@ -2560,7 +2560,7 @@
 				<key>LD_RUNPATH_SEARCH_PATHS</key>
 				<string>$(inherited) @executable_path/Frameworks</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.4.0</string>
+				<string>0.4.1</string>
 				<key>OTHER_CFLAGS</key>
 				<array>
 					<string>$(inherited)</string>

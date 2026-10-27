@@ -129,7 +129,14 @@ final class NativeVerificationApp: UIResponder, UIApplicationDelegate {
         try expect(state.activeDownloads == 0, "production WebKit download completion")
         let imported = try BookStore().importFile(from: file)
         try expect(imported.name == "probe" && imported.totalChapterNum > 0, "production browser downloaded TXT imports with original filename")
+        state.removeDownloadedFile(file)
+        try expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path), "production download deletion removes empty folder")
+        let incomplete = file.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".cancelled-probe", isDirectory: true)
+        try FileManager.default.createDirectory(at: incomplete, withIntermediateDirectories: true)
+        state.removeDownloadedFile(incomplete.appendingPathComponent("unfinished.txt"))
+        try expect(!FileManager.default.fileExists(atPath: incomplete.path), "production cancelled download removes empty folder")
         state.stop()
+        try expect(!state.loading && state.activeDownloads == 0, "production browser stop clears loading state")
         await SourceWebSession.clear(sourceURL: base)
         let store = WKWebsiteDataStore.default().httpCookieStore
         let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in store.getAllCookies { continuation.resume(returning: $0) } }

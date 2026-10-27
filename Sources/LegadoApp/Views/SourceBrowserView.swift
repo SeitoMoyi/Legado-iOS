@@ -54,7 +54,7 @@ struct SourceBrowserView: View {
                             }
                         }
                         .onDelete { offsets in
-                            for index in offsets { try? FileManager.default.removeItem(at: state.files[index]) }
+                            for index in offsets { state.removeDownloadedFile(state.files[index]) }
                             state.reloadFiles()
                         }
                     }
@@ -110,18 +110,27 @@ final class SourceBrowserState: NSObject, ObservableObject, WKNavigationDelegate
         message = nil
         headerTask?.cancel()
         headerTask = Task { @MainActor in
-                var request = URLRequest(url: url)
+            var request = URLRequest(url: url)
             let headers = await SourceWebSession.prepare(source: source, url: url, webView: webView)
-                for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
             guard !Task.isCancelled else { return }
             webView.load(request)
-            }
+        }
     }
     func stop() {
         headerTask?.cancel()
         webView.stopLoading()
-        for (_, item) in downloads { item.0.cancel { _ in }; if let url = item.1 { try? FileManager.default.removeItem(at: url) } }
+        loading = false
+        for (_, item) in downloads { item.0.cancel { _ in }; if let url = item.1 { removeDownloadedFile(url) } }
         downloads.removeAll(); activeDownloads = 0
+    }
+    func removeDownloadedFile(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        let folder = url.deletingLastPathComponent()
+        if folder.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+           let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path), contents.isEmpty {
+            try? FileManager.default.removeItem(at: folder)
+        }
     }
     func reloadFiles() {
         let roots = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []).filter { !$0.lastPathComponent.hasPrefix(".") }
@@ -156,6 +165,7 @@ final class SourceBrowserState: NSObject, ObservableObject, WKNavigationDelegate
         download.delegate = self
     }
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        guard downloads[ObjectIdentifier(download)] != nil else { completionHandler(nil); return }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let raw = BookExportService.sanitizeFileName(URL(fileURLWithPath: suggestedFilename).lastPathComponent)
@@ -168,17 +178,17 @@ final class SourceBrowserState: NSObject, ObservableObject, WKNavigationDelegate
         } catch { message = error.localizedDescription; completionHandler(nil) }
     }
     func downloadDidFinish(_ download: WKDownload) {
+        defer { activeDownloads = downloads.count; reloadFiles() }
         guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let temporary = item.1 else { return }
         do {
             let folder = temporary.deletingLastPathComponent()
             let target = directory.appendingPathComponent(String(folder.lastPathComponent.dropFirst()), isDirectory: true)
             try FileManager.default.moveItem(at: folder, to: target)
             message = "下载完成"
-        } catch { message = error.localizedDescription }
-        activeDownloads = downloads.count; reloadFiles()
+        } catch { removeDownloadedFile(temporary); message = error.localizedDescription }
     }
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        if let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let url = item.1 { try? FileManager.default.removeItem(at: url) }
+        if let item = downloads.removeValue(forKey: ObjectIdentifier(download)), let url = item.1 { removeDownloadedFile(url) }
         activeDownloads = downloads.count; message = error.localizedDescription
     }
 }

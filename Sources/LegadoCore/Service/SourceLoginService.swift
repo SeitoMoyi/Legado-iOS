@@ -44,7 +44,9 @@ public enum SourceLoginService {
         if let action = action {
             value = try engine.evalChecked(script: JSEngine.extractJSScript(from: action) ?? action, result: credentials, stage: "loginUi.action")
         } else {
-            value = try engine.evalChecked(script: "if (typeof login === 'function') login();", stage: "login")
+            // Some sources invoke login() in loginUrl; others only define it.
+            // A newly emitted header means the script already submitted the login.
+            value = header == nil ? try engine.evalChecked(script: "if (typeof login === 'function') login();", stage: "login") : nil
             guard let saved = header, !saved.isEmpty else { throw SourceRuntimeError.bridge("登录未返回有效凭据，请检查账号密码") }
         }
         try Task.checkCancellation()

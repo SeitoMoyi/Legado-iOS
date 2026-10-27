@@ -34,3 +34,5 @@ replaces the old undifferentiated v0.3.x bucket; discoveries may refine a row, w
 reason and verification recorded before its release.
 
 Final v0.4.0 evidence and explicit skips: [verification record](Verification-v0.4.0.md).
+
+v0.4.1 maintenance: source response-check origin, single login submission and browser download cleanup; [audit and validation](CodeReview-2026-10-27.md).

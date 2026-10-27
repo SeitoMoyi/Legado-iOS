@@ -36,3 +36,7 @@ These use fake loopback HTTP fixtures and isolated stores. The harness compiles 
 ## Remaining scope
 
 Full Java/crypto bridge, full JSONPath/XPath, webJs/sourceRegex network execution, behavior for seven raw-only backup configurations, MOBI/AZW3/UMD/PDF, background images/comic interface, platform extensions, per-group sorting and smooth automatic scrolling remain later work. See [Plan.md](../Plan.md) and [roadmap](ImplementationRoadmap.md).
+
+## Subsequent real-source check
+
+After the proxy changed, authenticated live testing succeeded and exposed a login-recovery context bug. See [the follow-up report](LiveSourceVerification-2026-10-27.md) for scope, the local fix and explicit UI limits. This does not change the historical release evidence above.

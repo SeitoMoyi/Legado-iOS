@@ -113,7 +113,7 @@ final class LiveSourceTests: XCTestCase {
         request.timeoutInterval = 15
         if let cookie = Self.resolvedCookie(source: robot) {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
-            print("已携带书源 Cookie：\(cookie.prefix(60))...")
+            print("已携带书源 Cookie（不记录内容）")
         }
         let (resp, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -124,25 +124,9 @@ final class LiveSourceTests: XCTestCase {
     /// Evaluates the source's `header` JS (same path as `BookContentService`) to extract the
     /// `Cookie` line — book.xkvi.top rejects cookie-less API requests with 502.
     private static func resolvedCookie(source: BookSource) -> String? {
-        guard let h = source.header ?? source.loginHeader, !h.isEmpty else { return nil }
-        var script = h
-        if h.contains("<js>") {
-            guard let start = h.range(of: "<js>")?.upperBound,
-                  let end = h.range(of: "</js>")?.lowerBound else { return nil }
-            script = String(h[start..<end])
-        } else if h.hasPrefix("@js:") {
-            script = String(h.dropFirst(4))
-        } else {
-            return nil
-        }
-        let engine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-        guard let evaluated = engine.evalString(script),
-              !evaluated.isEmpty, evaluated != "undefined",
-              let data = evaluated.data(using: .utf8),
-              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return dict["Cookie"] as? String
+        guard let header = JSEngine.resolvedSourceHeader(source), let data = header.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
+        return values.first { $0.key.caseInsensitiveCompare("Cookie") == .orderedSame }?.value
     }
 
     /// 原始探测搜索 API 的 HTTP 状态码（携带书源 resolved header，与 App 实际请求一致）：
@@ -253,33 +237,93 @@ final class LiveSourceTests: XCTestCase {
               !username.isEmpty, !password.isEmpty else {
             throw XCTSkip("未设置 LEGADO_XKVI_USER / LEGADO_XKVI_PASS，跳过登录用例")
         }
-        let sources = try await loadXkviSources()
+        let linkedJSON = try await RuleLinkService.fetch(Self.xkviListUrl)
+        let sources = try XCTUnwrap(BookSource.decodeListWithExtras(from: Data(linkedJSON.utf8)))
+        print("LIVE CHECK: rule-link source download and preview decoding")
+        let subscription = try await RuleSubscriptionService().fetch(RuleSub(name: "Live source", url: Self.xkviListUrl, type: 0))
+        guard case .bookSources(let subscribedSources) = subscription else { return XCTFail("Expected book source subscription") }
+        XCTAssertEqual(subscribedSources.map(\.bookSourceUrl), sources.map(\.bookSourceUrl))
+        print("LIVE CHECK: real rule-subscription download and source preview")
         guard var source = sources.first(where: { $0.bookSourceUrl.contains("xkvi.top") }) else {
             XCTFail("机翻机器人源不存在"); return
         }
 
-        // 1. 表单脚本登录（App 内「表单登录」走的同一套 JSEngine 流程）
-        let creds = ["账号": username, "密码": password]
-        source.loginInfo = try String(data: JSONSerialization.data(withJSONObject: creds), encoding: .utf8)
-        let jsEngine = JSEngine(bookSource: source, baseUrl: source.bookSourceUrl)
-        var capturedHeader: String? = nil
-        jsEngine.onLoginHeaderUpdated = { capturedHeader = $0 }
-        let loginScript = try XCTUnwrap(source.loginUrl, "loginUrl 不能为空")
-        _ = jsEngine.eval(script: loginScript)
-
-        let tokenHeader = try XCTUnwrap(capturedHeader, "登录未能捕获 Token Header（检查账号密码或站点可用性）")
-        print("登录成功，Token Header: \(tokenHeader.prefix(80))...")
-        source.loginHeader = tokenHeader
+        try await requireReachable([source.bookSourceUrl])
+        defer { SourceSessionStore.save(header: nil, for: source.bookSourceUrl) }
+        let result = try await SourceLoginService.execute(
+            source: source, credentials: ["账号": username, "密码": password])
+        source.loginHeader = try XCTUnwrap(result.header, "登录未返回凭据")
+        source.loginInfo = result.info
+        print("登录完成（不记录凭据）")
 
         // 2. 登录态搜索（searchUrl JS: level = token ? 0 : 1）
-        try await requireReachable([source.bookSourceUrl])
         let books = try await BookSearchService.shared.search(source: source, key: "异世界")
         print("登录态搜索结果: \(books.count) 本")
         for b in books.prefix(3) { print("  · \(b.name) / \(b.author)") }
         XCTAssertFalse(books.isEmpty, "登录后搜索应返回结果")
 
+        let secondPage = try await BookSearchService.shared.search(source: source, key: "异世界", page: 2)
+        XCTAssertFalse(secondPage.isEmpty)
+        XCTAssertTrue(Set(books.map(\.bookUrl)).isDisjoint(with: Set(secondPage.map(\.bookUrl))), "Search pages must not repeat")
+        print("LIVE CHECK: authenticated pagination")
+
+        var recoveryChapter: BookChapter?
+        if let book = books.first {
+            let matched = try await ShelfImportService.find(ShelfBookInfo(name: book.name, author: book.author), sources: [source])
+            XCTAssertEqual(matched?.bookUrl, book.bookUrl)
+            XCTAssertEqual(matched?.name, book.name)
+            XCTAssertEqual(matched?.author, book.author)
+            print("LIVE CHECK: book-list import exact live title and author resolution")
+            let (detail, chapters) = try await BookContentService.shared.fetchBookDetail(book: Book(bookUrl: book.bookUrl, name: book.name, author: book.author, origin: source.bookSourceUrl, originName: source.bookSourceName), source: source)
+            XCTAssertFalse(detail.name.isEmpty)
+            XCTAssertFalse(detail.intro?.contains("var value =") ?? false, "Introduction must contain parsed text")
+            let readable = chapters.filter { $0.isVolume != true && !$0.url.isEmpty }
+            XCTAssertFalse(readable.isEmpty)
+            recoveryChapter = readable.first
+            XCTAssertFalse(detail.intro?.isEmpty ?? true)
+            XCTAssertEqual(chapters.map(\.index), Array(chapters.indices))
+            print("LIVE CHECK: introduction and contiguous chapter list")
+            for chapter in [readable.first, readable.count > 62 ? readable[62] : nil].compactMap({ $0 }) {
+                BookContentService.shared.clearCachedChapter(bookUrl: chapter.bookUrl, chapterIndex: chapter.index)
+                let body = try await BookContentService.shared.fetchChapterContent(chapter: chapter, source: source)
+                XCTAssertFalse(body.isEmpty)
+                XCTAssertFalse(body.contains("var value ="))
+                let cachedBody = try await BookContentService.shared.fetchChapterContent(chapter: chapter, source: source)
+                XCTAssertEqual(body, cachedBody)
+                print("LIVE CHECK: chapter \(chapter.index), \(body.count) characters, cache reuse")
+            }
+            let refreshed = try await BookContentService.shared.fetchBookDetail(book: detail, source: source, runPreUpdateJs: true)
+            XCTAssertEqual(refreshed.book.bookUrl, detail.bookUrl)
+            XCTAssertFalse(refreshed.chapters.isEmpty)
+            print("LIVE CHECK: explicit source refresh")
+
+            for chapter in chapters.dropFirst().prefix(5) {
+                BookContentService.shared.clearCachedChapter(bookUrl: chapter.bookUrl, chapterIndex: chapter.index)
+            }
+            let authenticatedSource = source
+            let task = Task {
+                await BookContentService.shared.preDownloadChapters(around: 0, chapters: chapters, source: authenticatedSource, count: 5)
+            }
+            try await Task.sleep(nanoseconds: 150_000_000)
+            let start = Date()
+            task.cancel()
+            await task.value
+            XCTAssertLessThan(Date().timeIntervalSince(start), 3, "Leaving must promptly stop live prefetch")
+            let cachedAfterCancel = chapters.dropFirst().prefix(5).filter {
+                BookContentService.shared.hasCachedChapter(bookUrl: $0.bookUrl, chapterIndex: $0.index)
+            }.count
+            XCTAssertLessThan(cachedAfterCancel, 5, "Cancellation must stop the remaining uncached queue")
+            print("LIVE CHECK: in-flight prefetch cancellation")
+            if let last = readable.last {
+                BookContentService.shared.clearCachedChapter(bookUrl: last.bookUrl, chapterIndex: last.index)
+                let body = try await BookContentService.shared.fetchChapterContent(chapter: last, source: source)
+                XCTAssertFalse(body.isEmpty)
+                print("LIVE CHECK: chapter request after cancellation")
+            }
+        }
+
         // 3. 登录态探索分类：getLoginHeader() 返回 Token → level=0 分类 + 阅读历史/收藏
-        let categories = BookExploreService.shared.parseExploreCategories(source: source)
+        let categories = try await BookExploreService.shared.loadExploreCategories(source: source)
         let titles = categories.map { $0.title }
         print("登录态探索分类: \(titles)")
         XCTAssertFalse(categories.isEmpty)
@@ -293,6 +337,34 @@ final class LiveSourceTests: XCTestCase {
             print("登录态分类「全部」返回 \(exploreBooks.count) 本")
             XCTAssertFalse(exploreBooks.isEmpty, "登录后分类浏览应返回书籍（此前未登录为 HTTP 502）")
         }
+        var stale = source
+        stale.loginHeader = "{\"Authorization\":\"Bearer deliberately-invalid-live-test\"}"
+        SourceSessionStore.save(header: nil, for: source.bookSourceUrl)
+        let recovered = try await BookSearchService.shared.search(source: stale, key: "异世界")
+        XCTAssertFalse(recovered.isEmpty, "loginCheckJs must recover expired login")
+        XCTAssertNotNil(SourceSessionStore.header(for: source.bookSourceUrl))
+        let chapter = try XCTUnwrap(recoveryChapter)
+        SourceSessionStore.save(header: nil, for: source.bookSourceUrl)
+        // Some chapters are public and never return 401. Feed the source's actual
+        // expiry message to its hook, then perform real login and chapter HTTP calls.
+        let chapterURL = try XCTUnwrap(URL(string: chapter.url))
+        let chapterEngine = JSEngine(bookSource: stale, baseUrl: chapter.url)
+        let expiry = NetworkResponse(statusCode: 401, bodyString: "Token不合法或者过期", data: Data(), headers: [:], url: chapterURL)
+        let replacement = try chapterEngine.checkedResponse(expiry, requestedURL: chapterURL)
+        XCTAssertEqual(replacement.statusCode, 200)
+        XCTAssertNotNil(SourceSessionStore.header(for: source.bookSourceUrl))
+        BookContentService.shared.clearCachedChapter(bookUrl: chapter.bookUrl, chapterIndex: chapter.index)
+        let recoveredChapter = try await BookContentService.shared.fetchChapterContent(chapter: chapter, source: stale)
+        XCTAssertFalse(recoveredChapter.isEmpty, "Chapter requests must also refresh expired login")
+        print("LIVE CHECK: chapter-specific expired-session recovery")
+        var cachedSessionOnly = source
+        cachedSessionOnly.loginHeader = nil
+        XCTAssertTrue(cachedSessionOnly.isLogged)
+        let reusedSession = try await BookSearchService.shared.search(source: cachedSessionOnly, key: "异世界", page: 2)
+        XCTAssertFalse(reusedSession.isEmpty)
+        print("LIVE CHECK: fresh engine reuses refreshed session")
+        print("LIVE CHECK: expired-session refresh and cached login state")
+
     }
 
     /// 分卷章节连续性（kakuyomu 16818093077104932645，含分卷无 chapterId）。

@@ -40,6 +40,40 @@ final class SourceFlowCompatibilityTests: XCTestCase {
         XCTAssertTrue(header.contains("fresh"))
     }
 
+    func testLoginCheckKeepsRequestBaseWhileResponseExposesFetchedURL() throws {
+        var source = BookSource(bookSourceUrl: base, bookSourceName: "Source")
+        source.loginCheckJs = "if (baseUrl !== source.bookSourceUrl) throw Error('wrong login base'); java.connect(baseUrl + '/login-retry')"
+        MockWebDAVURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.absoluteString, self.base + "/login-retry")
+            return (HTTPURLResponse(url: URL(string: self.base + "/final")!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("recovered".utf8))
+        }
+        let url = URL(string: base + "/api/search?query=test")!
+        let response = NetworkResponse(statusCode: 401, bodyString: "expired", data: Data(), headers: [:], url: url)
+        let engine = JSEngine(bookSource: source, baseUrl: url.absoluteString)
+        let checked = try engine.checkedResponse(response, requestedURL: url)
+        XCTAssertEqual(checked.bodyString, "recovered")
+        XCTAssertEqual(engine.evalString("baseUrl"), base + "/final")
+    }
+
+    func testLoginCheckOriginUsesRequestedHostAndPortRatherThanSourceOrRedirect() throws {
+        var source = BookSource(bookSourceUrl: base, bookSourceName: "Source")
+        source.loginCheckJs = "if (baseUrl !== 'https://chapter.test:8443') throw Error('wrong origin'); result"
+        let requested = URL(string: "https://chapter.test:8443/api/chapter?part=1")!
+        let final = URL(string: "https://redirect.test/page")!
+        let engine = JSEngine(bookSource: source, baseUrl: final.absoluteString)
+        let response = NetworkResponse(statusCode: 200, bodyString: "body", data: Data(), headers: [:], url: final)
+        XCTAssertEqual(try engine.checkedResponse(response, requestedURL: requested).url, final)
+        XCTAssertEqual(engine.evalString("baseUrl"), final.absoluteString)
+    }
+
+    func testSelfInvokingLoginIsSubmittedOnlyOnce() async throws {
+        var source = BookSource(bookSourceUrl: base, bookSourceName: "Source")
+        source.loginUrl = #"var calls=0; function login(){ calls++; source.putLoginHeader(JSON.stringify({'X-Calls':String(calls)})); } login();"#
+        let result = try await SourceLoginService.execute(source: source, credentials: [:])
+        let data = try XCTUnwrap(result.header?.data(using: .utf8))
+        XCTAssertEqual(try JSONDecoder().decode([String: String].self, from: data)["X-Calls"], "1")
+    }
+
     func testResponseCheckRejectsBooleanAndInterruptsInfiniteScript() throws {
         var source = BookSource(bookSourceUrl: base, bookSourceName: "Source")
         let response = NetworkResponse(statusCode: 200, bodyString: "body", data: Data(), headers: [:])

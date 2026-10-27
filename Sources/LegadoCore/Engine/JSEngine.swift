@@ -141,9 +141,20 @@ public final class JSEngine {
     /// The script can return the original response or java.connect's replacement, once per
     /// fetched page. Runtime and host waits retain the engine's deadline/cancellation budget.
     public func checkedResponse(_ response: NetworkResponse, requestedURL: URL) throws -> NetworkResponse {
-        baseUrl = response.url?.absoluteString ?? requestedURL.absoluteString
-        setGlobal(baseUrl ?? "", for: "baseUrl")
-        guard let script = source?.loginCheckJs?.trimmingCharacters(in: .whitespacesAndNewlines), !script.isEmpty else { return response }
+        // AnalyzeUrl normalizes the requested URL to its origin before loginCheckJs.
+        // result.url() still exposes the fetched URL; parsing uses its full final URL.
+        guard let script = source?.loginCheckJs?.trimmingCharacters(in: .whitespacesAndNewlines), !script.isEmpty else {
+            baseUrl = response.url?.absoluteString ?? requestedURL.absoluteString
+            setGlobal(baseUrl ?? "", for: "baseUrl")
+            return response
+        }
+        if var origin = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false),
+           ["http", "https"].contains(origin.scheme?.lowercased() ?? ""), origin.host != nil {
+            origin.path = ""; origin.query = nil; origin.fragment = nil
+            origin.user = nil; origin.password = nil
+            baseUrl = origin.string
+            setGlobal(baseUrl ?? "", for: "baseUrl")
+        }
         let previous = onLoginHeaderUpdated
         var captured: String?
         onLoginHeaderUpdated = { value in captured = value; previous?(value) }
@@ -370,7 +381,7 @@ public final class JSEngine {
 
     /// Android `BaseSource.getHeaderMap(hasLoginHeader: true)`: evaluates the source's `header`
     /// rule (`<js>` / `@js:` supported), then overlays `loginHeader` on top — a MERGE, not the
-    /// `loginHeader ?? header` replacement. Proxies such as book.xkvi.top gate all API traffic
+    /// `loginHeader ?? header` replacement. Some sources gate API traffic
     /// on the header-shipped `Cookie` while authentication rides `Authorization: Bearer`, so
     /// replacing the header at login breaks every authed request with 502.
     /// - Parameters:

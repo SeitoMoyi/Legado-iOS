@@ -1,10 +1,10 @@
 # Legado iOS 迁移蓝图、功能差距清单与演进规划
 
-> **复核日期：2026-10-27；当前发布版本：`v0.4.0`（见 [VERSION](VERSION)）；后续按剩余差距另行拆分 v0.4.x。**
+> **复核日期：2026-10-27；当前发布版本：`v0.4.1`（见 [VERSION](VERSION)）；后续按剩余差距另行拆分 v0.4.x。**
 > - Android 对标本工作区的 `../app/` 与 `../modules/`，不是上游最新版本；Android 快照没有 Git 元数据。`app/` 813 个 Kotlin 文件，连同 `modules/` 共 844 个；`res/layout*` 共 184 个 XML。
-> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；v0.3.2 已在 `eafbc02` 推送并通过 GitHub 发布；v0.3.3 已在 `e82fded` 推送并通过 GitHub 发布；v0.3.4 已在 `8240bed` 推送并通过 GitHub 发布；v0.3.5 已在 `dcb7098` 发布；v0.4.0 完成整合审计，见下方开发记录。`Sources/` 共 102 个 Swift 文件、33,101 行（Core：50 文件 / 11,347 行；App：52 文件 / 21,754 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 138 个 Swift 文件。
-> - 35 个测试文件声明 450 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **443 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
-> - `tools/xcode_add_sources.py --check` 通过。v0.3.1 已接入 App QuickJS 引擎，iOS Simulator 编译通过；独立 iOS 17.2 模拟器原生探针完成 50 次嵌套宿主调用后循环超时 / 恢复及跨线程取消。实际书源详情 / 目录 / 正文冒烟因 book.xkvi.top TLS 连接失败而显式跳过。历史 v0.3.0 / v0.2.8.2 archive 与主题 / 简介 / 标题模拟器验收结果保留在各版本记录；不冒充本轮真机验收。
+> - iOS 是 `ios/` 内的独立 Git 仓库，`v0.3.0` 已推送并发布为 `dd070f2`；v0.3.1 引擎已在 `60c4384` 推送并通过 GitHub 发布；v0.3.2 已在 `eafbc02` 推送并通过 GitHub 发布；v0.3.3 已在 `e82fded` 推送并通过 GitHub 发布；v0.3.4 已在 `8240bed` 推送并通过 GitHub 发布；v0.3.5 已在 `dcb7098` 发布；v0.4.0 完成整合审计，见下方开发记录。`Sources/` 共 102 个 Swift 文件、33,124 行（Core：50 文件 / 11,360 行；App：52 文件 / 21,764 行）；`Runtime/` 另有 1 个 Swift 适配器文件；含 Tests 共 138 个 Swift 文件。
+> - 35 个测试文件声明 453 个测试方法，其中 7 个为 `LiveSourceTests`。本轮以隔离测试目录执行非联网套件，XCTest 报告 **446 项、3 skipped、0 失败**；其中 3 个外部 EPUB / Android ZIP 样本用例因未设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 而显式 `XCTSkip`，不能视为这些样本已验收。
+> - `tools/xcode_add_sources.py --check` 通过。v0.3.1 已接入 App QuickJS 引擎，iOS Simulator 编译通过；独立 iOS 17.2 模拟器原生探针完成 50 次嵌套宿主调用后循环超时 / 恢复及跨线程取消。v0.4.0 的实际书源冒烟因 TLS 失败跳过；调整代理后，v0.4.1 已通过真实源登录、搜索、详情、目录、正文、取消与会话恢复检查。历史 v0.3.0 / v0.2.8.2 archive 与主题 / 简介 / 标题模拟器验收结果保留在各版本记录；不冒充本轮真机验收。
 > - Swift tools 5.7；包声明 iOS 15 / macOS 12 起。依赖 SwiftSoup（HTML DOM / CSS）、ZIPFoundation（EPUB、备份与导出归档）及固定源码 QuickJS（脚本运行时）；XPath 是本项目基于 SwiftSoup 的轻量求值器。
 
 补丁版本到 v0.4.0 的具体顺序与验收见 [ImplementationRoadmap.md](docs/ImplementationRoadmap.md)。
@@ -287,3 +287,7 @@ v0.3.4 已接扫码规则直链、RSS 分类 / 源脚本与 HTML 渲染；v0.3.5
 - 导出保留长文件名扩展名，不支持的目标编码明确失败。
 - 443 项离线测试（3 个外部样本 skipped、0 失败）；iOS 15.5 / 17.2 各 18 项原生检查通过。完整记录见 [Verification-v0.4.0.md](docs/Verification-v0.4.0.md)。实际 xkvi 冒烟因 TLS 失败跳过，不算源兼容验收。
 - v0.4.0 是生态 / 数据整合里程碑，不代表 Android 全量对齐。完整 Java / 加密桥、JSONPath / XPath、webJs 请求、7 类原字节保留配置的行为、其它电子书格式、背景图片 / 漫画界面、平台扩展、分组排序与平滑自动滚动仍待后续。
+
+### v0.4.1：登录与浏览器维护补丁（2026-10-27）
+
+修复 loginCheckJs 的请求 origin、避免自调用登录重复提交、清理下载空目录与停止状态；移除测试头解析重复及凭据片段输出。446 项离线测试（3 skipped）、iOS 15.5 原生 21 项检查、真实源集成通过。详见 [审计记录](docs/CodeReview-2026-10-27.md)。
