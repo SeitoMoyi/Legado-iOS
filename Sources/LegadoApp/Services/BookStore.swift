@@ -461,6 +461,17 @@ public class BookStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    public func insertShelfImport(_ book: Book, groupID: Int64 = 0) throws -> Bool {
+        guard !bookshelf.contains(where: { $0.bookUrl == book.bookUrl || ($0.name == book.name && $0.author == book.author) }) else { return false }
+        guard usesGroupBitmasks else { throw BookGroupCompatibilityError.capacity }
+        var incoming = book
+        let mask = BookGroupStore.load(from: defaults).filter { $0.groupId > 0 }.reduce(Int64(0)) { $0 | $1.groupId }
+        incoming.group = groupID > 0 ? groupID & mask : 0
+        _ = saveOrUpdateBook(incoming)
+        return true
+    }
+
     public func removeBook(bookUrl: String) {
         bookshelf.removeAll { $0.bookUrl == bookUrl }
         saveBookshelf()

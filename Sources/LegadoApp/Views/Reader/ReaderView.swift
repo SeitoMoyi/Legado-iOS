@@ -400,7 +400,12 @@ public struct ReaderView: View {
                                    onSetEnabled: { setReplaceRule(enabled: $0) })
         }
         .sheet(item: $loginSource) { source in
-            SourceLoginSheet(source: source)
+            SourceLoginSheet(source: source) { updated in
+                BookStore.shared.applyLoginState(sourceURL: updated.bookSourceUrl, header: updated.loginHeader, info: updated.loginInfo)
+                loadSession.cancelPending()
+                currentSource = updated
+                if chapters.isEmpty { startInitialLoad() } else { reloadCurrentChapter() }
+            }
         }
         .sheet(item: $changeSourceMode) { mode in
             ChangeSourceSheet(book: book, mode: mode,
@@ -1705,6 +1710,7 @@ public struct ReaderView: View {
             guard loadSession.isActive, !Task.isCancelled else { return }
             if await tryAutoChangeSource() { return }
             guard loadSession.isActive, !Task.isCancelled else { return }
+            AppLogStore.shared.record("阅读器", "《\(book.name)》目录：\(error.localizedDescription)")
             self.errorMessage = "目录解析失败: \(error.localizedDescription)"
             self.errorGuidance = "目录需要联网抓取。请检查网络后重试；离线时无法打开未缓存过目录的书。"
             self.isLoadingInitial = false
@@ -1991,6 +1997,7 @@ public struct ReaderView: View {
                 // reader navigable; the iOS equivalent is a banner when something is already on
                 // screen. Taking over the canvas here used to hide the previous chapter and, with
                 // the tap zones gone, made the reader feel trapped.
+                AppLogStore.shared.record("阅读器", "《\(book.name)》正文：\(error.localizedDescription)")
                 if self.hasReadableContent {
                     self.showControlHint("本章获取失败：\(error.localizedDescription)")
                 } else {
@@ -2260,6 +2267,7 @@ public struct ReaderView: View {
     private func saveEditedChapter(newTitle: String, newContent: String) {
         guard currentChapterIndex < chapters.count else { return }
         chapters[currentChapterIndex].title = newTitle
+        BookStore.shared.saveChapters(chapters, for: book.bookUrl)
         let loaded = makeLoadedChapter(chapter: chapters[currentChapterIndex], content: newContent)
         chapterCache[currentChapterIndex] = loaded
         if let idx = loadedChapters.firstIndex(where: { $0.chapter.index == currentChapterIndex }) {
@@ -2278,7 +2286,7 @@ public struct ReaderView: View {
         BookContentService.shared.clearCachedChapter(bookUrl: book.bookUrl, chapterIndex: currentChapterIndex)
         chapterCache[currentChapterIndex] = nil
         reloadCurrentChapter()
-        showControlHint("已重置为书源原始内容")
+        showControlHint("已清除正文编辑，重新加载内容")
     }
 
     // MARK: - WebDAV Progress Sync

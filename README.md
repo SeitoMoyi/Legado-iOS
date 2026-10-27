@@ -7,7 +7,7 @@
 
 > **Legado iOS** 是使用 **SwiftUI** 与 **Swift** 构建的开源阅读器，正在迁移 Android **Legado（开源阅读 3.x）** 的书源、阅读与同步能力。第三方 SPM 依赖为 SwiftSoup（HTML DOM / CSS）与 ZIPFoundation（EPUB、备份与导出归档）；XPath 是本项目在 SwiftSoup 上实现的轻量子集。当前支持常用书源主流程，尚未实现全部 Android 规则与备份语义。
 
-> **当前状态（2026-10-26）**：发布版本 `v0.3.4`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；下一步补书单 / 日志与整合回归。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
+> **当前状态（2026-10-27）**：发布版本 `v0.3.5`，以 [VERSION](VERSION) 为准；App 已接入可中断 QuickJS 与既有宿主桥；已接入 Android 多组成员、14 类 Android 数据建模备份、其它成员原字节保留、全样式与阅读偏好备份及手动规则订阅；已接登录动作 / 响应校验、RSS HTML 与脚本上下文、浏览器及规则直链预览；已补书单 / 日志、导出报告与图文 EPUB；下一步执行 v0.4.0 整合审计。完整差距、源码依据与待办见 [Plan.md](Plan.md)。下文「可编辑 / 可透传」不等于对应规则已执行；本次 macOS SPM 测试与 iOS Simulator 编译通过，未做真机交互验收。
 
 ---
 
@@ -56,7 +56,7 @@
   - **常驻系统状态栏**：始终常驻顶部时间、电量与网络状态，字体颜色随阅读主题深浅自适应。
   - **顶栏一键快捷按钮**：常驻「换源」与「刷新本章」图标，配合右侧菜单秒级切换。
   - **3×3 九宫格自定义点击区域**：支持 14 种动作配置（菜单、下一页、上一页、书签、听书、全文搜索、进度同步等）；仅在九个区域都没有菜单动作时，将中央恢复为菜单。
-  - **章节内容自定义编辑 (`EditContentSheet`)**：支持编辑本章标题与正文、重置缓存及复制；正文写入磁盘缓存，标题仅更新当前阅读会话。重置会清正文缓存后重新加载，不恢复原始标题；本地 EPUB / TXT 也优先读取编辑缓存，清除后重新读取原文件。
+  - **章节内容自定义编辑 (`EditContentSheet`)**：支持编辑本章标题与正文、重置缓存及复制；正文写入磁盘缓存，标题也持久化到目录。重置会清正文缓存后重新加载，保留已编辑标题（与 Android 的独立标题编辑相同）；本地 EPUB / TXT 也优先读取编辑缓存，清除后重新读取原文件。
   - **章节离线下载**：支持滑动选择起止章节区间，或一键下载后续 50/100/全部章节，任务中顺序抓取（每章 60ms 间隔），不保证 App 退后台后持续下载或免于站点限流。
   - **自动翻页**：支持 2–30 秒调速与悬浮控制条；分页模式定时翻页，连续滚动模式当前为定时切下一章，尚无平滑自动滚动。
 
@@ -286,7 +286,7 @@ Legado-iOS/
 │           ├── Settings/                 # 替换规则管理
 │           └── SettingsView.swift        # 我的（Android pref_main 同构：书源管理/规则四页/主题模式/Web服务/备份恢复/其它设置/书签/阅读记录/关于）
 ├── Runtime/                      # 固定 QuickJS 源码、C 宿主桥与 Swift 适配器，已接入 App
-├── Tests/                        # 自动化测试（33 文件 425 例：Core + App + Runtime）
+├── Tests/                        # 自动化测试（34 文件 435 例：Core + App + Runtime）
 ├── tools/xcode_add_sources.py    # Xcode 工程源文件同步脚本
 └── Legado.xcodeproj              # Xcode 工程配置文件
 ```
@@ -309,9 +309,9 @@ Legado-iOS/
 2. 运行自动化单元测试（Swift Package Manager）：
    ```bash
    swift test --skip LiveSourceTests   # 397 项非联网测试，缺少外部样本时显式 skipped
-   swift test                          # 另含 7 项真实书源联网冒烟，共 425 项；不可达时会跳过
+   swift test                          # 另含 7 项真实书源联网冒烟，共 435 项；不可达时会跳过
    ```
-   v0.3.0 发布验证为 363 项；v0.3.4 流程兼容（2026-10-26）macOS SPM 报告 418 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
+   v0.3.0 发布验证为 363 项；v0.3.5 整合（2026-10-27）macOS SPM 报告 428 项、3 skipped、0 失败。两个 EPUB 样本用例与一个 Android ZIP 样本用例因未提供文件而显式 `XCTSkip`。可设置 `LEGADO_TEST_EPUB` / `LEGADO_TEST_BACKUP_ZIP` 补验。此结果不证明完整 Android 往返兼容，另已通过 iOS Simulator 编译，并在 iPhone 13 / iOS 17.2 模拟器验证主题恢复后首开本地滚动阅读与本地 HTTP 样本分页阅读；另在 iPhone 11 / iOS 15.5 模拟器用实际机翻机器人书源验收简介 JS 与第 63 话标题两行；未做真机交互验收。
 
    测试会写用户缓存与偏好。在受限工作区，可使用隔离目录重现本次非联网测试（依赖须已检出）：
    ```bash
@@ -342,3 +342,5 @@ Legado-iOS/
 ## 📄 开源许可证
 
 本项目基于 [GPLv3](LICENSE) 许可证开源，遵循与原版 Legado 相同的开源精神与社区规范。
+
+书架菜单「导入书单」支持 Android name / author / intro 书单的文件、URL 或 JSON 预览，并搜索当前启用书源。缓存导出会在分享前列出缺章和缺图；EPUB 可打包现有 PNG / JPEG / GIF 图片。错误与导入结果可在「我的 → 日志」查看（仅本次运行，最多 100 项）。

@@ -121,10 +121,12 @@ final class BookExportServiceTests: XCTestCase {
         exported.name = "往返之书"
         let url = try BookExportService.exportBookshelfJSON(books: [exported])
         let data = try Data(contentsOf: url)
-        let decoded = try JSONDecoder().decode([Book].self, from: data)
+        let decoded = try ShelfImportService.parse(data)
         XCTAssertEqual(decoded.count, 1)
         XCTAssertEqual(decoded[0].name, "往返之书")
-        XCTAssertEqual(decoded[0].bookUrl, book.bookUrl)
+        let raw = try JSONSerialization.jsonObject(with: data) as! [[String: Any]]
+        XCTAssertNil(raw[0]["bookUrl"])
+        XCTAssertNil(raw[0]["durChapterPos"])
     }
 
     func testSanitizeFileNameStripsPathSeparators() {

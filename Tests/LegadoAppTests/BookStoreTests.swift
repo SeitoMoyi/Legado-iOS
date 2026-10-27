@@ -3,6 +3,19 @@ import LegadoCore
 @testable import LegadoApp
 
 final class BookStoreTests: XCTestCase {
+    func testBookListInsertPreservesExistingProgressAndSanitizesDeletedGroup() throws {
+        let group = try store.addBookGroup(name: "Imported")
+        let original = Book(bookUrl: "existing", name: "Same", author: "Author", durChapterIndex: 8, durChapterPos: 70, group: group.groupId)
+        store.bookshelf = [original]
+        XCTAssertFalse(try store.insertShelfImport(Book(bookUrl: "another-source", name: "Same", author: "Author"), groupID: 0))
+        XCTAssertEqual(store.bookshelf.first?.durChapterIndex, 8)
+        XCTAssertEqual(store.bookshelf.first?.durChapterPos, 70)
+        XCTAssertEqual(store.bookshelf.first?.group, group.groupId)
+        store.deleteBookGroups([group.groupId])
+        XCTAssertTrue(try store.insertShelfImport(Book(bookUrl: "new", name: "New", author: "Author"), groupID: group.groupId))
+        XCTAssertEqual(store.bookshelf.first?.group, 0)
+    }
+
     func testApplyingLoginStateDoesNotOverwriteConcurrentSourceEdits() {
         let url = "https://login-state.test"
         defer { SourceSessionStore.save(header: nil, for: url) }

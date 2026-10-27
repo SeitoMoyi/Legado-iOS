@@ -19,7 +19,9 @@ public struct CacheManageView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var exportTarget: ExportTarget? = nil
-    @State private var shareItems: [Any]? = nil
+    @State private var exportReports: [BookExportService.ExportReport]?
+    @State private var exportFailureCount = 0
+    @State private var exportTask: Task<Void, Never>?
     @State private var alertTitle: String = ""
     @State private var alertMessage: String = ""
     @State private var showAlert: Bool = false
@@ -128,13 +130,14 @@ public struct CacheManageView: View {
                 exportOptionsSheet(target)
             }
             .sheet(isPresented: Binding(
-                get: { shareItems != nil },
-                set: { if !$0 { shareItems = nil } }
+                get: { exportReports != nil },
+                set: { if !$0 { exportReports = nil } }
             )) {
-                if let items = shareItems {
-                    ActivityShareSheet(items: items)
+                if let reports = exportReports {
+                    ExportSummaryView(reports: reports, failedCount: exportFailureCount)
                 }
             }
+            .onDisappear { exportTask?.cancel() }
             .alert(alertTitle, isPresented: $showAlert) {
                 Button("确定", role: .cancel) {}
             } message: {
@@ -518,63 +521,46 @@ public struct CacheManageView: View {
     // MARK: - Export
 
     private func exportOne(_ target: ExportTarget, format: ExportFormat, encoding: BookExportService.TextEncoding) {
-        let book = target.book
-        let chapters = target.chapters
-        do {
-            let url: URL
-            switch format {
-            case .txt:
-                url = try BookExportService.exportTXT(book: book, chapters: chapters,
-                                                      contentProvider: contentProvider(book),
-                                                      encoding: encoding)
-            case .epub:
-                url = try BookExportService.exportEPUB(book: book, chapters: chapters,
-                                                       contentProvider: contentProvider(book))
-            }
-            exportTarget = nil
-            shareItems = [url]
-        } catch {
-            exportTarget = nil
-            alertTitle = "导出失败"
-            alertMessage = error.localizedDescription
-            showAlert = true
-        }
+        exportAllTargets([(target.book, target.chapters)], format: format, encoding: encoding)
+        exportTarget = nil
     }
 
     private func exportAll(format: ExportFormat, encoding: BookExportService.TextEncoding = .utf8) {
+        let targets = bookStore.bookshelf.map { ($0, bookStore.getChapters(for: $0.bookUrl)) }
+        exportAllTargets(targets, format: format, encoding: encoding)
+    }
+
+    private func exportAllTargets(_ targets: [(Book, [BookChapter])], format: ExportFormat, encoding: BookExportService.TextEncoding) {
+        guard !isExportingAll else { return }
         isExportingAll = true
-        let targets: [(Book, [BookChapter])] = bookStore.bookshelf.map { book in
-            (book, bookStore.getChapters(for: book.bookUrl))
-        }
-        Task {
-            var urls: [URL] = []
+        exportTask = Task { @MainActor in
+            defer { isExportingAll = false }
+            var reports: [BookExportService.ExportReport] = []
+            var failures = 0
             for (book, chapters) in targets {
-                let provider = contentProvider(book)
+                guard !Task.isCancelled else { return }
                 do {
+                    let report: BookExportService.ExportReport
                     switch format {
-                    case .txt:
-                        urls.append(try BookExportService.exportTXT(book: book, chapters: chapters,
-                                                                    contentProvider: provider, encoding: encoding))
-                    case .epub:
-                        urls.append(try BookExportService.exportEPUB(book: book, chapters: chapters,
-                                                                     contentProvider: provider))
+                    case .txt: report = try await BookExportService.exportTXTAsync(book: book, chapters: chapters, contentProvider: contentProvider(book), encoding: encoding)
+                    case .epub: report = try await BookExportService.exportEPUBAsync(book: book, chapters: chapters, contentProvider: contentProvider(book))
                     }
-                } catch BookExportService.ExportError.noCachedContent {
-                    continue
+                    try Task.checkCancellation()
+                    reports.append(report)
+                    AppLogStore.shared.record("导出", "《\(book.name)》导出 \(report.includedChapters) 章，缺少 \(report.missingChapters.count) 章、\(report.missingImages.count) 张图片")
                 } catch {
-                    continue
+                    guard !Task.isCancelled else { return }
+                    failures += 1
+                    AppLogStore.shared.record("导出", "《\(book.name)》：\(error.localizedDescription)")
                 }
             }
-            await MainActor.run {
-                isExportingAll = false
-                if urls.isEmpty {
-                    alertTitle = "没有可导出的内容"
-                    alertMessage = "书架中的书籍都没有已缓存的章节"
-                    showAlert = true
-                } else {
-                    shareItems = urls
-                }
-            }
+            guard !Task.isCancelled else { return }
+            exportFailureCount = failures
+            if reports.isEmpty {
+                alertTitle = "没有可导出的内容"
+                alertMessage = "\(failures) 本未能导出，请查看日志与缓存状态。"
+                showAlert = true
+            } else { exportReports = reports }
         }
     }
 

@@ -11,11 +11,14 @@ public enum BookExportService {
 
     public enum ExportError: LocalizedError {
         case noCachedContent
+        case imagesTooLarge
 
         public var errorDescription: String? {
             switch self {
             case .noCachedContent:
                 return "这本书还没有可导出的离线缓存章节"
+            case .imagesTooLarge:
+                return "插图资源超过单次导出限制（256 MiB）"
             }
         }
     }
@@ -43,6 +46,34 @@ public enum BookExportService {
         }
     }
 
+    public struct ExportReport {
+        public let url: URL
+        public let includedChapters: Int
+        public let missingChapters: [BookChapter]
+        public let missingImages: [String]
+    }
+
+    public static func exportTXTAsync(book: Book, chapters: [BookChapter], contentProvider: @escaping (Int) -> String?, encoding: TextEncoding = .utf8) async throws -> ExportReport {
+        try Task.checkCancellation()
+        return try exportTXTReport(book: book, chapters: chapters, contentProvider: contentProvider, encoding: encoding)
+    }
+
+    public static func exportEPUBAsync(book: Book, chapters: [BookChapter], contentProvider: @escaping (Int) -> String?) async throws -> ExportReport {
+        try Task.checkCancellation()
+        return try exportEPUBReport(book: book, chapters: chapters, contentProvider: contentProvider)
+    }
+
+    public static func exportTXTReport(book: Book, chapters: [BookChapter], contentProvider: (Int) -> String?, encoding: TextEncoding = .utf8) throws -> ExportReport {
+        var snapshot: [Int: String] = [:]
+        for chapter in chapters {
+            try Task.checkCancellation()
+            if let text = contentProvider(chapter.index), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { snapshot[chapter.index] = text }
+        }
+        let missing = chapters.filter { snapshot[$0.index] == nil && $0.isVolume != true }
+        let url = try exportTXT(book: book, chapters: chapters, contentProvider: { snapshot[$0] }, encoding: encoding)
+        return ExportReport(url: url, includedChapters: snapshot.count, missingChapters: missing, missingImages: [])
+    }
+
     // MARK: TXT
 
     /// Concatenates cached chapters with their titles. Chapters without a disk cache are
@@ -53,6 +84,7 @@ public enum BookExportService {
         var parts: [String] = []
         parts.append("\(book.name)\n作者：\(book.author)\n")
         for chapter in chapters {
+            try Task.checkCancellation()
             guard let content = contentProvider(chapter.index),
                   !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             parts.append("\n\n\(chapter.title)\n\n\(content)")
@@ -68,12 +100,17 @@ public enum BookExportService {
 
     /// Composes a minimal but spec-valid EPUB3: `mimetype` stored first, container.xml,
     /// OPF package, EPUB3 nav plus an EPUB2 NCX for legacy readers, one XHTML per cached
-    /// chapter. Illustrations stay behind (placeholder markers are plain text) — image
-    /// export is tracked as follow-up work.
-    public static func exportEPUB(book: Book, chapters: [BookChapter],
-                                  contentProvider: (Int) -> String?) throws -> URL {
+    /// chapter. Offline image resources are embedded when available; missing content is
+    /// reported explicitly by exportEPUBReport.
+    public static func exportEPUB(book: Book, chapters: [BookChapter], contentProvider: (Int) -> String?) throws -> URL {
+        try exportEPUBReport(book: book, chapters: chapters, contentProvider: contentProvider).url
+    }
+
+    public static func exportEPUBReport(book: Book, chapters: [BookChapter], contentProvider: (Int) -> String?,
+                                        imageProvider: ((String) -> Data?)? = nil) throws -> ExportReport {
         var included: [(chapter: BookChapter, content: String)] = []
         for chapter in chapters {
+            try Task.checkCancellation()
             if let content = contentProvider(chapter.index),
                !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 included.append((chapter, content))
@@ -81,48 +118,65 @@ public enum BookExportService {
         }
         guard !included.isEmpty else { throw ExportError.noCachedContent }
 
+        let includedIndices = Set(included.map { $0.chapter.index })
+        let missing = chapters.filter { $0.isVolume != true && !includedIndices.contains($0.index) }
+        var images: [String: String] = [:]
+        var resources: [(path: String, media: String, data: Data)] = []
+        var missingImages: [String] = []
+        var seenImages = Set<String>()
+        var imageBytes = 0
+        for item in included {
+            try Task.checkCancellation()
+            for reference in imageReferences(item.content) where seenImages.insert(reference).inserted {
+                guard let data = imageProvider?(reference) ?? cachedImage(book: book, reference: reference),
+                      data.count <= 24 * 1024 * 1024, let type = imageType(data) else { missingImages.append(reference); continue }
+                guard imageBytes <= 256 * 1024 * 1024 - data.count else { throw ExportError.imagesTooLarge }
+                imageBytes += data.count
+                let path = "images/i\(resources.count).\(type.extensionName)"
+                images[reference] = path
+                resources.append((path, type.media, data))
+            }
+        }
+
         let url = exportURL(fileName: sanitizeFileName("\(book.name)-\(book.author).epub"))
         try? FileManager.default.removeItem(at: url)
         let archive = try Archive(url: url, accessMode: .create)
+        var finished = false
+        defer { if !finished { try? FileManager.default.removeItem(at: url) } }
 
         func add(_ zipPath: String, _ data: Data, stored: Bool = false) throws {
-            // addEntry(with:relativeTo:) resolves the file at `base + zipPath`, so the temp
-            // file must mirror the final ZIP path (including subdirectories).
-            let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-            let tmpFile = tmpDir.appendingPathComponent(zipPath)
-            try FileManager.default.createDirectory(at: tmpFile.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try data.write(to: tmpFile)
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
-            try archive.addEntry(with: zipPath, relativeTo: tmpDir, compressionMethod: stored ? .none : .deflate)
+            try archive.addEntry(with: zipPath, type: .file, uncompressedSize: Int64(data.count), compressionMethod: stored ? .none : .deflate) { offset, size in
+                try Task.checkCancellation()
+                return data.subdata(in: Int(offset)..<Int(offset) + size)
+            }
         }
 
         // 1. mimetype: first entry, uncompressed (OCF requires both).
         try add("mimetype", Data("application/epub+zip".utf8), stored: true)
         // 2. container.xml
         try add("META-INF/container.xml", Data(Self.containerXML.utf8))
+        for resource in resources { try Task.checkCancellation(); try add("OEBPS/" + resource.path, resource.data) }
         // 3. chapters + styles
         try add("OEBPS/style.css", Data(Self.epubCSS.utf8))
         for item in included {
             let name = "OEBPS/chapter_\(String(format: "%04d", item.chapter.index + 1)).xhtml"
-            try add(name, Data(Self.chapterXHTML(title: item.chapter.title, content: item.content).utf8))
+            try add(name, Data(Self.chapterXHTML(title: item.chapter.title, content: item.content, images: images).utf8))
         }
         let titles = included.map { $0.chapter }
         try add("OEBPS/nav.xhtml", Data(Self.navXHTML(book: book, chapters: titles).utf8))
         try add("OEBPS/toc.ncx", Data(Self.ncxXML(book: book, chapters: titles).utf8))
-        try add("OEBPS/content.opf", Data(Self.opfXML(book: book, chapters: titles).utf8))
-        return url
+        try add("OEBPS/content.opf", Data(Self.opfXML(book: book, chapters: titles, resources: resources.map { ($0.path, $0.media) }).utf8))
+        finished = true
+        return ExportReport(url: url, includedChapters: included.count, missingChapters: missing, missingImages: missingImages)
     }
 
     // MARK: 书单 (bookshelf JSON)
 
-    /// Same encoding shape as the WebDAV `bookshelf.json` member: pretty-printed, with the
-    /// extra-preserving `Book` encoder flattening unknown fields back to top level.
+    /// Android BookshelfViewModel exports search identities, not device-local URLs or progress.
     public static func exportBookshelfJSON(books: [Book]) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted]
-        let data = try encoder.encode(books)
+        let data = try encoder.encode(books.map { ShelfBookInfo(name: $0.name, author: $0.author, intro: $0.intro) })
         let url = exportURL(fileName: "bookshelf-\(Self.dateStamp()).json")
         try data.write(to: url)
         return url
@@ -131,7 +185,7 @@ public enum BookExportService {
     // MARK: Helpers
 
     static func exportURL(fileName: String) -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("legado-export", isDirectory: true)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("legado-export", isDirectory: true).appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(fileName)
     }
@@ -142,6 +196,40 @@ public enum BookExportService {
         let cleaned = name.components(separatedBy: invalid).joined(separator: "_")
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "export" : String(trimmed.prefix(80))
+    }
+
+    static func imageReferences(_ content: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"\[image:([^\]\r\n]+)\]"#) else { return [] }
+        let ns = content as NSString
+        return regex.matches(in: content, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
+    }
+
+    static func imageType(_ data: Data) -> (extensionName: String, media: String)? {
+        if data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) { return ("png", "image/png") }
+        if data.starts(with: [255, 216, 255]) { return ("jpg", "image/jpeg") }
+        if data.starts(with: Data("GIF8".utf8)) { return ("gif", "image/gif") }
+        return nil
+    }
+
+    /// Export reads existing offline bytes only. Local files must belong to this EPUB's
+    /// extraction tree; a marker from a remote source cannot read arbitrary device files.
+    static func cachedImage(book: Book, reference: String) -> Data? {
+        guard let url = URL(string: reference) else { return nil }
+        if url.isFileURL {
+            guard book.isLocalBook else { return nil }
+            let id = CryptoUtils.md5(book.bookUrl)
+            let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Books/EPUB/" + id).resolvingSymlinksInPath().standardizedFileURL
+            var local = url.resolvingSymlinksInPath().standardizedFileURL
+            if !local.path.hasPrefix(root.path + "/"), let range = url.path.range(of: "/Books/EPUB/" + id + "/") {
+                local = root.appendingPathComponent(String(url.path[range.upperBound...])).resolvingSymlinksInPath().standardizedFileURL
+            }
+            guard local.path.hasPrefix(root.path + "/"),
+                  let size = try? local.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 24 * 1024 * 1024 else { return nil }
+            return try? Data(contentsOf: local)
+        }
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return URLCache.shared.cachedResponse(for: URLRequest(url: url))?.data
     }
 
     static func dateStamp() -> String {
@@ -175,13 +263,23 @@ public enum BookExportService {
     p { text-indent: 2em; margin: 0.35em 0; }
     """
 
-    static func chapterXHTML(title: String, content: String) -> String {
-        let paragraphs = content
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .map { "<p>\(xmlEscape($0))</p>" }
-            .joined(separator: "\n")
+    static func chapterXHTML(title: String, content: String, images: [String: String]? = nil) -> String {
+        let paragraphs = content.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            .map { paragraph -> String in
+                guard let images = images, let regex = try? NSRegularExpression(pattern: #"\[image:([^\]\r\n]+)\]"#) else { return "<p>\(xmlEscape(paragraph))</p>" }
+                let ns = paragraph as NSString
+                var output = ""; var previous = 0
+                for match in regex.matches(in: paragraph, range: NSRange(location: 0, length: ns.length)) {
+                    output += xmlEscape(ns.substring(with: NSRange(location: previous, length: match.range.location - previous)))
+                    let reference = ns.substring(with: match.range(at: 1))
+                    if let path = images[reference] { output += "<img src=\"\(xmlEscape(path))\" alt=\"插图\"/>" }
+                    else { output += "<span>（未导出图片）</span>" }
+                    previous = match.range.location + match.range.length
+                }
+                output += xmlEscape(ns.substring(from: previous))
+                return "<p>\(output)</p>"
+            }.joined(separator: "\n")
         return """
         <?xml version="1.0" encoding="utf-8"?>
         <!DOCTYPE html>
@@ -249,10 +347,13 @@ public enum BookExportService {
         """
     }
 
-    static func opfXML(book: Book, chapters: [BookChapter]) -> String {
+    static func opfXML(book: Book, chapters: [BookChapter], resources: [(path: String, media: String)] = []) -> String {
         let manifestItems = chapters
             .map { "<item id=\"c\($0.index + 1)\" href=\"\(chapterHref($0.index))\" media-type=\"application/xhtml+xml\"/>" }
             .joined(separator: "\n")
+        let imageItems = resources.enumerated().map { index, resource in
+            "<item id=\"i\(index)\" href=\"\(xmlEscape(resource.path))\" media-type=\"\(resource.media)\"/>"
+        }.joined(separator: "\n")
         let spineItems = chapters
             .map { "<itemref idref=\"c\($0.index + 1)\"/>" }
             .joined(separator: "\n")
@@ -272,6 +373,7 @@ public enum BookExportService {
             <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
             <item id="css" href="style.css" media-type="text/css"/>
         \(manifestItems)
+        \(imageItems)
           </manifest>
           <spine toc="ncx">
         \(spineItems)

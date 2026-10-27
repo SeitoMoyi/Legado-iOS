@@ -86,11 +86,11 @@ public final class ChangeSourceService {
                         page: Int, requireReadable: Bool) -> AsyncStream<ChangeSourceCandidate> {
         let usable = sources.filter { $0.enabled != false && !($0.searchUrl ?? "").isEmpty }
         return AsyncStream { continuation in
-            Task {
+            let worker = Task {
                 // Bounded fan-out in chunks: `numberOfChildren` is not available, and a
                 // single unbounded group would let one slow source stall the whole search.
                 var index = 0
-                while index < usable.count {
+                while index < usable.count && !Task.isCancelled {
                     let chunk = Array(usable[index..<min(index + Self.maxConcurrent, usable.count)])
                     index += chunk.count
                     let found = await withTaskGroup(of: [ChangeSourceCandidate].self) { group in
@@ -111,6 +111,7 @@ public final class ChangeSourceService {
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in worker.cancel() }
         }
     }
 

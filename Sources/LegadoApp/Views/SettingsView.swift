@@ -108,6 +108,7 @@ public struct SettingsView: View {
                 // MARK: 其它
 
                 Section(header: Text("其它")) {
+                    prefLink("doc.text.magnifyingglass", "日志", "本次运行的导入与错误记录") { AppLogView() }
                     prefLink("safari.fill", "浏览器", "打开网页与下载书籍") { SourceBrowserView() }
                     prefLink("bookmark.fill", "书签", "所有书签") {
                         AllBookmarksView()

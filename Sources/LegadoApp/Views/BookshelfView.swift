@@ -48,6 +48,7 @@ public struct BookshelfView: View {
     @State private var showRemoteBooks: Bool = false
     @State private var showAddUrl: Bool = false
     @State private var showShelfManage: Bool = false
+    @State private var showShelfImport = false
     @State private var shelfShareItems: [Any]? = nil
     @State private var shelfAlertTitle: String = ""
     @State private var shelfAlertMessage: String = ""
@@ -272,6 +273,9 @@ public struct BookshelfView: View {
                                     } label: {
                                         Label("导出书单", systemImage: "square.and.arrow.up.on.square")
                                     }
+                                    Button { showShelfImport = true } label: {
+                                        Label("导入书单", systemImage: "square.and.arrow.down")
+                                    }
 
                                     Button {
                                         showGroupManageSheet = true
@@ -326,6 +330,7 @@ public struct BookshelfView: View {
                 .sheet(isPresented: $showCacheManage) {
                     CacheManageView()
                 }
+                .sheet(isPresented: $showShelfImport) { ShelfImportView(bookStore: bookStore, groupID: max(0, selectedGroupId)) }
                 .sheet(isPresented: $showRemoteBooks) {
                     RemoteBooksView { imported in
                         showRemoteBooks = false
